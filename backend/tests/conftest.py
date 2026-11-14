@@ -22,4 +22,7 @@ os.environ.update({
     # Empty values win over the repo .env (load_dotenv never overrides) and read as "missing".
     "GEMINI_API_KEY": "",
     "DEEPGRAM_API_KEY": "",
+    # Voice memory off unless a test turns it on (with a fake embedder): no model, no download.
+    "VOICE_MEMORY": "0",
+    "VOICE_MODEL_DOWNLOAD": "0",
 })

@@ -506,6 +506,91 @@ class GraphNodeDetail(Model):
     quotes: list[GraphQuote] = Field(default_factory=list)
 
 
+# ---------- REST: voice memory (backend/voices) ----------
+WearerState = Literal["none", "provisional", "confirmed", "enrolled"]
+VoiceDecision = Literal["wearer", "matched", "new", "weak", "manual"]
+VoiceRunStatus = Literal["pending", "done", "skipped", "failed", "off"]
+NameOutcome = Literal["named", "confirmed", "conflict", "ignored"]
+
+
+class VoiceConflict(Model):
+    session_id: str
+    voice_name: str | None = None  # what the voice was called when the other name was heard
+    heard_name: str
+    created_at: str  # ISO
+
+
+class VoiceSummary(Model):
+    voice_id: str
+    person_id: str | None = None  # the people-store person ('voice-<n>' while unnamed)
+    name: str  # the person's name, or 'Unknown voice <n>'
+    named: bool
+    has_voiceprint: bool
+    samples: int = 0  # conversations (and enrolment clips) that fed the voiceprint
+    seconds: float = 0.0  # speech held in its exemplars
+    last_heard: str | None = None  # ISO
+    sessions: list[str] = Field(default_factory=list)  # newest first
+    conflicts: list[VoiceConflict] = Field(default_factory=list)
+
+
+class WearerVoice(Model):
+    state: WearerState
+    has_voiceprint: bool
+    samples: int = 0
+    seconds: float = 0.0
+    last_heard: str | None = None
+
+
+class VoiceList(Model):
+    enabled: bool
+    model: str | None = None
+    wearer: WearerVoice
+    voices: list[VoiceSummary] = Field(default_factory=list)
+
+
+class SessionSpeaker(Model):
+    voice_id: str | None = None  # 'wearer' for the wearer
+    person_id: str | None = None
+    name: str | None = None
+    role: Speaker
+    decision: VoiceDecision
+    similarity: float | None = None  # cosine to the matched voiceprint
+    margin: float | None = None  # over the second-best voiceprint
+    seconds: float
+
+
+class SessionNameGuess(Model):
+    name: str
+    source: str  # 'llm' | 'rules'
+    evidence: str
+    confidence: float
+    outcome: NameOutcome
+
+
+class SessionVoices(Model):
+    session_id: str
+    status: VoiceRunStatus
+    reason: str | None = None
+    processed_at: str | None = None  # ISO
+    model: str | None = None
+    wearer_source: str | None = None  # enrolled | confirmed | provisional | bootstrap | none
+    wearer_similarity: float | None = None
+    labels_corrected: bool = False
+    turns_relabelled: int = 0
+    turns_split: int = 0
+    words_used: bool = False  # word timings were available (else whole-turn windows)
+    speakers: list[SessionSpeaker] = Field(default_factory=list)
+    name_guess: SessionNameGuess | None = None
+    conflicts: list[VoiceConflict] = Field(default_factory=list)
+    recomputed: list[str] = Field(default_factory=list)
+    not_recomputed: list[str] = Field(default_factory=list)
+
+
+class ReprocessResult(Model):
+    queued: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+
+
 # ---------- INTERNAL (not on the wire) ----------
 class MotionSnapshot(Model):
     """Current body state, built by brain.py from motion events, for the nudge engine.

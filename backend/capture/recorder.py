@@ -86,6 +86,12 @@ class Recorder:
         if active is not None:
             active.writer.write(chunk)
 
+    def recent_audio(self, seconds: float) -> bytes:
+        """The last `seconds` (at most PREBUFFER_S) of stream audio, 16-bit PCM. For voice enrolment."""
+        chunks = list(self._buf)
+        n = max(0, min(len(chunks), int(round(seconds / CHUNK_S))))
+        return b"".join(c.data for c in chunks[len(chunks) - n:])
+
     def clear(self) -> None:
         """The band clock was reset (a manual session starts): drop the pre-buffer."""
         self._buf.clear()
