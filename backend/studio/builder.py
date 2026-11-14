@@ -7,7 +7,9 @@ invalid, an LLM failure, or an unexpected error -> the deterministic fallback co
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Literal
@@ -28,6 +30,31 @@ REPAIR_TIMEOUT_S = 15.0
 TOTAL_BUDGET_S = 45.0
 MIN_REPAIR_WINDOW_S = 10.0
 THINKING = "low"
+HEDGE_ENV = "UNDERTONE_STUDIO_HEDGE"  # set to 2 or 3 to race that many generations; first valid answer wins
+
+
+async def _first_generation(goal: str) -> CoachSpec:
+    """One generation, or a race of several when hedging is on (cuts the slow tail on stage)."""
+    try:
+        racers = max(1, min(3, int(os.environ.get(HEDGE_ENV, "1"))))
+    except ValueError:
+        racers = 1
+    if racers == 1:
+        return await generate_structured(build_prompt(goal), CoachSpec, thinking=THINKING,
+                                         timeout_s=FIRST_TIMEOUT_S)
+    tasks = [asyncio.create_task(generate_structured(build_prompt(goal), CoachSpec, thinking=THINKING,
+                                                     timeout_s=FIRST_TIMEOUT_S)) for _ in range(racers)]
+    last_error: LLMUnavailable | None = None
+    try:
+        for finished in asyncio.as_completed(tasks):
+            try:
+                return await finished
+            except LLMUnavailable as exc:
+                last_error = exc
+    finally:
+        for task in tasks:
+            task.cancel()
+    raise last_error or LLMUnavailable("no generation finished")
 
 
 @dataclass(frozen=True)
@@ -76,8 +103,7 @@ async def _repair(goal: str, spec: CoachSpec, errors: list[str], t0: float,
 async def _build_with_llm(goal: str, t0: float, notes: list[str]) -> tuple[CoachSpec, BuildSource] | None:
     t_gen = time.perf_counter()
     try:
-        first = await generate_structured(build_prompt(goal), CoachSpec, thinking=THINKING,
-                                          timeout_s=FIRST_TIMEOUT_S)
+        first = await _first_generation(goal)
     except LLMUnavailable as exc:
         notes.append(f"llm unavailable: {exc}")
         log.warning("coach generation failed after %.0f ms: %s", (time.perf_counter() - t_gen) * 1000, exc)
