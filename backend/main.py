@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from http import HTTPStatus
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
@@ -28,6 +29,8 @@ from backend.db import DB
 from backend.deps import get_app_state, get_brain
 from backend.state import AppState
 
+from backend.haptics import attach_haptics, build_router as haptics_router  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("undertone.main")
 
@@ -41,16 +44,46 @@ def _initial_coach(db: DB):  # type: ignore[no-untyped-def]
     return studio.default_coach()
 
 
+async def _attach_band(app: FastAPI, state: AppState):  # type: ignore[no-untyped-def]
+    """Connect the band if one is configured. A band that fails to connect must not stop the
+    server: the dashboard's /session/start and the replay script still work without it."""
+    transport = (os.environ.get("BAND_TRANSPORT") or "").strip().lower()
+    if transport in ("", "off", "none"):
+        log.info("band: off (BAND_TRANSPORT not set)")
+        return None
+    try:
+        from backend.session import attach_band, build_band_router
+
+        band = await attach_band(state, app.state.brain)
+        app.include_router(build_band_router(band))
+        app.state.band = band
+        log.info("band: attached (%s)", transport)
+        return band
+    except Exception:
+        log.exception("band: could not attach (%s); continuing without it", transport)
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db = DB(settings.db_path)
     state = AppState(bus=Bus(), db=db, active_coach=_initial_coach(db))
     app.state.app = state
     app.state.brain = Brain(state, settings)
+    # Person C: phones and third-party apps. The hub becomes the Brain's haptics sender.
+    app.state.haptics = attach_haptics(state)
+    app.include_router(haptics_router(app.state.haptics))
+    # Person A: the band. Off unless BAND_TRANSPORT is set (ble | serial | sim | laptop-mic).
+    band = await _attach_band(app, state)
     log.info("undertone up: %s", settings)
     try:
         yield
     finally:
+        if band is not None:
+            try:
+                await band.shutdown()
+            except Exception:
+                log.exception("band shutdown failed")
         brain: Brain = app.state.brain
         if state.session is not None:
             try:
