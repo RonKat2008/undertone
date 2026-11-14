@@ -26,6 +26,7 @@ from .turns import (FluxTurnAssembler, NovaTurnAssembler, RollingPace, SpeakerMa
 
 log = logging.getLogger("undertone.stt")
 SAMPLE_RATE = 16000
+OPENING_HOLD_S = 10.0  # longest an opening turn waits for the loudness speaker check
 
 
 # ---------- health (backend/listening.py reads these; no secrets: error *classes* only) ----------
@@ -106,6 +107,84 @@ def _build_processors(pcm_q: asyncio.Queue, on_nova, on_interim, on_flux_end):
     return QueueAudioSource(), NovaSink(), FluxSink()
 
 
+def split_connect_kwargs(kwargs: dict, accepted: Iterable[str]) -> dict:
+    """Deepgram's SDK `listen.v1.connect()` takes only the parameters it declares and raises
+    TypeError on any other (Pipecat spreads `Settings.extra` straight into it). Move the
+    undeclared ones, e.g. filler_words, into request_options.additional_query_parameters,
+    where the SDK puts them on the WebSocket URL unchanged."""
+    accepted = set(accepted)
+    out = {k: v for k, v in kwargs.items() if k in accepted}
+    extra = {k: v for k, v in kwargs.items() if k not in accepted}
+    if extra:
+        ro = dict(out.get("request_options") or {})
+        ro["additional_query_parameters"] = {**(ro.get("additional_query_parameters") or {}), **extra}
+        out["request_options"] = ro
+    return out
+
+
+DEFAULT_STT_MODEL = "nova-2"
+
+
+def stt_model() -> str:
+    """The word-stream model: STT_MODEL, else NOVA_MODEL, else nova-2.
+
+    nova-2 is the default because it keeps "um"/"uh": on the two-voice audio fixture Nova-3
+    dropped all 6 scripted "um"s even with filler_words=true, Nova-2 found 5 (and its WER was
+    lower, 1.8 % vs 4-5 %). Nova-3 has keyterm prompting; Nova-2 gets the coach's terms as
+    keywords instead (vocabulary_settings)."""
+    for name in ("STT_MODEL", "NOVA_MODEL"):
+        v = (os.environ.get(name) or "").strip()
+        if v:
+            return v
+    return DEFAULT_STT_MODEL
+
+
+def diarize_extra() -> dict:
+    """Extra Deepgram query params: filler words always; DIARIZE_MODEL (streaming accepts
+    "v1" or "latest", SDK 7.19) picks the diarization model when set."""
+    extra = {"filler_words": True}
+    dm = (os.environ.get("DIARIZE_MODEL") or "").strip()
+    if dm:
+        extra["diarize_model"] = dm
+    return extra
+
+
+def vocabulary_settings(model: str, keyterms: List[str]) -> dict:
+    """Coach vocabulary for the word stream: `keyterm` prompting exists only on Nova-3;
+    older Nova models take `keywords` (single words)."""
+    if not keyterms:
+        return {}
+    if model.startswith("nova-3"):
+        return {"keyterm": list(keyterms)}
+    words = []
+    for k in keyterms:
+        for w in k.split():
+            if w and w not in words:
+                words.append(w)
+    return {"keywords": words[:100]}
+
+
+def _nova_service_class():
+    """DeepgramSTTService whose connect kwargs survive the SDK's strict signature."""
+    import inspect
+
+    from deepgram.listen.v1.client import AsyncV1Client
+    from pipecat.services.deepgram.stt import DeepgramSTTService
+
+    accepted = [n for n in inspect.signature(AsyncV1Client.connect).parameters if n != "self"]
+
+    class NovaSTTService(DeepgramSTTService):
+        def _build_connect_kwargs(self) -> dict:
+            kw = super()._build_connect_kwargs()
+            if kw.get("diarize_model"):
+                # Deepgram refuses diarize (true or false) next to diarize_model (probed
+                # 14 Nov); diarize_model alone turns diarization on
+                kw = {k: v for k, v in kw.items() if k != "diarize"}
+            return split_connect_kwargs(kw, accepted)
+
+    return NovaSTTService
+
+
 def _flux_window(*args, **kwargs):
     """Find audio_window_start/end in the TurnInfo dict Flux attaches to its TranscriptionFrame."""
     for obj in list(args) + list(kwargs.values()):
@@ -137,8 +216,12 @@ class Hearing:
         self.on_words = on_words
         self.pace = RollingPace()
         self._dedupe = WordDeduper()
-        self.nova_turns = NovaTurnAssembler(mapper, self._emit, self.filler_words)
+        # With loudness to settle who the wearer is, the opening turns wait (up to 10 s) for
+        # that check: the person who speaks first is often not the wearer.
+        self.nova_turns = NovaTurnAssembler(mapper, self._emit, self.filler_words,
+                                            hold_s=OPENING_HOLD_S if loudness is not None else 0.0)
         self.flux_turns = FluxTurnAssembler(mapper, self._emit, self.filler_words)
+        self._flux_given_up = False
         self._runner = None
         self._ticker = None
         self._run_task: Optional[asyncio.Task] = None
@@ -168,8 +251,8 @@ class Hearing:
 
     def flush_turns(self) -> None:
         """Close the turn being assembled now (always-on: its conversation is closing)."""
-        if self.use_flux and not self.flux_turns.misaligned:
-            self.flux_turns.tick(float("inf"))
+        if self._flux_on():
+            self.flux_turns.flush()
         self.nova_turns.flush()
 
     def _note_error(self, text: str) -> None:
@@ -194,8 +277,9 @@ class Hearing:
                 log.info("speaker labels swapped by loudness check")
                 self.on_event({"type": "calibration", "kind": "speaker", "step": "auto-swapped by loudness",
                                "done": True})
-        if self.use_flux and not self.flux_turns.misaligned:
+        if self._flux_on():
             self.flux_turns.add(new)
+            self._flux_on()  # adding can settle a window and show the clocks disagree
         else:
             self.nova_turns.add(new)
         by_speaker: dict = {}
@@ -227,6 +311,8 @@ class Hearing:
         _, words = words_from_result(result)
         if text or words:
             self.last_transcript_at = time.monotonic()
+        if words:
+            self.nova_turns.heard(max(w.end for w in words))
         self._live(words)
         if text or words:
             self.on_event(partial_event(self.mapper, words, text or " ".join(w.text for w in words)))
@@ -236,15 +322,27 @@ class Hearing:
         if win is None:
             return
         self.flux_turns.end_of_turn(*win)
-        if self.flux_turns.misaligned:
-            log.warning("Flux and Nova clocks disagree by >300 ms: staying Nova-only for turns")
+        self._flux_on()
+
+    def _flux_on(self) -> bool:
+        """Flux turns in use. The first time the clocks are found to disagree, the words Flux
+        still holds go to the Nova assembler, which carries on the turn numbering."""
+        if not self.use_flux or self._flux_given_up:
+            return False
+        if not self.flux_turns.misaligned:
+            return True
+        log.warning("Flux and Nova clocks disagree by >300 ms: staying Nova-only for turns")
+        self._flux_given_up = True
+        self.nova_turns.continue_after(self.flux_turns._n)
+        self.nova_turns.add(self.flux_turns.hand_over())
+        return False
 
     async def _tick(self) -> None:
         while True:
             await asyncio.sleep(0.25)
             try:
                 now = self.audio_clock()
-                if self.use_flux and not self.flux_turns.misaligned:
+                if self._flux_on():
                     self.flux_turns.tick(now)
                 else:
                     self.nova_turns.tick(now)
@@ -260,30 +358,23 @@ class Hearing:
         from pipecat.services.deepgram.stt import DeepgramSTTService
         from pipecat.workers.runner import WorkerRunner
 
+        NovaSTTService = _nova_service_class()
+
         key = os.environ.get("DEEPGRAM_API_KEY")
         if not key:
             raise RuntimeError("DEEPGRAM_API_KEY is not set in .env")
+        # A new stream numbers speakers from 0 again: in always-on the mapper outlives a
+        # restarted worker, and the old labels would now point at whoever speaks first.
+        self.mapper.new_stream()
         src, nova_sink, flux_sink = _build_processors(self.pcm_q, self._on_nova, self._on_interim, self._on_flux_end)
-        class NovaWithFillers(DeepgramSTTService):
-            """Deepgram SDK 7's connect() has no `filler_words` argument, and Pipecat passes
-            Settings.extra straight through as keyword arguments, which made every connection
-            fail. Send it as an additional query parameter instead."""
-
-            def _build_connect_kwargs(self) -> dict:
-                kwargs = super()._build_connect_kwargs()
-                kwargs["request_options"] = {"additional_query_parameters": {"filler_words": "true"}}
-                return kwargs
-
-        # STT_MODEL=nova-3 (default): best accuracy, keyterm prompting, but it drops "um"/"uh" even
-        # with filler_words=true (measured 14 Nov). STT_MODEL=nova-2 keeps "um"/"uh"; it has no
-        # keyterm prompting, so the coach's terms are not sent.
-        model = os.environ.get("STT_MODEL", "nova-3").strip() or "nova-3"
-        terms = {"keyterm": self.keyterms} if model.startswith("nova-3") else {}
-        nova = NovaWithFillers(api_key=key, sample_rate=SAMPLE_RATE, settings=DeepgramSTTService.Settings(
-            model=model, diarize=True, interim_results=True, smart_format=True, **terms))
+        # mip_opt_out: Deepgram keeps no audio for training (the kit's rule, docs/deepgram.md)
+        model = stt_model()
+        nova = NovaSTTService(api_key=key, sample_rate=SAMPLE_RATE, mip_opt_out=True, settings=DeepgramSTTService.Settings(
+            model=model, diarize=True, interim_results=True, smart_format=True,
+            **vocabulary_settings(model, self.keyterms), extra=diarize_extra()))
         if self.use_flux:
             from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
-            flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE,
+            flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE, mip_opt_out=True,
                                           settings=DeepgramFluxSTTService.Settings(
                                               model="flux-general-en", keyterm=self.keyterms))
 
@@ -318,8 +409,8 @@ class Hearing:
             self._close_runner_queue()
             await self._stop_runner()
         finally:
-            if self.use_flux and not self.flux_turns.misaligned:
-                self.flux_turns.tick(float("inf"))
+            if self._flux_on():
+                self.flux_turns.flush()
             self.nova_turns.flush()
 
     def _close_runner_queue(self) -> None:

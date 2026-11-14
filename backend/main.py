@@ -33,6 +33,7 @@ from backend.state import AppState
 from backend.snapshot import Snapshot
 
 from backend import haptics  # noqa: E402
+from backend import reports  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("undertone.main")
@@ -137,6 +138,7 @@ app.include_router(growth.router)
 app.include_router(debrief.router)
 app.include_router(haptics.router)
 app.include_router(graph.router)
+app.include_router(reports.router)
 app.include_router(capture_routes.router)
 app.include_router(relationships.router)
 
