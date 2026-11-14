@@ -1,14 +1,27 @@
 /** Always-on: the Live tab between conversations. Says plainly what is listening and what is not. */
-import { useKeepAwake } from 'expo-keep-awake';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
 import type { ListenState, PhoneState } from '@/bus/phone-state';
 import { T, clock } from './kit';
 import { C, F, TONE } from './theme';
 
-/** Mount to hold the screen awake; unmount to let it sleep. */
-export function StayAwake() {
-  useKeepAwake();
-  return null;
+/**
+ * Hold the screen awake while `active`. Unlike mounting `useKeepAwake()`, this survives flipping
+ * quickly (e.g. `always_on` arriving just after the Live tab opens): it releases only a lock that
+ * finished activating, and never lets a release error escape (on web that error is uncaught).
+ */
+export function useKeepAwakeWhile(active: boolean, tag: string): void {
+  useEffect(() => {
+    if (!active) return;
+    let activated = false;
+    let released = false;
+    const release = () => { deactivateKeepAwake(tag).catch(() => { /* not held: nothing to release */ }); };
+    activateKeepAwakeAsync(tag)
+      .then(() => { activated = true; if (released) release(); })
+      .catch(() => { /* wake lock unavailable (some browsers): the screen may sleep */ });
+    return () => { released = true; if (activated) release(); };
+  }, [active, tag]);
 }
 
 export const LISTEN_LABEL: Record<ListenState, string> = {

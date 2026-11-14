@@ -9,7 +9,7 @@ import { listenState } from '@/bus/phone-state';
 import { isLive } from '@/bus/reducer';
 import { useBus, useNow } from '@/bus/use-bus';
 import { Glyph } from '@/ui/Glyph';
-import { LISTEN_LABEL, ListeningIdle, StayAwake, dotColor } from '@/ui/Listening';
+import { LISTEN_LABEL, ListeningIdle, dotColor, useKeepAwakeWhile } from '@/ui/Listening';
 import { Btn, T, clock } from '@/ui/kit';
 import { C, F, TAKEOVER, TONE } from '@/ui/theme';
 
@@ -29,6 +29,8 @@ export default function LiveScreen() {
   const practice = session?.mode === 'practice';
   const alwaysOn = state.alwaysOn;
   const listen = listenState(state);
+  // Tap-to-start: awake while this tab is open (as before). Always-on: the root layout holds it during a conversation only.
+  useKeepAwakeWhile(!alwaysOn, 'undertone-live-tab');
   const statusDot = state.status === 'offline' ? TONE.vermilion : live ? C.mic : C.paper3;
   const statusText = state.status === 'offline' ? 'Laptop unreachable' : live ? 'Listening' : mode === 'mock' ? 'Demo feed' : 'Connected';
   // always-on idle shows 0:00: the last conversation's length lives in the "Last conversation" line
@@ -61,8 +63,6 @@ export default function LiveScreen() {
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1, backgroundColor: take?.bg ?? C.ink }}>
-      {/* Tap-to-start: awake while this tab is open (as before). Always-on: the root layout holds it during a conversation only. */}
-      {!alwaysOn ? <StayAwake /> : null}
       <View style={{ flex: 1, paddingHorizontal: 20, paddingBottom: 16 }}>
         {/* top: coach, connection, clock */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingTop: 6 }}>

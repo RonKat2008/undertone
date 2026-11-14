@@ -12,7 +12,7 @@ import { isLive } from '@/bus/reducer';
 import { BusProvider, useBus } from '@/bus/use-bus';
 import { DebriefNotice } from '@/ui/DebriefNotice';
 import { Glyph } from '@/ui/Glyph';
-import { StayAwake } from '@/ui/Listening';
+import { useKeepAwakeWhile } from '@/ui/Listening';
 import { Btn, T } from '@/ui/kit';
 import { C } from '@/ui/theme';
 
@@ -37,6 +37,8 @@ function Shell() {
   const live = isLive(state);
   const sessionId = state.session?.id ?? null;
   const shownFor = useRef<string | null>(null);
+  // always-on: the screen may sleep between conversations, but not during one
+  useKeepAwakeWhile(state.alwaysOn && live, 'undertone-conversation');
 
   useEffect(() => {
     if (mode === 'unpaired' && path !== '/pair') router.replace('/pair');
@@ -67,8 +69,6 @@ function Shell() {
   return (
     <View style={{ flex: 1, backgroundColor: C.ink }} onTouchStart={(e) => { if (e.nativeEvent.touches.length === 3) setDirector(true); }}>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.ink }, animation: 'fade' }} />
-      {/* always-on: the screen may sleep between conversations, but not during one */}
-      {state.alwaysOn && live ? <StayAwake /> : null}
       {state.notice && path !== '/debrief' && path !== '/pair' ? (
         <DebriefNotice notice={state.notice} onDismiss={dismissNotice} onOpen={() => { dismissNotice(); router.push('/debrief'); }} />
       ) : null}
