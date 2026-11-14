@@ -70,6 +70,9 @@ class SessionController:
         self.band = band or BandSource.from_env(emit=self._emit)
         self.band.emit = self._emit
         self.use_pipecat = (os.getenv("USE_PIPECAT", "true").lower() == "true") if use_pipecat is None else use_pipecat
+        # STT: deepgram (real, via Pipecat) | fake (scripted speech, no network) | off
+        stt = (os.getenv("STT") or "").strip().lower()
+        self.stt = stt if stt in ("deepgram", "fake", "off") else ("deepgram" if self.use_pipecat else "off")
         self.single_speaker = os.getenv("SINGLE_SPEAKER", "false").lower() == "true"
         self.thresholds = Thresholds.load(self.band.number)
         self.classifier = MotionClassifier(self.thresholds)
@@ -136,8 +139,11 @@ class SessionController:
             self._last_question_ts = None
             self.band.reset_clock()
             await self.band.mic(True)
-            if self.use_pipecat:
-                from .stt.pipeline import Hearing
+            if self.stt != "off":
+                if self.stt == "fake":
+                    from .stt.fake import FakeHearing as Hearing
+                else:
+                    from .stt.pipeline import Hearing
                 self.hearing = Hearing(self.band.pcm_q, self.mapper, self._on_hearing_event,
                                        keyterms=coach.get("keyterms", []),
                                        filler_words=coach.get("filler_words") or DEFAULT_FILLERS,
@@ -242,7 +248,7 @@ class SessionController:
             self._baseline.add(words)
 
     def pace_wpm(self) -> Optional[float]:
-        return self.hearing.pace.wpm(self.band.audio_seconds) if self.hearing else None
+        return self.hearing.pace.wpm(self.hearing.audio_clock()) if self.hearing else None
 
     def baseline_wpm(self) -> Optional[float]:
         return self.baseline_provider() or self._baseline.value
