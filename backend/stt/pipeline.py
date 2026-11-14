@@ -225,9 +225,13 @@ class Hearing:
                 kwargs["request_options"] = {"additional_query_parameters": {"filler_words": "true"}}
                 return kwargs
 
+        # STT_MODEL=nova-3 (default): best accuracy, keyterm prompting, but it drops "um"/"uh" even
+        # with filler_words=true (measured 14 Nov). STT_MODEL=nova-2 keeps "um"/"uh"; it has no
+        # keyterm prompting, so the coach's terms are not sent.
+        model = os.environ.get("STT_MODEL", "nova-3").strip() or "nova-3"
+        terms = {"keyterm": self.keyterms} if model.startswith("nova-3") else {}
         nova = NovaWithFillers(api_key=key, sample_rate=SAMPLE_RATE, settings=DeepgramSTTService.Settings(
-            model="nova-3", diarize=True, interim_results=True, smart_format=True,
-            keyterm=self.keyterms))
+            model=model, diarize=True, interim_results=True, smart_format=True, **terms))
         if self.use_flux:
             from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
             flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE,
