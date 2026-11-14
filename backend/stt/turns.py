@@ -94,6 +94,11 @@ class SpeakerMapper:
             self._other_label = label
         return "me" if label == self.me_label else "other"
 
+    @property
+    def settled(self) -> bool:
+        """True once `me` is no longer a guess: demo mode, or the loudness check has decided."""
+        return self.single_speaker or self.swapped_by_loudness
+
     def swap(self) -> None:
         """Manual override. With two labels known, they trade places; with one, the next new
         label becomes the wearer."""
@@ -163,19 +168,23 @@ class NovaTurnAssembler:
 
     def __init__(self, mapper: SpeakerMapper, on_turn: Callable[[dict], None],
                  filler_list: Iterable[str] = DEFAULT_FILLERS, gap_s: float = 2.0, flush_s: float = 3.0,
-                 pending_max_s: float = 4.0) -> None:
+                 pending_max_s: float = 4.0, hold_s: float = 0.0) -> None:
         self.mapper = mapper
         self.on_turn = on_turn
         self.filler_list = list(filler_list)
         self.gap_s = gap_s
         self.flush_s = flush_s
         self.pending_max_s = pending_max_s
+        self.hold_s = hold_s  # > 0: hold opening turns until the speaker mapping is settled
+        self._held: List[List[Word]] = []
+        self._hold_over = False
         self._cur: List[Word] = []
         self._n = 0
         self._final_until = 0.0  # end of the latest final word, any speaker
         self._heard_until = 0.0  # end of the latest interim word
 
     def add(self, words: Iterable[Word]) -> None:
+        self._maybe_release()
         for w in words:
             if self._cur and (w.label != self._cur[-1].label or w.start - self._cur[-1].end > self.gap_s):
                 self._close()
@@ -194,6 +203,7 @@ class NovaTurnAssembler:
     def tick(self, now: float) -> None:
         """Call often with the audio clock; closes a turn once its speaker has gone quiet
         and no final is still on its way."""
+        self._maybe_release(now)
         if not self._cur or now - self._cur[-1].end <= self.flush_s:
             return
         if self.pending and now - self._heard_until <= self.pending_max_s:
@@ -203,11 +213,34 @@ class NovaTurnAssembler:
     def flush(self) -> None:
         if self._cur:
             self._close()
+        self._hold_over = True
+        self._release()
 
     def _close(self) -> None:
         words, self._cur = self._cur, []
+        if self.hold_s > 0 and not self._hold_over and not self.mapper.settled:
+            self._held.append(words)  # who is `me` is still a guess: wait for the loudness check
+            return
+        self._release()
+        self._emit(words)
+
+    def _emit(self, words: List[Word]) -> None:
         self._n += 1
         self.on_turn(make_turn_event(self._n, self.mapper.speaker(words[0].label), words, self.filler_list))
+
+    def _release(self) -> None:
+        held, self._held = self._held, []
+        for words in held:
+            self._emit(words)
+
+    def _maybe_release(self, now: Optional[float] = None) -> None:
+        """Opening turns go out once the speakers are settled, or after hold_s regardless
+        (one speaker only, or no loudness); after that nothing is ever held again."""
+        if not self._held:
+            return
+        if self.mapper.settled or (now is not None and now - self._held[0][-1].end > self.hold_s):
+            self._hold_over = True
+            self._release()
 
 
 class FluxTurnAssembler:

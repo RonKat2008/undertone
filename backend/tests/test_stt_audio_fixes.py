@@ -112,3 +112,62 @@ def test_no_swap_verdict_waits_for_ten_words():
         m2.note_loudness(0, -25)
         m2.note_loudness(1, -26)
     assert m2.maybe_swap_by_loudness() is False and m2.swapped_by_loudness is True  # settled
+
+
+# ---------- the opening turn waits for the speaker check ----------
+
+def _hearing_like(a, m, words):
+    """What Hearing._on_nova does per final: loudness, maybe swap, then the assembler."""
+    for w, db in words:
+        m.note_loudness(w.label, db)
+    m.maybe_swap_by_loudness()
+    a.add([w for w, _ in words])
+    for w, _ in words:
+        m.speaker(w.label)
+
+
+def test_opening_turn_by_the_other_person_goes_out_as_other():
+    """The scripted interview opens with the interviewer. "First label heard = wearer" sent
+    that turn out as "me" before the loudness check could correct it."""
+    out = []
+    m = SpeakerMapper()
+    a = NovaTurnAssembler(m, out.append, hold_s=15.0)
+    _hearing_like(a, m, [(W("Here's", 0.5, 0.8, 0), -31), (W("the", 0.8, 0.9, 0), -32),
+                         (W("case.", 0.9, 1.3, 0), -30), (W("Okay?", 1.4, 1.8, 0), -31)])
+    _hearing_like(a, m, [(W("Um,", 2.4, 2.6, 1), -20), (W("okay.", 2.7, 3.0, 1), -21),
+                         (W("Is", 3.1, 3.2, 1), -20), (W("that", 3.2, 3.4, 1), -21)])
+    assert out == []                       # held: the check needs the second label first
+    _hearing_like(a, m, [(W("drop", 3.5, 3.8, 1), -20)])
+    assert [e["speaker"] for e in out] == ["other"] and out[0]["text"] == "Here's the case. Okay?"
+    a.flush()
+    assert [e["speaker"] for e in out] == ["other", "me"] and [e["turn_id"] for e in out] == ["t1", "t2"]
+
+
+def test_opening_hold_times_out_and_never_comes_back():
+    out = []
+    m = SpeakerMapper()
+    a = NovaTurnAssembler(m, out.append, hold_s=15.0)
+    a.add([W("Practising", 0.0, 1.0, 0)])
+    a.tick(5.0)
+    assert out == []
+    a.tick(16.5)
+    assert len(out) == 1 and out[0]["speaker"] == "me"
+    a.add([W("again", 20.0, 20.5, 0)])
+    a.tick(24.0)
+    assert len(out) == 2                   # after the first release nothing is held
+
+
+def test_no_hold_by_default_or_in_demo_mode():
+    out = []
+    a = NovaTurnAssembler(SpeakerMapper(single_speaker=True), out.append, hold_s=15.0)
+    a.add([W("Hi", 0.0, 0.3, 0)])
+    a.tick(4.0)
+    assert len(out) == 1
+
+
+def test_vocabulary_matches_the_model():
+    """keyterm prompting is Nova-3 only; NOVA_MODEL=nova-2 needs keywords instead."""
+    from backend.stt.pipeline import vocabulary_settings
+    assert vocabulary_settings("nova-3", ["MECE", "unit economics"]) == {"keyterm": ["MECE", "unit economics"]}
+    assert vocabulary_settings("nova-2", ["MECE", "unit economics"]) == {"keywords": ["MECE", "unit", "economics"]}
+    assert vocabulary_settings("nova-3", []) == {}

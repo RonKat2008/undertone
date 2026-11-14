@@ -85,6 +85,7 @@ class FakeHearing(Hearing):
     def __init__(self, *args, script: Optional[str] = None, speed: Optional[float] = None, **kwargs) -> None:
         kwargs["use_flux"] = False
         super().__init__(*args, **kwargs)
+        self.nova_turns.hold_s = 0.0  # scripted labels are right by construction: no opening hold
         self.script = Path(script or os.getenv("STT_FAKE_SCRIPT") or DEFAULT_SCRIPT)
         self.speed = float(speed or os.getenv("STT_FAKE_SPEED") or 1.0)
         self._play = None

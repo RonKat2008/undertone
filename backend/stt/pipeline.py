@@ -24,6 +24,7 @@ from .turns import (FluxTurnAssembler, NovaTurnAssembler, RollingPace, SpeakerMa
 
 log = logging.getLogger("undertone.stt")
 SAMPLE_RATE = 16000
+OPENING_HOLD_S = 15.0  # longest an opening turn waits for the loudness speaker check
 
 
 def _build_processors(pcm_q: asyncio.Queue, on_nova, on_interim, on_flux_end):
@@ -100,6 +101,21 @@ def split_connect_kwargs(kwargs: dict, accepted: Iterable[str]) -> dict:
     return out
 
 
+def vocabulary_settings(model: str, keyterms: List[str]) -> dict:
+    """Coach vocabulary for the word stream: `keyterm` prompting exists only on Nova-3;
+    older Nova models take `keywords` (single words)."""
+    if not keyterms:
+        return {}
+    if model.startswith("nova-3"):
+        return {"keyterm": list(keyterms)}
+    words = []
+    for k in keyterms:
+        for w in k.split():
+            if w and w not in words:
+                words.append(w)
+    return {"keywords": words[:100]}
+
+
 def _nova_service_class():
     """DeepgramSTTService whose connect kwargs survive the SDK's strict signature."""
     import inspect
@@ -145,7 +161,10 @@ class Hearing:
         self.on_words = on_words
         self.pace = RollingPace()
         self._dedupe = WordDeduper()
-        self.nova_turns = NovaTurnAssembler(mapper, self._emit, self.filler_words)
+        # With loudness to settle who the wearer is, the opening turns wait (up to 15 s) for
+        # that check: the person who speaks first is often not the wearer.
+        self.nova_turns = NovaTurnAssembler(mapper, self._emit, self.filler_words,
+                                            hold_s=OPENING_HOLD_S if loudness is not None else 0.0)
         self.flux_turns = FluxTurnAssembler(mapper, self._emit, self.filler_words)
         self._runner = None
         self._ticker = None
@@ -221,9 +240,10 @@ class Hearing:
             raise RuntimeError("DEEPGRAM_API_KEY is not set in .env")
         src, nova_sink, flux_sink = _build_processors(self.pcm_q, self._on_nova, self._on_interim, self._on_flux_end)
         # mip_opt_out: Deepgram keeps no audio for training (the kit's rule, docs/deepgram.md)
+        model = (os.getenv("NOVA_MODEL") or "nova-3").strip()
         nova = NovaSTTService(api_key=key, sample_rate=SAMPLE_RATE, mip_opt_out=True, settings=DeepgramSTTService.Settings(
-            model=(os.getenv("NOVA_MODEL") or "nova-3").strip(), diarize=True, interim_results=True, smart_format=True,
-            keyterm=self.keyterms, extra={"filler_words": True}))
+            model=model, diarize=True, interim_results=True, smart_format=True,
+            **vocabulary_settings(model, self.keyterms), extra={"filler_words": True}))
         if self.use_flux:
             from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
             flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE, mip_opt_out=True,
