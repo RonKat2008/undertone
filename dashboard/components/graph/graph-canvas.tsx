@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { NodeShape } from '@/components/graph/node-shape';
 import { describeNode } from '@/lib/graph/format';
 import {
-  createSimulation, fitView, placeLabels, readPositions, toScreen, toWorld, truncate, zoomAround,
+  createSimulation, fitView, labelBox, placeLabels, readPositions, toScreen, toWorld, truncate, zoomAround,
   type LabelCandidate, type Positions, type SimLink, type SimNode, type View,
 } from '@/lib/graph/layout';
 import { buildAdjacency, edgeIsLit, emphasisFor, type Emphasis } from '@/lib/graph/model';
@@ -204,7 +204,8 @@ export function GraphCanvas({ nodes, edges, layout, radii, selectedId, matches, 
 
   // Labels: drawn in screen space at a fixed size; collisions resolved greedily by priority.
   const drawn = ordered.filter((n) => positions[n.id]);
-  const geometry = drawn.map((n) => ({ id: n.id, x: positions[n.id].x, y: positions[n.id].y, r: radii[n.id] ?? 6 }));
+  // Faded nodes do not block labels: a lit label may sit over them.
+  const geometry = drawn.filter((n) => emphasisFor(n.id, adj, focusId, matches) !== 'dim').map((n) => ({ id: n.id, x: positions[n.id].x, y: positions[n.id].y, r: radii[n.id] ?? 6 }));
   const candidates: LabelCandidate[] = drawn.flatMap((n) => {
     const em = emphasisFor(n.id, adj, focusId, matches);
     if (em === 'dim') return [];
@@ -214,7 +215,9 @@ export function GraphCanvas({ nodes, edges, layout, radii, selectedId, matches, 
     const p = positions[n.id];
     return [{ id: n.id, x: p.x, y: p.y, r: radii[n.id] ?? 6, text: truncate(n.label), priority: LABEL_PRIORITY[n.kind] + boost + Math.min(n.weight, 20) }];
   });
-  const labelled = placeLabels(candidates, view, geometry);
+  // Keep labels inside the canvas and clear of the zoom buttons and the hint line.
+  const obstacles = [{ x: size.w - 46, y: 0, w: 46, h: 110 }, ...(size.w >= 768 ? [{ x: 0, y: size.h - 22, w: 440, h: 22 }] : [])];
+  const labelled = placeLabels(candidates, view, geometry, { w: size.w, h: size.h, obstacles });
   const byId = new Map(drawn.map((n) => [n.id, n]));
 
   return (
@@ -271,15 +274,15 @@ export function GraphCanvas({ nodes, edges, layout, radii, selectedId, matches, 
           })}
         </g>
         <g aria-hidden className="pointer-events-none">
-          {[...labelled].map((id) => {
-            const n = byId.get(id);
-            const p = positions[id];
-            if (!n || !p) return null;
-            const s = toScreen(view, p);
-            const r = (radii[id] ?? 6) * view.k;
+          {candidates.map((c) => {
+            const side = labelled.get(c.id);
+            const n = byId.get(c.id);
+            if (!side || !n) return null;
+            const id = c.id;
+            const box = labelBox(c, view, side);
             const strong = id === focusId || n.kind === 'me' || n.kind === 'person';
             return (
-              <text key={id} x={s.x} y={s.y + r + 13} textAnchor="middle" fontSize={11} fill={strong ? 'var(--ink)' : 'var(--ink-2)'}
+              <text key={id} x={box.x + box.w / 2} y={box.y + 11} textAnchor="middle" fontSize={11} fill={strong ? 'var(--ink)' : 'var(--ink-2)'}
                 fontWeight={id === focusId ? 600 : strong ? 500 : 400} stroke="var(--paper)" strokeWidth={3.5} strokeLinejoin="round" paintOrder="stroke">
                 {truncate(n.label)}
               </text>

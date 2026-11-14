@@ -170,32 +170,53 @@ export interface Box { x: number; y: number; w: number; h: number }
 
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-/** Approximate label size in screen px at 11px Geist. */
-export function labelBox(c: LabelCandidate, view: View, charW = 6.3, lineH = 14): Box {
+/** Where a label sits relative to its node, in order of preference. */
+export type LabelSide = 'below' | 'above' | 'right' | 'left';
+export const LABEL_SIDES: readonly LabelSide[] = ['below', 'above', 'right', 'left'];
+
+/** Approximate label box in screen px at 11px Geist. */
+export function labelBox(c: LabelCandidate, view: View, side: LabelSide = 'below', charW = 6.3, lineH = 14): Box {
   const s = toScreen(view, c);
   const w = Math.min(c.text.length, 26) * charW + 4;
-  return { x: s.x - w / 2, y: s.y + c.r * view.k + 3, w, h: lineH };
+  const gap = c.r * view.k + 3;
+  switch (side) {
+    case 'below': return { x: s.x - w / 2, y: s.y + gap, w, h: lineH };
+    case 'above': return { x: s.x - w / 2, y: s.y - gap - lineH, w, h: lineH };
+    case 'right': return { x: s.x + gap + 2, y: s.y - lineH / 2, w, h: lineH };
+    case 'left': return { x: s.x - gap - 2 - w, y: s.y - lineH / 2, w, h: lineH };
+  }
 }
 
 /**
- * Greedy: highest priority first; a label is kept only if its box clears every kept label
- * and every node other than its own. Returns the ids whose label should be drawn.
+ * Greedy: highest priority first; each label tries below, above, right, left and takes the
+ * first spot that clears every kept label and every node but its own. Labels with no free
+ * spot are not drawn (the node keeps its title and list entry). Returns id -> side.
  */
-export function placeLabels(candidates: readonly LabelCandidate[], view: View, nodes: readonly { id: string; x: number; y: number; r: number }[]): Set<string> {
+export function placeLabels(
+  candidates: readonly LabelCandidate[], view: View, nodes: readonly { id: string; x: number; y: number; r: number }[],
+  /** The drawing area: labels must fit inside it, clear of `obstacles` (e.g. the zoom buttons). */
+  area?: { w: number; h: number; obstacles?: readonly Box[] },
+): Map<string, LabelSide> {
+  const inside = (b: Box) => !area || (b.x >= 2 && b.y >= 2 && b.x + b.w <= area.w - 2 && b.y + b.h <= area.h - 2);
+  const blocked = (b: Box) => (area?.obstacles ?? []).some((o) => overlaps(o, b));
   const nodeBoxes = nodes.map((n) => {
     const s = toScreen(view, n);
     const r = n.r * view.k;
     return { id: n.id, box: { x: s.x - r, y: s.y - r, w: r * 2, h: r * 2 } };
   });
   const kept: Box[] = [];
-  const out = new Set<string>();
+  const out = new Map<string, LabelSide>();
   const sorted = [...candidates].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
   for (const c of sorted) {
-    const box = labelBox(c, view);
-    if (kept.some((k) => overlaps(k, box))) continue;
-    if (nodeBoxes.some((n) => n.id !== c.id && overlaps(n.box, box))) continue;
-    kept.push(box);
-    out.add(c.id);
+    for (const side of LABEL_SIDES) {
+      const box = labelBox(c, view, side);
+      if (!inside(box) || blocked(box)) continue;
+      if (kept.some((k) => overlaps(k, box))) continue;
+      if (nodeBoxes.some((n) => n.id !== c.id && overlaps(n.box, box))) continue;
+      kept.push(box);
+      out.set(c.id, side);
+      break;
+    }
   }
   return out;
 }

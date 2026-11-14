@@ -59,7 +59,7 @@ function Masthead() {
   return (
     <header className="relative flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-ink py-3">
       <Link href="/" className="serif text-[26px] leading-none">Undertone</Link>
-      <nav aria-label="Screens" className="flex gap-4">
+      <nav aria-label="Screens" className="flex flex-wrap gap-x-4 gap-y-1">
         {NAV.map((n) => {
           const active = n.href === '/' ? path === '/' : path.startsWith(n.href);
           return (

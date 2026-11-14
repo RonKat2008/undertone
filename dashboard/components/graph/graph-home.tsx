@@ -151,7 +151,7 @@ export function GraphHome() {
       )}
 
       <div className="mt-5">
-        <StatsStrip stats={graph?.data.stats ?? { conversations: 0, people: 0, topics: 0, minutes_spoken: 0, open_commitments: 0 }} days={url.days} sample={graph?.sample ?? false} loading={loading} />
+        <StatsStrip stats={graph?.data.stats ?? { conversations: 0, people: 0, topics: 0, minutes_spoken: 0, open_commitments: 0 }} days={url.days} loading={loading} />
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
@@ -196,9 +196,9 @@ export function GraphHome() {
 
       <div className="mt-4 grid gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0">
+          {note && !isError && <p className="mb-2 flex items-center gap-2 text-[12px] text-ink-2"><SampleTag />{note}</p>}
           {url.view === 'graph' ? (
             <div className="relative h-[clamp(360px,62vh,680px)] border-y border-rule">
-              {note && !isError && <p className="caps pointer-events-none absolute left-3 top-3 z-10 max-w-[60%] !normal-case !tracking-normal !text-[11.5px] text-ink-2">{note}</p>}
               {!graph && <GraphLoading />}
               {empty && <GraphEmpty days={url.days} onWiden={url.days < 90 ? () => update({ days: 90 }) : null} />}
               {filteredAway && <FilteredAway onReset={() => update({ kinds: new Set(FILTER_KINDS) })} />}

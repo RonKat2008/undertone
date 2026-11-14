@@ -226,19 +226,37 @@ describe('view maths', () => {
 describe('labels', () => {
   const view = { k: 1, x: 0, y: 0 };
   const c = (id: string, x: number, y: number, priority: number): LabelCandidate => ({ id, x, y, r: 5, text: 'A long label here', priority });
-  test('keeps the higher priority label when two collide', () => {
+  test('the higher priority label gets the preferred side; the other moves', () => {
     const cands = [c('low', 0, 0, 1), c('high', 10, 2, 5)];
     const kept = placeLabels(cands, view, cands);
-    assert.deepEqual([...kept], ['high']);
+    assert.equal(kept.get('high'), 'below');
+    assert.notEqual(kept.get('low'), 'below');
   });
-  test('keeps both when far apart', () => {
+  test('keeps both below when far apart', () => {
     const cands = [c('a', 0, 0, 1), c('b', 400, 0, 1)];
-    assert.equal(placeLabels(cands, view, cands).size, 2);
+    const kept = placeLabels(cands, view, cands);
+    assert.deepEqual([...kept.values()], ['below', 'below']);
   });
-  test('a label that would cover another node is dropped', () => {
+  test('a label moves off a node it would cover, and is dropped when boxed in', () => {
     const cands = [c('a', 0, 0, 1)];
-    const nodes = [{ id: 'a', x: 0, y: 0, r: 5 }, { id: 'blocker', x: 0, y: 14, r: 6 }];
-    assert.equal(placeLabels(cands, view, nodes).size, 0);
+    const below = [{ id: 'a', x: 0, y: 0, r: 5 }, { id: 'blocker', x: 0, y: 14, r: 6 }];
+    assert.equal(placeLabels(cands, view, below).get('a'), 'above');
+    const boxed = [...below, { id: 'n', x: 0, y: -14, r: 6 }, { id: 'e', x: 40, y: 0, r: 6 }, { id: 'w', x: -40, y: 0, r: 6 }];
+    assert.equal(placeLabels(cands, view, boxed).size, 0);
+  });
+  test('labels stay inside the drawing area and off obstacles', () => {
+    const edge = [c('edge', 4, 100, 1)];
+    assert.equal(placeLabels(edge, view, edge, { w: 300, h: 200 }).get('edge'), 'right');
+    const centre = [c('mid', 150, 100, 1)];
+    const wall = { x: 0, y: 105, w: 300, h: 30 };
+    assert.equal(placeLabels(centre, view, centre, { w: 300, h: 200, obstacles: [wall] }).get('mid'), 'above');
+    assert.equal(placeLabels([c('out', 150, 400, 1)], view, [], { w: 300, h: 200 }).size, 0);
+  });
+  test('label sides sit where they say', () => {
+    const cand = c('a', 0, 0, 1);
+    assert.ok(labelBox(cand, view, 'above').y < 0);
+    assert.ok(labelBox(cand, view, 'right').x > 0);
+    assert.ok(labelBox(cand, view, 'left').x + labelBox(cand, view, 'left').w < 0);
   });
   test('label boxes scale their offset with zoom', () => {
     const b1 = labelBox(c('a', 0, 0, 1), { k: 1, x: 0, y: 0 });

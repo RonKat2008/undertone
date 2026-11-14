@@ -10,7 +10,7 @@ import type { HabitProfile, SessionSummary, WeeklyReport } from '@/lib/bus/contr
 import { duration, relativeDay } from '@/lib/graph/format';
 import type { GraphNode, GraphStats } from '@/lib/graph/types';
 
-export function StatsStrip({ stats, days, sample, loading }: { stats: GraphStats; days: number; sample: boolean; loading: boolean }) {
+export function StatsStrip({ stats, days, loading }: { stats: GraphStats; days: number; loading: boolean }) {
   const items: { label: string; value: string; strong?: boolean }[] = [
     { label: 'Conversations', value: String(stats.conversations) },
     { label: 'People', value: String(stats.people) },
@@ -22,8 +22,8 @@ export function StatsStrip({ stats, days, sample, loading }: { stats: GraphStats
     <dl aria-label={`Last ${days} days`} aria-busy={loading}
       className={`grid grid-cols-2 gap-px border-y border-ink bg-rule sm:grid-cols-5 ${loading ? 'opacity-60' : ''} transition-opacity`}>
       {items.map((it, i) => (
-        <div key={it.label} className={`bg-paper py-3 pr-2 ${i === 0 ? 'pl-0' : i % 2 === 1 ? 'pl-3 sm:pl-4' : 'pl-0 sm:pl-4'}${i === 4 ? 'col-span-2 sm:col-span-1' : ''}`}>
-          <dt className="caps flex items-center gap-2">{it.label}{i === 0 && <SampleTag show={sample} />}</dt>
+        <div key={it.label} className={`bg-paper py-3 pr-2 ${i === 0 ? 'pl-0' : i % 2 === 1 ? 'pl-3 sm:pl-4' : 'pl-0 sm:pl-4'} ${i === 4 ? 'col-span-2 sm:col-span-1' : ''}`}>
+          <dt className="caps">{it.label}</dt>
           <dd className={`num mt-0.5 text-[clamp(30px,3.4vw,44px)] leading-none ${it.strong ? 'text-[var(--k-commitment)]' : ''}`}>{it.value}</dd>
         </div>
       ))}

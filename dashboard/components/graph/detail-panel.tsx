@@ -154,7 +154,7 @@ function Conversations({ detail, now }: { detail: GraphNodeDetail; now: number }
           const when = Date.parse(c.started_at) / 1000;
           return (
             <li key={c.session_id} className="border-b border-rule">
-              <Link href={debriefHref(c.session_id)} className="group grid grid-cols-[64px_1fr] gap-x-3 py-2.5 hover:bg-well/60">
+              <Link href={debriefHref(c.session_id)} className="group grid grid-cols-[84px_1fr] gap-x-3 py-2.5 hover:bg-well/60">
                 <span className="num pt-0.5 text-[12px] text-ink-2">{Number.isFinite(when) ? relativeDay(when, now) : '—'}<br />{duration(c.duration_s)}</span>
                 <span className="text-[13px] leading-snug group-hover:underline">{c.headline_fact || 'Open the debrief'}</span>
               </Link>
