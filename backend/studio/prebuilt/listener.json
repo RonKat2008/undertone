@@ -109,7 +109,7 @@
   "motion_rules": [
     {
       "id": "fidget_listening",
-      "when": "motion.fidget_while_listening_s > 8",
+      "when": "motion.fidget_while_other_s > 8",
       "haptic": "still",
       "message": "Hands calm",
       "cooldown_s": 90,
