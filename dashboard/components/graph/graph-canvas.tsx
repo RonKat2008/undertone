@@ -295,9 +295,9 @@ export function GraphCanvas({ nodes, edges, layout, radii, selectedId, matches, 
           onClick={() => setView((v) => zoomAround(v, size.w / 2, size.h / 2, ZOOM_STEP))}>+</button>
         <button type="button" className="h-8 w-8 border-b border-rule text-[16px] leading-none hover:bg-well" aria-label="Zoom out"
           onClick={() => setView((v) => zoomAround(v, size.w / 2, size.h / 2, 1 / ZOOM_STEP))}>−</button>
-        <button type="button" className="caps h-8 w-8 !text-[9px] hover:bg-well" aria-label="Fit the whole graph" onClick={fit}>Fit</button>
+        <button type="button" className="label h-8 w-8 !text-[13px] hover:bg-well" aria-label="Fit the whole graph" onClick={fit}>Fit</button>
       </div>
-      <p className="caps pointer-events-none absolute bottom-2 left-3 hidden !text-[9.5px] !text-ink-3 md:block">
+      <p className="pointer-events-none absolute bottom-2 left-3 hidden text-[12px] text-ink-3 md:block">
         Drag to move · ⌘/Ctrl + scroll to zoom · click a node to open it
       </p>
     </div>

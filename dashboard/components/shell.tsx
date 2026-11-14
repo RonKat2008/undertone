@@ -20,19 +20,27 @@ const NAV = [
 /** Live coaching belongs to the phone; the screen stays reachable for rehearsal, set apart. */
 const LIVE = { href: '/live', label: 'Live' };
 
-export const TAKEOVER_MS = 2800;
+/** How long a takeover holds (DESIGN.md §5.1 --dur-hold). Practice `success` holds 1500 ms (§5.3). */
+export const TAKEOVER_MS = 2500;
+const PRACTICE_SUCCESS_MS = 1500;
+const EXIT_MS = 200;
+/** "How am I doing?" reply strip: holds 3 s, then folds. */
+const STATUS_MS = 3000;
 
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <BusProvider>
-      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col px-4 md:px-8">
+      <div className="frame mx-auto flex min-h-screen max-w-[1680px] flex-col">
         <Masthead />
-        <main className="flex-1 pb-10">{children}</main>
+        <main className="flex-1 pb-16">{children}</main>
       </div>
       <LiveOnly><NudgeTakeover /></LiveOnly>
       <Director />
@@ -57,56 +65,49 @@ function Masthead() {
   const band = state.band;
 
   return (
-    <header className="relative flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-ink py-3">
-      <Link href="/" className="serif text-[26px] leading-none">Undertone</Link>
-      <nav aria-label="Screens" className="flex flex-wrap gap-x-4 gap-y-1">
+    <header className="relative z-30 flex min-h-14 flex-wrap items-center gap-x-8 gap-y-2 border-b border-ink py-2.5">
+      <Link href="/" className="serif text-[26px] leading-none tracking-[-0.01em]">Undertone</Link>
+      <nav aria-label="Screens" className="flex flex-wrap gap-x-5 gap-y-1">
         {NAV.map((n) => {
           const active = n.href === '/' ? path === '/' : path.startsWith(n.href);
           return (
             <Link key={n.href} href={n.href} aria-current={active ? 'page' : undefined}
-              className={`caps border-b pb-0.5 transition-colors hover:text-ink ${active ? 'border-ink !text-ink' : 'border-transparent'}`}>
+              className={`text-s border-b-2 pb-0.5 ${active ? 'border-ink text-ink' : 'border-transparent text-ink-2 hover:text-ink'}`}>
               {n.label}
             </Link>
           );
         })}
-        <span className="flex items-center gap-1.5 border-l border-rule pl-4">
+        <span className="flex items-center border-l border-rule pl-5">
           <Link href={LIVE.href} aria-current={onLive ? 'page' : undefined}
-            className={`caps flex items-center gap-1.5 border-b pb-0.5 transition-colors hover:text-ink ${onLive ? 'border-ink !text-ink' : 'border-transparent !text-ink-3'}`}>
-            {live && <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-vermilion" aria-label="A conversation is live" />}
+            className={`text-s flex items-center gap-2 border-b-2 pb-0.5 ${onLive ? 'border-ink text-ink' : 'border-transparent text-ink-2 hover:text-ink'}`}>
+            {live && <span className="state state-listening" role="img" aria-label="A conversation is live" />}
             {LIVE.label}
           </Link>
         </span>
       </nav>
       {!onLive ? (
-        <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px]">
+        <div className="text-s ml-auto flex flex-wrap items-center gap-x-6 gap-y-1.5">
           <BandStatus />
-          <span className="flex items-center gap-1.5">
-            <span className={`inline-block h-2 w-2 rounded-full ${phone?.connected ? 'bg-green' : 'border border-ink-3'}`} />
-            <span className="caps">Phone</span>
-            <span>{phone ? (phone.connected ? phone.name : 'offline') : 'not paired'}</span>
+          <span className="flex items-center gap-2">
+            <span className={`state ${phone?.connected ? 'state-on' : ''}`} aria-hidden />
+            <span className={phone?.connected ? 'text-ink' : 'text-ink-2'}>{phone ? (phone.connected ? phone.name : 'Phone offline') : 'No phone'}</span>
           </span>
-          <span className={`caps rounded-sm border px-1.5 py-0.5 ${state.status === 'live' ? 'border-green !text-green' : state.status === 'offline' ? 'border-vermilion !text-vermilion' : 'border-rule'}`}>
-            {state.status === 'mock' ? 'mock feed' : state.status}
-          </span>
+          <FeedState status={state.status} />
         </div>
       ) : (
-      <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px]">
-        <StatusReply />
-        <span className="hidden lg:inline"><span className="caps mr-1.5">Coach</span>{state.coach?.name ?? 'none'}</span>
-        <span className="flex items-center gap-1.5" title={band?.mic_on ? 'The band’s light is solid blue: the mic is on' : 'Mic off'}>
-          <span className={`inline-block h-2 w-2 rounded-full ${band?.mic_on ? 'live-dot bg-mic' : band?.connected ? 'bg-ink' : 'border border-ink-3'}`} />
-          <span className="caps">Band</span>
-          <span className="num">{band?.connected ? `${band.transport}${band.battery_pct !== null ? ` · ${Math.round(band.battery_pct)}%` : ''}` : 'off'}</span>
+      <div className="text-s ml-auto flex flex-wrap items-center gap-x-6 gap-y-1.5">
+        <span className="hidden text-ink-2 xl:inline"><span className="text-ink">{state.coach?.name ?? 'No'}</span> coach</span>
+        <span className="flex items-center gap-2" title={band?.connected ? `Band over ${band.transport}${band.battery_pct !== null ? `, battery ${Math.round(band.battery_pct)}%` : ''}` : 'Band not connected'}>
+          <span className={`state ${band?.mic_on ? 'state-listening' : band?.connected ? 'state-on' : ''}`} aria-hidden />
+          <span className={band?.connected ? 'text-ink' : 'text-ink-2'}>{band?.mic_on ? 'Listening' : band?.connected ? 'Band' : 'Band off'}</span>
+          {band?.connected && band.battery_pct !== null && <span className="num-s text-ink-3">{Math.round(band.battery_pct)}%</span>}
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className={`inline-block h-2 w-2 rounded-full ${phone?.connected ? 'bg-green' : 'border border-ink-3'}`} />
-          <span className="caps">Phone</span>
-          <span>{phone ? (phone.connected ? phone.name : 'offline') : 'not paired'}</span>
+        <span className="flex items-center gap-2">
+          <span className={`state ${phone?.connected ? 'state-on' : ''}`} aria-hidden />
+          <span className={phone?.connected ? 'text-ink' : 'text-ink-2'}>{phone ? (phone.connected ? phone.name : 'Phone offline') : 'No phone'}</span>
         </span>
-        <span className={`caps rounded-sm border px-1.5 py-0.5 ${state.status === 'live' ? 'border-green !text-green' : state.status === 'offline' ? 'border-vermilion !text-vermilion' : 'border-rule'}`}>
-          {state.status === 'mock' ? 'mock feed' : state.status}
-        </span>
-        <span className="num w-12 text-right text-[18px] leading-none" aria-label="Session clock">{clock(elapsed)}</span>
+        <FeedState status={state.status} />
+        <span className="num-m w-[4.2ch] text-right" aria-label="Session clock">{clock(elapsed)}</span>
         {live ? (
           <button className="btn btn-solid" onClick={() => send({ cmd: 'stop' })}>Stop</button>
         ) : (
@@ -117,58 +118,71 @@ function Masthead() {
         )}
       </div>
       )}
+      {onLive && <StatusReply />}
     </header>
   );
 }
 
-/** "How am I doing?" The band was tapped once; this is the phone's answer. Smaller than a nudge. */
+function FeedState({ status }: { status: string }) {
+  if (status === 'mock') return <span className="sample-tag" title="Scripted mock feed. Nothing leaves this browser.">mock feed</span>;
+  if (status === 'offline') return <span className="flex items-center gap-2 font-medium text-ink"><span className="state state-fault" aria-hidden />Offline</span>;
+  if (status === 'connecting') return <span className="flex items-center gap-2 text-ink-2"><span className="state" aria-hidden />Connecting</span>;
+  return null;
+}
+
+/** "How am I doing?" The band was tapped once; this is the phone's answer. A strip, never a takeover. */
 function StatusReply() {
   const { state } = useBus();
-  const now = useNow(300);
+  const now = useNow(200);
   const m = state.lastStatus;
-  if (!m || !m.pattern || now - m.at > 6000) return null;
+  if (!m || !m.pattern) return null;
+  const age = now - m.at;
+  if (age > STATUS_MS + EXIT_MS) return null;
+  const leaving = age >= STATUS_MS;
   return (
-    <span key={m.id} className="anim-rise flex items-center gap-2 border border-ink px-2 py-1" role="status">
-      <Glyph pattern={m.pattern} size={14} playing playKey={m.id} />
-      <span className="caps !text-ink">How am I doing?</span>
-      <span className="serif text-[17px] leading-none">{m.title}</span>
-    </span>
+    <div className="pointer-events-none absolute inset-x-0 top-full h-16 overflow-hidden" role="status">
+      <div key={m.id} className="flex h-16 items-center gap-5 border-b border-rule bg-paper"
+        style={{ animation: leaving ? `fold-out ${EXIT_MS}ms var(--ease-exit) both` : `drop-in var(--dur-enter) var(--ease-enter) both` }}>
+        <Glyph pattern={m.pattern} size={24} playing playKey={m.id} />
+        <span className="label">How am I doing?</span>
+        <span className="display-s">{m.title}</span>
+      </div>
+    </div>
   );
 }
 
-/** The unmissable moment: a full-width band in the pattern's colour. */
+/** The unmissable moment: a full-width band of the pattern's solid. It covers content; it doesn't float. */
 function NudgeTakeover() {
   const { state } = useBus();
-  const now = useNow(200);
-  const [beat, setBeat] = useState(0);
+  const now = useNow(100);
   const m = state.lastNudge;
+  const practice = state.session?.mode === 'practice';
+  // Practice is strict for the wrist and calm for the eye: only `success` takes over (§5.3).
+  const eligible = m !== null && m.pattern !== null && (!practice || m.pattern === 'success');
+  const hold = practice ? PRACTICE_SUCCESS_MS : TAKEOVER_MS;
   const age = m ? now - m.at : Infinity;
-  const visible = m !== null && m.pattern !== null && age < TAKEOVER_MS + 400;
-  const pattern = (m?.pattern ?? 'tap') as HapticPattern;
+  if (!eligible || !m || age >= hold + EXIT_MS) return null;
+  const pattern = m.pattern as HapticPattern;
   const spec = PATTERNS[pattern];
-
-  useEffect(() => {
-    if (!visible) return;
-    const id = setInterval(() => setBeat((b) => b + 1), spec.total + 1200);
-    return () => clearInterval(id);
-  }, [visible, spec.total, m?.id]);
-
-  if (!visible || !m) return null;
-  const leaving = age >= TAKEOVER_MS;
-  const facts = [m.detail, m.confidence !== null ? `confidence ${m.confidence.toFixed(2)}` : null, m.latency_ms !== null && m.latency_ms >= 50 ? `slip → tap ${(m.latency_ms / 1000).toFixed(1)} s` : null].filter(Boolean);
+  const leaving = age >= hold;
+  const facts = [
+    m.detail,
+    m.confidence !== null ? `confidence ${m.confidence.toFixed(2)}` : null,
+    m.latency_ms !== null && m.latency_ms >= 50 ? `slip → tap ${(m.latency_ms / 1000).toFixed(1)} s` : null,
+  ].filter(Boolean) as string[];
   return (
     <div
       key={m.id}
       role="alert"
-      className={`tone-${spec.tone} fixed inset-x-0 top-0 z-40 flex min-h-[46vh] items-center overflow-hidden px-6 py-10 md:px-16`}
-      style={{ background: 'var(--tone)', color: 'var(--tone-on)', animation: leaving ? 'fold-out 380ms ease-in both' : 'drop-in 240ms cubic-bezier(.2,.8,.2,1) both' }}
+      className={`tone-${spec.tone} frame fixed inset-x-0 top-0 z-40 border-b border-ink`}
+      style={{ background: 'var(--tone)', color: 'var(--tone-on)', animation: leaving ? `fold-out ${EXIT_MS}ms var(--ease-exit) both` : 'drop-in var(--dur-enter) var(--ease-enter) both' }}
     >
-      <div className="mx-auto flex w-full max-w-[1500px] flex-wrap items-end gap-x-16 gap-y-8">
-        <Glyph pattern={pattern} size={150} playing playKey={`${m.id}-${beat}`} mono className="max-w-full" />
+      <div className="mx-auto grid max-w-[1568px] items-end gap-x-14 gap-y-6 pb-12 pt-16 md:grid-cols-[auto_minmax(0,1fr)] md:pb-14 md:pt-20">
+        <Glyph pattern={pattern} size={200} playing playKey={m.id} mono className="hidden max-w-full md:block" />
+        <Glyph pattern={pattern} size={96} playing playKey={m.id} mono className="md:hidden" />
         <div className="min-w-0">
-          <div className="caps mb-3" style={{ color: 'inherit', opacity: 0.8 }}>{spec.name} · {spec.feel.toLowerCase()}</div>
-          <div className="serif text-[clamp(64px,11vw,176px)] leading-[0.9]">{m.title}</div>
-          <div className="num mt-6 flex flex-wrap gap-x-8 gap-y-1 text-[clamp(14px,1.5vw,22px)]">
+          <div className="display-xl">{m.title}</div>
+          <div className="num-m mt-6 flex flex-wrap gap-x-10 gap-y-1">
             {facts.map((f) => <span key={f}>{f}</span>)}
           </div>
         </div>
@@ -193,12 +207,12 @@ function Director() {
   }, []);
   if (!open) return null;
   return (
-    <aside aria-label="Director panel" className="fixed bottom-4 right-4 z-50 w-[340px] border border-ink bg-paper p-4 shadow-[6px_6px_0_var(--ink)]">
-      <div className="mb-3 flex items-baseline justify-between">
-        <span className="serif text-[20px]">Director</span>
-        <span className="caps">{kind === 'mock' ? 'mock feed' : 'live backend'} · ` to close</span>
+    <aside aria-label="Director panel" className="anim-rise fixed bottom-4 right-4 z-50 w-[372px] max-w-[calc(100vw-32px)] border border-rule-strong bg-well p-5" style={{ boxShadow: 'var(--shadow-panel)' }}>
+      <div className="mb-4 flex items-baseline justify-between">
+        <span className="display-s">Director</span>
+        <span className="text-s text-ink-2">{kind === 'mock' ? 'Mock feed' : 'Live backend'}, <kbd className="num-s">`</kbd> to close</span>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <Row label="Session">
           <B onClick={() => send({ cmd: 'start', mode: 'regular' })}>Start regular</B>
           <B onClick={() => send({ cmd: 'start', mode: 'practice' })}>Start practice</B>
@@ -209,14 +223,14 @@ function Director() {
         <Row label="Nudge">
           {PATTERN_ORDER.filter((p) => PATTERNS[p].group === 'nudge').map((p) => (
             <button key={p} className="btn btn-sm" onClick={() => send({ cmd: 'nudge', pattern: p })} title={PATTERNS[p].action}>
-              <Glyph pattern={p} size={12} /> {p}
+              <Glyph pattern={p} size={18} /> <span className="num-s">{p}</span>
             </button>
           ))}
         </Row>
         <Row label="How am I doing?">
-          <B onClick={() => send({ cmd: 'status', verdict: 'good' })}>1 · good</B>
-          <B onClick={() => send({ cmd: 'status', verdict: 'talking_too_much' })}>2 · talking</B>
-          <B onClick={() => send({ cmd: 'status', verdict: 'ask_question' })}>3 · ask</B>
+          <B onClick={() => send({ cmd: 'status', verdict: 'good' })}>1 good</B>
+          <B onClick={() => send({ cmd: 'status', verdict: 'talking_too_much' })}>2 talking</B>
+          <B onClick={() => send({ cmd: 'status', verdict: 'ask_question' })}>3 ask</B>
         </Row>
         <Row label="Marks">
           <B onClick={() => send({ cmd: 'bookmark' })}>Bookmark</B>
@@ -229,7 +243,7 @@ function Director() {
           <B onClick={() => send({ cmd: 'motion', state: 'fidget' })}>Fidget</B>
         </Row>
       </div>
-      <p className="mt-3 text-[11px] text-ink-2">
+      <p className="text-s mt-4 text-ink-2">
         {state.status === 'live' ? 'Test nudges buzz the paired phone. They also show on this screen when the backend runs with DEV=1.' : 'Everything here is scripted. Nothing leaves this browser.'}
       </p>
     </aside>
@@ -243,7 +257,7 @@ function B({ children, onClick }: { children: ReactNode; onClick: () => void }) 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <div className="caps mb-1">{label}</div>
+      <div className="label mb-1.5">{label}</div>
       <div className="flex flex-wrap gap-1.5">{children}</div>
     </div>
   );

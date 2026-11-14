@@ -1,11 +1,11 @@
 /**
- * The notation for a node kind: a shape and a colour, always together, so the graph reads
+ * The notation for a node kind: a shape and a neutral tone (never a pattern hue), so the graph reads
  * in greyscale too. Drawn centred on (0, 0).
  *   me           solid ink disc with an outer ring
- *   person       clay disc
- *   topic        slate diamond
- *   commitment   green triangle; filled while open, outlined once kept
- *   habit        ochre hexagon
+ *   person       grey disc
+ *   topic        pale grey diamond
+ *   commitment   ink triangle; filled while open, outlined once kept
+ *   habit        hollow ink hexagon
  *   conversation small grey square, like a page
  */
 import type { GraphNodeKind } from '@/lib/graph/types';

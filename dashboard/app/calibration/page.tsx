@@ -12,14 +12,12 @@ const MOTION_STEPS = [
 ] as const;
 const STEP_MS = 5000;
 
-function Ring({ fraction, label }: { fraction: number; label: string }) {
-  const r = 52, c = 2 * Math.PI * r;
+/** A progress rule that fills linearly: time, drawn as time. */
+function Progress({ fraction, label }: { fraction: number; label: string }) {
   return (
-    <svg width="128" height="128" viewBox="0 0 128 128" role="img" aria-label={label}>
-      <circle cx="64" cy="64" r={r} fill="none" stroke="var(--rule)" strokeWidth="2" />
-      <circle cx="64" cy="64" r={r} fill="none" stroke="var(--ink)" strokeWidth="6" strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(1, fraction))} transform="rotate(-90 64 64)" />
-      <text x="64" y="74" textAnchor="middle" className="num" fontSize="30" fill="var(--ink)">{label}</text>
-    </svg>
+    <div className="relative h-[2px] w-full bg-rule" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, fraction) * 100)}>
+      <div className="absolute inset-0 origin-left bg-ink" style={{ transform: `scaleX(${Math.min(1, fraction)})`, transition: 'transform 100ms linear' }} />
+    </div>
   );
 }
 
@@ -68,61 +66,64 @@ export default function CalibrationPage() {
 
   const energy = state.motion?.hand_energy ?? 0;
   const calibrated = voice === 'done' && step >= MOTION_STEPS.length;
+  const left = (ms: number, total: number) => Math.max(1, Math.ceil((total - ms) / 1000));
 
   return (
     <div className="pt-8">
-      <div className="caps mb-4">Calibration · about twenty seconds, once per room</div>
-      <div className="grid gap-x-16 gap-y-12 lg:grid-cols-2">
-        <section aria-label="Voice calibration">
-          <h2 className="serif border-b border-ink pb-2 text-[40px] leading-none">1 · Whose voice is yours</h2>
-          <div className="grid grid-cols-[128px_1fr] items-center gap-x-8 pt-6">
-            <Ring fraction={voice === 'done' ? 1 : voiceMs / 3000} label={voice === 'done' ? 'ok' : voice === 'listening' ? String(Math.max(1, Math.ceil((3000 - voiceMs) / 1000))) : '3'} />
-            <div>
-              {voice === 'idle' && <><p className="serif text-[30px] leading-tight">Say your name.</p><p className="mt-1 text-[13px] text-ink-2">The first voice after the double-tap is treated as you. The mic is on your wrist, so you are also the louder one.</p><button className="btn btn-solid mt-4" onClick={() => setVoice('listening')}>Start</button></>}
-              {voice === 'listening' && <><p className="serif text-[30px] leading-tight">Listening…</p><p className="mt-1 text-[13px] text-ink-2">Keep talking for three seconds.</p></>}
-              {voice === 'done' && (
-                <>
-                  <p className="serif text-[30px] leading-tight">You are the {swapped ? 'second' : 'first'} voice.</p>
-                  <p className="mt-1 text-[13px] text-ink-2">If the transcript shows your words under “Them”, swap. You can do this mid-conversation too.</p>
-                  <div className="mt-4 flex gap-2">
-                    <button className="btn" onClick={() => { setSwapped((s) => !s); void swapSpeakers().catch(() => undefined); }}>Swap speakers</button>
-                    <button className="btn btn-quiet" onClick={() => setVoice('idle')}>Redo</button>
-                  </div>
-                </>
-              )}
+      <div className="mb-8 flex flex-wrap items-baseline gap-x-3"><span className="label">Calibration</span><span className="text-s text-ink-2">about twenty seconds, once per room</span></div>
+      <div className="grid gap-x-6 gap-y-14 xl:grid-cols-12">
+        <section aria-label="Voice calibration" className="xl:col-span-5">
+          <h2 className="display-m relative border-b border-ink pb-3"><span className="num-m absolute right-full mr-4 hidden pt-2 text-ink-3 md:block">1</span>Whose voice is yours</h2>
+          <div className="pt-6">
+            {voice === 'idle' && <><p className="display-s">Say your name.</p><p className="text-m mt-2 max-w-[48ch] text-ink-2">The first voice after the double-tap is treated as you. The mic is on your wrist, so you are also the louder one.</p><button className="btn btn-solid mt-5" onClick={() => setVoice('listening')}>Start</button></>}
+            {voice === 'listening' && <><p className="display-s caret">Listening</p><p className="text-m mt-2 text-ink-2">Keep talking for three seconds.</p></>}
+            {voice === 'done' && (
+              <>
+                <p className="display-s">You are the {swapped ? 'second' : 'first'} voice.</p>
+                <p className="text-m mt-2 max-w-[48ch] text-ink-2">If the transcript shows your words under “Them”, swap. You can do this mid-conversation too.</p>
+                <div className="mt-5 flex gap-2">
+                  <button className="btn" onClick={() => { setSwapped((s) => !s); void swapSpeakers().catch(() => undefined); }}>Swap speakers</button>
+                  <button className="btn btn-quiet" onClick={() => setVoice('idle')}>Redo</button>
+                </div>
+              </>
+            )}
+            <div className="mt-8 grid grid-cols-[minmax(0,1fr)_3ch] items-center gap-x-4">
+              <Progress fraction={voice === 'done' ? 1 : voiceMs / 3000} label="Voice calibration progress" />
+              <span className="num-s text-right text-ink-2">{voice === 'done' ? 'ok' : voice === 'listening' ? `${left(voiceMs, 3000)} s` : '3 s'}</span>
             </div>
           </div>
         </section>
 
-        <section aria-label="Motion calibration">
-          <h2 className="serif border-b border-ink pb-2 text-[40px] leading-none">2 · How your hands move</h2>
-          <div className="grid grid-cols-[128px_1fr] items-center gap-x-8 pt-6">
-            <Ring fraction={step >= MOTION_STEPS.length ? 1 : running ? stepMs / STEP_MS : 0}
-              label={step >= MOTION_STEPS.length ? 'ok' : running ? String(Math.max(1, Math.ceil((STEP_MS - stepMs) / 1000))) : '5'} />
-            <div>
-              {step < 0 && <><p className="serif text-[30px] leading-tight">Three moves, five seconds each.</p><p className="mt-1 text-[13px] text-ink-2">Still, gesture, fidget. The thresholds are stored for this band.</p><button className="btn btn-solid mt-4" onClick={startMotion}>Start</button></>}
-              {running && <><div className="caps">Step {step + 1} of 3</div><p className="serif text-[44px] leading-none">{MOTION_STEPS[step].title}</p><p className="mt-2 text-[13px] text-ink-2">{MOTION_STEPS[step].hint}</p></>}
-              {step >= MOTION_STEPS.length && <><p className="serif text-[30px] leading-tight">Thresholds stored.</p><button className="btn btn-quiet mt-4" onClick={() => setStep(-1)}>Redo</button></>}
-            </div>
+        <section aria-label="Motion calibration" className="xl:col-span-6 xl:col-start-7">
+          <h2 className="display-m relative border-b border-ink pb-3"><span className="num-m absolute right-full mr-4 hidden pt-2 text-ink-3 md:block">2</span>How your hands move</h2>
+          <div className="pt-6">
+            {step < 0 && <><p className="display-s">Three moves, five seconds each.</p><p className="text-m mt-2 text-ink-2">Still, gesture, fidget. The thresholds are stored for this band.</p><button className="btn btn-solid mt-5" onClick={startMotion}>Start</button></>}
+            {running && <p className="text-m text-ink-2">Step <span className="num-s text-ink">{step + 1}</span> of 3. {MOTION_STEPS[step].hint}</p>}
+            {step >= MOTION_STEPS.length && <><p className="display-s">Thresholds stored.</p><button className="btn btn-quiet mt-5" onClick={() => setStep(-1)}>Redo</button></>}
           </div>
-          <ol className="mt-6 grid grid-cols-3 gap-px">
-            {MOTION_STEPS.map((s, i) => (
-              <li key={s.id} className={`border-t-2 pt-2 ${i < step ? 'border-ink' : i === step ? 'border-ink' : 'border-rule text-ink-3'}`}>
-                <span className="caps">{i < step ? 'done' : i === step ? 'now' : 'next'}</span>
-                <div className="serif text-[22px] leading-none">{s.title}</div>
-              </li>
-            ))}
+          <ol className="mt-6 border-t border-rule">
+            {MOTION_STEPS.map((s, i) => {
+              const done = i < step;
+              const now = i === step;
+              return (
+                <li key={s.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_5ch] items-center gap-x-5 border-b border-rule py-3.5">
+                  <span className={`display-s ${done || now ? 'text-ink' : 'text-ink-3'}`}>{s.title}</span>
+                  <Progress fraction={done ? 1 : now ? stepMs / STEP_MS : 0} label={`${s.title} progress`} />
+                  <span className="num-s text-right text-ink-2">{done ? 'done' : now ? `${left(stepMs, STEP_MS)} s` : '5 s'}</span>
+                </li>
+              );
+            })}
           </ol>
-          <div className="mt-6 border-t border-rule pt-3">
-            <div className="flex items-baseline justify-between"><span className="caps">Live motion</span><span className="num text-[13px]">{state.motion ? `${state.motion.state} · ${energy.toFixed(2)}` : 'no signal from the band'}</span></div>
-            <Spark className="mt-2 w-full" values={state.history.energy.slice(-60)} capacity={60} width={560} height={48} min={0} max={1} band={[0.3, 0.7]} />
+          <div className="mt-8">
+            <div className="flex items-baseline justify-between"><span className="label">Live motion</span><span className="num-s text-ink-2">{state.motion ? `${state.motion.state} ${energy.toFixed(2)}` : 'no signal from the band'}</span></div>
+            <Spark className="mt-3 w-full" values={state.history.energy.slice(-60)} capacity={60} width={640} height={56} min={0} max={1} band={[0.3, 0.7]} />
           </div>
         </section>
       </div>
 
-      <div className={`mt-12 border-t-[3px] pt-4 ${calibrated ? 'border-green' : 'border-rule'}`} role="status">
-        <span className={`serif text-[clamp(40px,5vw,72px)] leading-none ${calibrated ? 'text-green' : 'text-ink-3'}`}>{calibrated ? 'Calibrated.' : 'Not calibrated yet.'}</span>
-        <p className="mt-2 text-[13px] text-ink-2">{calibrated ? 'Double-tap the band to start a conversation.' : 'Finish both steps. Until then the coach uses general thresholds.'}</p>
+      <div className={`mt-16 pt-5 ${calibrated ? 'border-t-2 border-ink' : 'border-t border-rule'}`} role="status">
+        <span className={`display-m ${calibrated ? 'text-ink' : 'text-ink-2'}`}>{calibrated ? 'Calibrated.' : 'Not calibrated yet.'}</span>
+        <p className="text-m mt-2 text-ink-2">{calibrated ? 'Double-tap the band to start a conversation.' : 'Finish both steps. Until then the coach uses general thresholds.'}</p>
       </div>
     </div>
   );

@@ -64,7 +64,7 @@ export function DetailPanel({ nodeId, graph, now, reducedMotion, onSelect, onClo
       <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-rule lg:hidden" aria-hidden />
       <div className="flex items-start justify-between gap-3 border-b border-ink pb-3">
         <div className="min-w-0">
-          <div className="caps flex items-center gap-2">
+          <div className="label flex items-center gap-2">
             {node && <KindSwatch kind={node.kind} open={node.meta.open !== false} />}
             {node ? KIND_LABEL[node.kind].one : 'Node'}
             {load.state === 'ready' && <SampleTag show={load.sample} />}
@@ -88,8 +88,8 @@ export function DetailPanel({ nodeId, graph, now, reducedMotion, onSelect, onClo
         </div>
       )}
       {load.state === 'error' && (
-        <div role="alert" className="mt-5 border-l-[3px] border-vermilion pl-3">
-          <div className="caps !text-vermilion">Could not load the conversations</div>
+        <div role="alert" className="mt-5 border-l-[3px] border-ink pl-3">
+          <div className="label !text-ink">Could not load the conversations</div>
           <p className="mt-1 text-[13px] text-ink-2">{load.message}</p>
           <button type="button" className="btn btn-sm mt-2" onClick={() => setAttempt((a) => a + 1)}>Try again</button>
         </div>
@@ -115,7 +115,7 @@ function Facts({ node }: { node: GraphNode }) {
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3">
           {facts.map((f) => (
             <div key={f.key} className="min-w-0 border-t border-rule pt-1.5">
-              <dt className="caps">{f.label}</dt>
+              <dt className="label">{f.label}</dt>
               <dd className="num truncate text-[17px]">{f.value}</dd>
             </div>
           ))}
@@ -131,11 +131,11 @@ function Quotes({ detail }: { detail: GraphNodeDetail }) {
   if (quotes.length === 0) return null;
   return (
     <section className="mt-6" aria-label="Quotes">
-      <h3 className="caps border-b border-rule pb-1">In their words, and yours</h3>
+      <h3 className="label border-b border-rule pb-1">In their words, and yours</h3>
       <ul>
         {quotes.map((q, i) => (
           <li key={`${q.session_id}-${q.ts}-${i}`} className="grid grid-cols-[46px_1fr] gap-x-3 border-b border-rule py-2.5">
-            <span className={`caps pt-1 ${q.speaker === 'me' ? '!text-ink' : ''}`}>{q.speaker === 'me' ? 'You' : 'Them'}</span>
+            <span className={`label pt-1 ${q.speaker === 'me' ? '!text-ink' : ''}`}>{q.speaker === 'me' ? 'You' : 'Them'}</span>
             <q className={`text-[14px] leading-snug ${q.speaker === 'me' ? '' : 'text-ink-2'}`}>{q.text}</q>
           </li>
         ))}
@@ -148,7 +148,7 @@ function Conversations({ detail, now }: { detail: GraphNodeDetail; now: number }
   if (detail.node.kind === 'conversation' || detail.conversations.length === 0) return null;
   return (
     <section className="mt-6" aria-label="Conversations">
-      <h3 className="caps border-b border-rule pb-1">Appears in {detail.conversations.length} conversation{detail.conversations.length === 1 ? '' : 's'}</h3>
+      <h3 className="label border-b border-rule pb-1">Appears in {detail.conversations.length} conversation{detail.conversations.length === 1 ? '' : 's'}</h3>
       <ul>
         {detail.conversations.slice(0, 6).map((c) => {
           const when = Date.parse(c.started_at) / 1000;
@@ -172,7 +172,7 @@ function Neighbours({ nodes, onSelect }: { nodes: GraphNode[]; onSelect: (id: st
   if (kinds.length === 0) return null;
   return (
     <section className="mt-6" aria-label="Connected to">
-      <h3 className="caps border-b border-rule pb-1">Connected to</h3>
+      <h3 className="label border-b border-rule pb-1">Connected to</h3>
       <div className="mt-2 space-y-2">
         {kinds.map((k) => (
           <div key={k} className="flex flex-wrap items-center gap-1.5">
