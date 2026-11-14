@@ -10,3 +10,4 @@ __pycache__/
 vexo-open-kit/
 fixtures/*.wav
 .DS_Store
+media/
