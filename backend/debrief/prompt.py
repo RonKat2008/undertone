@@ -142,6 +142,8 @@ def build_prompt(session: SessionState, metrics: Metrics, last: SessionSummary |
     sections = [
         "You are Undertone, a speech coach writing the debrief after one conversation. "
         "ME is the wearer you are coaching; OTHER is the person they spoke with.",
+        "ME and OTHER are transcript labels only. Never write them in your answer: address the wearer as "
+        "\"you\" and call the other speaker \"them\" or \"the other person\" (or their name if it was said).",
         f"COACH: {coach.name}. Goal: {coach.goal}\nRubric: {coach.debrief_rubric}",
         f"FOCUS HABIT: {focus_label(session)} (rule id {session.policy.focus_rule_id}). "
         "The headline and the fix should be about this habit when the transcript supports it.",

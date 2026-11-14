@@ -18,7 +18,7 @@ from backend import debrief as debrief_pkg
 from backend import growth, haptics_port, judge, studio
 from backend.config import Settings
 from backend.contracts import (
-    BookmarkEvent, BookmarkSource, CoachActivatedEvent, CoachSpec, DebriefEvent, HabitProfile,
+    BookmarkEvent, BookmarkSource, CoachActivatedEvent, CoachSpec, Debrief, DebriefEvent, HabitProfile,
     HapticCommand, JudgeEvent, MetricsEvent, MotionEvent, MotionSnapshot, NudgeEvent,
     NudgeSnoozedEvent, SessionEndedEvent, SessionMode, SessionStartedEvent, SessionSummary,
     SignalEvent, StatusReplyEvent, TranscriptPartialEvent, TurnContext, TurnFinalEvent,
@@ -113,12 +113,14 @@ class Brain:
         last = self._last_summary()
         try:
             data = await debrief_pkg.generate_debrief(session, metrics, timeline, last)
-            audio_url = await debrief_pkg.speak(debrief_pkg.spoken_text(data), session.session_id)
         except Exception:
             log.exception("debrief failed for %s", session.session_id)
             return None
+        # Text first: the voice takes several more seconds and follows as a second debrief event.
+        audio_url = None
         event = DebriefEvent(session_id=session.session_id, data=data, audio_url=audio_url)
         await self.app.bus.publish(event)
+        self._audio_task = asyncio.create_task(self._debrief_audio(session.session_id, data))
         summary = SessionSummary(
             session_id=session.session_id, started_at=session.started_at_iso, duration_s=session.duration_s,
             coach_name=session.coach.name, mode=session.mode, person_id=None,
@@ -130,6 +132,17 @@ class Brain:
         self._safe(lambda: growth.update_profile(db, session, metrics), "update_profile")
         self._safe(lambda: growth.mission_for_today(db), "mission_for_today")
         return event
+
+    async def _debrief_audio(self, session_id: str, data: Debrief) -> None:
+        """Speak the recap, then re-publish the debrief with its audio. Never raises."""
+        try:
+            url = await debrief_pkg.speak(debrief_pkg.spoken_text(data), session_id)
+            if url is None:
+                return
+            self.app.db.save_debrief(session_id, data, url)
+            await self.app.bus.publish(DebriefEvent(session_id=session_id, data=data, audio_url=url))
+        except Exception:
+            log.exception("debrief audio failed for %s", session_id)
 
     async def single_tap(self) -> StatusReplyEvent | None:
         session = self.app.session
