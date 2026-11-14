@@ -37,6 +37,7 @@ import wave
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, Union
 
+from ..config import _flag
 from .audio import CHUNK_BYTES, CHUNK_S, SAMPLE_RATE, Chunker, LoudnessTimeline, rms_db
 
 log = logging.getLogger("undertone.band")
@@ -88,6 +89,11 @@ class BandSource:
         self.mic_on = False
         self.battery_pct: Optional[int] = None
         self.dropped_chunks = 0
+        # health (backend/listening.py): is audio arriving? times are time.monotonic()
+        self.last_chunk_at: Optional[float] = None
+        self.mic_on_since: Optional[float] = None
+        self.chunks_received = 0
+        self.decode_errors = 0
         # optional: every 80 ms chunk with its end time on the audio clock (the recorder uses it)
         self.chunk_tap: Optional[Callable[[bytes, float], None]] = None
         self._decoder = None
@@ -105,7 +111,14 @@ class BandSource:
                    number=int(os.getenv("VEXO_BAND_NUMBER") or 13), emit=emit,
                    sim_wav=os.getenv("SIM_WAV") or None,
                    audio_source=(os.getenv("BAND_AUDIO") or "band").strip().lower(),
-                   keyboard=None if os.getenv("KEYBOARD_TAPS") is None else os.getenv("KEYBOARD_TAPS") == "1")
+                   keyboard=None if os.getenv("KEYBOARD_TAPS") is None else _flag("KEYBOARD_TAPS"))
+
+    @property
+    def decoder_ok(self) -> bool:
+        """False when band audio is expected but cannot be decoded (it becomes silence)."""
+        if self.audio_source == "laptop" or self.transport == "laptop-mic" or (self.transport == "sim" and self.sim_wav):
+            return True
+        return self.band is None or self._decoder is not None
 
     # ---------- clock ----------
 
@@ -201,9 +214,9 @@ class BandSource:
         """Mic on = session running. On the real band this also locks the LED solid blue."""
         if on == self.mic_on:
             return
-        self.mic_on = on
         if self.audio_source == "laptop":
-            self._laptop_mic(on)
+            self._laptop_mic(on)  # raises if the laptop mic cannot open: mic_on stays as it was
+            self._set_mic(on)
             if self.band is not None:  # band kept for taps and motion: show "listening" by hand
                 try:
                     if on:
@@ -213,10 +226,22 @@ class BandSource:
                 except Exception as e:  # noqa: BLE001
                     log.warning("band LED: %s", e)
         elif self.band is not None:
-            await self.band.configure(audio=on)
+            try:
+                await self.band.configure(audio=on)
+            except Exception as e:  # noqa: BLE001 - e.g. Bluetooth dropped mid-write
+                if on:
+                    raise
+                log.warning("turning the band mic off failed (%s); treating it as off", type(e).__name__)
+            self._set_mic(on)
             if on and self.transport == "sim" and self.sim_wav:
                 self._tasks.append(asyncio.create_task(self._play_wav(self.sim_wav)))
+        else:
+            self._set_mic(on)
         await self._status()
+
+    def _set_mic(self, on: bool) -> None:
+        self.mic_on = on
+        self.mic_on_since = time.monotonic() if on else None
 
     # ---------- band handlers (short: push and return) ----------
 
@@ -234,7 +259,13 @@ class BandSource:
     def _on_audio(self, a) -> None:
         if not self.mic_on or self.audio_source == "laptop" or (self.transport == "sim" and self.sim_wav):
             return
-        pcm = self._decoder.feed(a) if self._decoder is not None else b"\x00" * 640
+        try:
+            pcm = self._decoder.feed(a) if self._decoder is not None else b"\x00" * 640
+        except Exception as e:  # noqa: BLE001 - one bad packet must not kill the audio path
+            self.decode_errors += 1
+            if self.decode_errors in (1, 100) or self.decode_errors % 1000 == 0:
+                log.warning("band audio decode failed (%d so far): %s", self.decode_errors, type(e).__name__)
+            return
         self._push_pcm(pcm)
 
     def _on_battery(self, e) -> None:
@@ -263,6 +294,8 @@ class BandSource:
 
     def _push_pcm(self, pcm: bytes) -> None:
         for chunk in self.chunker.feed(pcm):
+            self.last_chunk_at = time.monotonic()
+            self.chunks_received += 1
             self.loudness.add(self.chunker.seconds, rms_db(chunk))
             if self.chunk_tap is not None:
                 try:
@@ -274,6 +307,9 @@ class BandSource:
                 self.pcm_q.put_nowait(chunk)
             except asyncio.QueueFull:
                 self.dropped_chunks += 1
+                if self.dropped_chunks == 1 or self.dropped_chunks % 100 == 0:
+                    log.warning("audio queue full: %d chunks dropped (speech-to-text is not keeping up)",
+                                self.dropped_chunks)
 
     async def _play_wav(self, path: str) -> None:
         """sim + SIM_WAV: play a 16 kHz mono 16-bit wav in real time while the mic is on."""
