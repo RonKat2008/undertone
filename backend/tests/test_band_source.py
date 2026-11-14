@@ -98,3 +98,21 @@ def test_bad_band_audio_value():
     from backend.band.source import BandSource
     with pytest.raises(ValueError):
         BandSource("sim", 13, keyboard=False, audio_source="phone")
+
+
+def test_band_status_heartbeat_for_late_joiners(monkeypatch, tmp_path):
+    import backend.motion.classifier as cl
+    monkeypatch.setattr(cl, "CAL_DIR", tmp_path)
+    monkeypatch.setenv("BAND_STATUS_EVERY_S", "0.2")
+    from backend.band.source import BandSource
+
+    async def run():
+        got = []
+        src = BandSource("sim", 13, emit=got.append, keyboard=False)
+        await src.start()
+        await asyncio.sleep(0.75)
+        await src.stop()
+        return got
+
+    got = asyncio.run(run())
+    assert len([e for e in got if e["type"] == "band.status" and e["connected"]]) >= 3
