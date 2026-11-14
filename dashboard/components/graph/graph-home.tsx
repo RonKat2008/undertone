@@ -13,9 +13,8 @@ import { GraphCanvas } from '@/components/graph/graph-canvas';
 import { KindSwatch } from '@/components/graph/node-shape';
 import { NodeList } from '@/components/graph/node-list';
 import { OpenPromises, RecentConversations, StatsStrip, TopHabits } from '@/components/graph/your-data';
-import { SampleTag } from '@/components/sample-tag';
 import {
-  getGraph, getProfile, getWeeklyReport, listSessions, type GraphResult, type Sampled,
+  getGraph, getProfile, getWeeklyReport, listSessions, type Fetched, type GraphResult,
 } from '@/lib/api/client';
 import type { HabitProfile, SessionSummary, WeeklyReport } from '@/lib/bus/contracts';
 import { useBus } from '@/lib/bus/use-bus';
@@ -26,14 +25,6 @@ import type { FilterKind } from '@/lib/graph/types';
 import { parseGraphUrl, toggleKind, WINDOWS, writeGraphUrl, type GraphUrlState } from '@/lib/graph/url';
 import { useReducedMotion } from '@/lib/use-reduced-motion';
 
-const SOURCE_NOTE: Record<GraphResult['source'], string | null> = {
-  live: null,
-  mock: 'No backend connected. This is the built-in sample graph.',
-  'backend-sample': 'The backend has no conversations to map yet, so this is the sample graph.',
-  unreachable: 'The backend could not be reached. Showing the sample graph until it answers.',
-  invalid: 'The backend sent a graph this screen could not read. Showing the sample graph.',
-};
-
 export function GraphHome() {
   const params = useSearchParams();
   const url = useMemo(() => parseGraphUrl(params.toString()), [params]);
@@ -43,9 +34,9 @@ export function GraphHome() {
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const [query, setQuery] = useState('');
-  const [sessions, setSessions] = useState<Sampled<SessionSummary[]> | null>(null);
-  const [profile, setProfile] = useState<Sampled<HabitProfile> | null>(null);
-  const [weekly, setWeekly] = useState<Sampled<WeeklyReport> | null>(null);
+  const [sessions, setSessions] = useState<Fetched<SessionSummary[]> | null>(null);
+  const [profile, setProfile] = useState<Fetched<HabitProfile> | null>(null);
+  const [weekly, setWeekly] = useState<Fetched<WeeklyReport> | null>(null);
 
   // A conversation ending, or its debrief landing, changes what there is to show.
   const busKey = `${state.session?.endedAt ?? ''}|${state.debrief?.at ?? ''}`;
@@ -72,7 +63,7 @@ export function GraphHome() {
     getProfile().then((p) => on && setProfile(p));
     getWeeklyReport().then((w) => on && setWeekly(w));
     return () => { on = false; };
-  }, [busKey]);
+  }, [busKey, attempt]);
 
   const full = graph?.data ?? null;
   const fullLayout = useMemo(() => (full ? computeLayout(full.nodes, full.edges) : {}), [full]);
@@ -118,18 +109,16 @@ export function GraphHome() {
     return counts;
   }, [full]);
 
-  const note = graph ? SOURCE_NOTE[graph.source] : null;
   const isError = graph?.source === 'unreachable' || graph?.source === 'invalid';
-  const empty = graph !== null && !graph.sample && isEmptyGraph(graph.data);
-  const filteredAway = graph !== null && !empty && isEmptyGraph(slice);
+  const empty = graph !== null && !isError && isEmptyGraph(graph.data);
+  const filteredAway = graph !== null && !isError && !empty && isEmptyGraph(slice);
 
   return (
     <div className="pt-6">
       <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
         <div className="min-w-0">
-          <div className="caps flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="label flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Last {url.days} days</span>
-            {graph && <SampleTag show={graph.sample} />}
           </div>
           <h1 className="serif mt-1 text-[clamp(36px,5vw,64px)] leading-[0.95]">Who you talk to, and how.</h1>
         </div>
@@ -144,14 +133,14 @@ export function GraphHome() {
       </header>
 
       {isError && (
-        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 border-l-[3px] border-vermilion bg-well/60 px-3 py-2">
-          <span className="text-[13px]"><span className="caps mr-2 !text-vermilion">Backend</span>{graph?.error ?? note}</span>
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 border-l-[3px] border-ink bg-well/60 px-3 py-2">
+          <span className="text-[13px]"><span className="label mr-2 !text-ink">Backend</span>{graph?.error ?? 'Cannot reach the backend.'}</span>
           <button type="button" className="btn btn-sm" onClick={() => setAttempt((a) => a + 1)}>Try again</button>
         </div>
       )}
 
       <div className="mt-5">
-        <StatsStrip stats={graph?.data.stats ?? { conversations: 0, people: 0, topics: 0, minutes_spoken: 0, open_commitments: 0 }} days={url.days} loading={loading} />
+        <StatsStrip stats={graph?.data.stats ?? { conversations: 0, people: 0, topics: 0, minutes_spoken: 0, open_commitments: 0 }} days={url.days} loading={loading} unknown={!graph || isError} />
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
@@ -185,7 +174,7 @@ export function GraphHome() {
 
       {query.trim() && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-live="polite">
-          <span className="caps mr-1">{matchList.length ? `${matches?.size ?? 0} match${matches?.size === 1 ? '' : 'es'}` : 'No matches'}</span>
+          <span className="label mr-1">{matchList.length ? `${matches?.size ?? 0} match${matches?.size === 1 ? '' : 'es'}` : 'No matches'}</span>
           {matchList.map((n) => (
             <button key={n.id} type="button" className="chip hover:border-ink" onClick={() => select(n.id)}>
               <KindSwatch kind={n.kind} size={11} open={n.meta.open !== false} />{n.label}
@@ -196,20 +185,23 @@ export function GraphHome() {
 
       <div className="mt-4 grid gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0">
-          {note && !isError && <p className="mb-2 flex items-center gap-2 text-[12px] text-ink-2"><SampleTag />{note}</p>}
           {url.view === 'graph' ? (
             <div className="relative h-[clamp(360px,62vh,680px)] border-y border-rule">
               {!graph && <GraphLoading />}
+              {isError && <GraphUnavailable />}
               {empty && <GraphEmpty days={url.days} onWiden={url.days < 90 ? () => update({ days: 90 }) : null} />}
               {filteredAway && <FilteredAway onReset={() => update({ kinds: new Set(FILTER_KINDS) })} />}
-              {graph && !empty && !filteredAway && (
+              {graph && !isError && !empty && !filteredAway && (
                 <GraphCanvas nodes={slice.nodes} edges={slice.edges} layout={layout} radii={radii} selectedId={selectedId}
                   matches={matches} reducedMotion={reducedMotion} now={now} onSelect={select} />
               )}
             </div>
           ) : (
             <div className="border-t border-rule pt-4">
-              {!graph ? <GraphLoading /> : <NodeList nodes={matches ? slice.nodes.filter((n) => matches.has(n.id)) : slice.nodes} selectedId={selectedId} now={now} onSelect={select} />}
+              {!graph ? <GraphLoading />
+                : isError ? <GraphUnavailable />
+                : empty ? <GraphEmpty days={url.days} onWiden={url.days < 90 ? () => update({ days: 90 }) : null} />
+                : <NodeList nodes={matches ? slice.nodes.filter((n) => matches.has(n.id)) : slice.nodes} selectedId={selectedId} now={now} onSelect={select} />}
             </div>
           )}
           <div className="mt-3 lg:hidden"><Legend compact /></div>
@@ -227,7 +219,7 @@ export function GraphHome() {
 
       <div className="mt-14 grid gap-x-12 gap-y-10 md:grid-cols-2 xl:grid-cols-3">
         <RecentConversations sessions={sessions} now={now} />
-        <OpenPromises nodes={full?.nodes ?? []} sample={graph?.sample ?? false} now={now} onSelect={(id) => { update({ node: id }); window.scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' }); }} />
+        <OpenPromises nodes={full?.nodes ?? []} loaded={graph !== null && !isError} now={now} onSelect={(id) => { update({ node: id }); window.scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' }); }} />
         <TopHabits profile={profile} weekly={weekly} />
       </div>
     </div>
@@ -253,7 +245,7 @@ function Legend({ compact = false }: { compact?: boolean }) {
   }
   return (
     <section aria-label="How to read the graph" className="border-t border-ink pt-3">
-      <h2 className="caps !text-ink">How to read it</h2>
+      <h2 className="label !text-ink">How to read it</h2>
       <ul className="mt-3 space-y-2.5">
         {LEGEND.map((l) => (
           <li key={l.kind} className="grid grid-cols-[22px_1fr] items-center gap-x-2 text-[13px]">
@@ -285,7 +277,7 @@ function GraphLoading() {
     <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-4" aria-busy aria-live="polite">
       <svg width={160} height={160} viewBox="-80 -80 160 160" aria-hidden>
         {[28, 50, 72].map((r) => <circle key={r} r={r} fill="none" stroke="var(--rule)" strokeDasharray="2 4" />)}
-        <circle r={9} fill="var(--ink)" className="live-dot" />
+        <circle r={9} fill="var(--ink)" className="graph-breathe" />
       </svg>
       <p className="serif text-[24px] text-ink-3">Drawing your graph…</p>
     </div>
@@ -302,6 +294,17 @@ function GraphEmpty({ days, onWiden }: { days: number; onWiden: (() => void) | n
       <p className="serif mt-4 text-[30px] leading-tight">No conversations in the last {days} days.</p>
       <p className="mt-2 max-w-[44ch] text-[13px] text-ink-2">Wear the band. Each conversation joins the graph the moment it ends, with the people, topics and promises in it.</p>
       {onWiden && <button type="button" className="btn mt-4" onClick={onWiden}>Look back 90 days</button>}
+    </div>
+  );
+}
+
+function GraphUnavailable() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+      <svg width={64} height={64} viewBox="-32 -32 64 64" aria-hidden>
+        <circle r={26} fill="none" stroke="var(--rule)" strokeDasharray="2 4" />
+      </svg>
+      <p className="serif mt-4 text-[30px] leading-tight">Nothing to draw until the backend answers.</p>
     </div>
   );
 }

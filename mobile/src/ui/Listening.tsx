@@ -3,8 +3,8 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
 import type { ListenState, PhoneState } from '@/bus/phone-state';
-import { T, clock } from './kit';
-import { C, F, TONE } from './theme';
+import { Rule, StateMark, T, clock } from './kit';
+import { C, F, S } from './theme';
 
 /**
  * Hold the screen awake while `active`. Unlike mounting `useKeepAwake()`, this survives flipping
@@ -49,19 +49,19 @@ const EXPLAIN: Record<Exclude<ListenState, 'in-conversation'>, string> = {
   listening: 'A conversation opens by itself when someone talks to you, and closes when it ends. No tap needed.',
 };
 
-export function dotColor(s: ListenState): string {
-  if (s === 'offline') return TONE.vermilion;
-  if (s === 'listening' || s === 'in-conversation') return C.mic;
-  if (s === 'connecting') return C.paper3;
-  return TONE.amber;
+/** The §2.4 mark for each state: neutral shapes, never a pattern hue. Nothing being heard is a fault. */
+export function listenMark(s: ListenState): 'listening' | 'on' | 'off' | 'fault' {
+  if (s === 'listening' || s === 'in-conversation') return 'listening';
+  if (s === 'connecting') return 'off';
+  return 'fault'; // offline, no band, mic off
 }
 
 function Line({ label, value, ok }: { label: string; value: string; ok: boolean | null }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: 9 }}>
-      <T v="caps" style={{ width: 70 }}>{label}</T>
-      <View style={{ width: 7, height: 7, borderRadius: 4, marginRight: 8, backgroundColor: ok === null ? C.paper3 : ok ? TONE.green : TONE.vermilion }} />
-      <T v="small" color={C.paper} style={{ flex: 1 }}>{value}</T>
+    <View style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: S[3] }}>
+      <T v="label" style={{ width: 72 }}>{label}</T>
+      <View style={{ marginRight: S[2] }}><StateMark kind={ok === null ? 'off' : ok ? 'on' : 'fault'} size={10} /></View>
+      <T v="small" color={C.fg} style={[{ flex: 1 }, ok === false ? { fontFamily: F.sansMedium } : null]}>{value}</T>
     </View>
   );
 }
@@ -69,35 +69,41 @@ function Line({ label, value, ok }: { label: string; value: string; ok: boolean 
 interface Props {
   state: PhoneState;
   listen: ListenState;
-  isDemo: boolean;
+  /** The last conversation ended long enough ago that its debrief is not coming. */
+  debriefLate: boolean;
   onOpenDebrief: () => void;
 }
 
-export function ListeningIdle({ state, listen, isDemo, onOpenDebrief }: Props) {
+export function ListeningIdle({ state, listen, debriefLate, onOpenDebrief }: Props) {
   const idle = listen === 'in-conversation' ? 'listening' : listen;
   const reachable = listen !== 'offline' && listen !== 'connecting';
   const band = state.band;
   // when the laptop is unreachable, the band and mic values are stale: say so instead of showing them
   const bandValue = !reachable ? 'unknown (laptop unreachable)' : !band ? 'no word from the band yet'
-    : band.connected ? `connected · ${band.transport}${band.battery_pct !== null ? ` · ${band.battery_pct}%` : ''}` : 'not connected';
+    : band.connected ? ['connected', typeof band.transport === 'string' ? band.transport : null, typeof band.battery_pct === 'number' && Number.isFinite(band.battery_pct) ? `${Math.round(band.battery_pct)}%` : null].filter(Boolean).join(' · ') : 'not connected';
   const micValue = !reachable || !band ? 'unknown' : band.mic_on ? 'on, listening' : 'off';
   const last = state.session?.endedAt ? state.session : null;
   const ready = !!last && state.debrief?.session_id === last.id;
   return (
     <View>
-      <T v="serif" size={60} color={idle === 'listening' ? C.paper : C.paper2}>{HEADLINE[idle]}</T>
-      <T v="small" style={{ marginTop: 8 }}>{EXPLAIN[idle]}</T>
-      <View style={{ marginTop: 18 }}>
-        <Line label="Laptop" value={isDemo ? 'demo feed' : listen === 'offline' ? 'unreachable, retrying' : listen === 'connecting' ? 'connecting…' : 'connected'} ok={listen === 'connecting' ? null : listen !== 'offline'} />
+      <T v="displayL" color={idle === 'listening' ? C.fg : C.fg2}>{HEADLINE[idle]}</T>
+      <T v="small" style={{ marginTop: S[2] }}>{EXPLAIN[idle]}</T>
+      <View style={{ marginTop: S[5] }}>
+        <Line label="Laptop" value={listen === 'offline' ? 'unreachable, retrying' : listen === 'connecting' ? 'connecting…' : 'connected'} ok={listen === 'connecting' ? null : listen !== 'offline'} />
         <Line label="Band" value={bandValue} ok={!reachable || !band ? null : band.connected} />
         <Line label="Mic" value={micValue} ok={!reachable || !band ? null : band.mic_on} />
+        <Rule />
       </View>
       {last ? (
-        <Pressable onPress={onOpenDebrief} disabled={!ready} accessibilityRole="link" accessibilityLabel={ready ? 'Read the debrief of the last conversation' : 'The last conversation, debrief being written'}
-          style={({ pressed }) => ({ marginTop: 18, borderLeftWidth: 2, borderLeftColor: C.paper, paddingLeft: 12, opacity: pressed ? 0.55 : 1 })}>
-          <T v="caps">Last conversation · {clock(((last.endedAt ?? last.startedAt) - last.startedAt) / 1000)}</T>
-          <T v="body" style={{ marginTop: 2, fontFamily: F.sansMedium, textDecorationLine: ready ? 'underline' : 'none' }}>
-            {ready ? 'Read the debrief' : 'Debrief on its way. Very short ones close quietly, without one.'}
+        // no left bar (§4.4): a small-caps label over an underlined link
+        <Pressable onPress={onOpenDebrief} disabled={!ready} accessibilityRole="link" accessibilityLabel={ready ? 'Read the debrief of the last conversation' : debriefLate ? 'The last conversation, no debrief' : 'The last conversation, debrief being written'}
+          style={({ pressed }) => ({ marginTop: S[5], opacity: pressed ? 0.55 : 1 })}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: S[2] }}>
+            <T v="label">Last conversation</T>
+            <T v="numS" color={C.fg3}>{clock(((last.endedAt ?? last.startedAt) - last.startedAt) / 1000)}</T>
+          </View>
+          <T v="body" color={ready ? C.fg : C.fg2} style={{ marginTop: S[1], textDecorationLine: ready ? 'underline' : 'none' }}>
+            {ready ? 'Read the debrief' : debriefLate ? 'No debrief for this one. Very short ones close quietly, without one.' : 'Debrief on its way. Very short ones close quietly, without one.'}
           </T>
         </Pressable>
       ) : null}

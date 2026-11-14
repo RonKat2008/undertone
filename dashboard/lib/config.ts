@@ -1,47 +1,69 @@
 /**
- * Mock or live? One switch, three ways to set it (first match wins):
- *   1. query param  ?bus=mock | ?bus=live | ?bus=http://192.168.1.20:8000   (remembered for the tab)
+ * Which backend the dashboard talks to (first match wins):
+ *   1. query param  ?bus=http://192.168.1.20:8000   (remembered for the tab)
  *   2. env var      NEXT_PUBLIC_BUS_URL=http://localhost:8000
- *   3. nothing      -> the mock feed
- * Extra query params for the mock: ?t=46 (start there), ?freeze=1 (hold that moment), ?speed=2.
+ *   3. nothing      -> the host this page was loaded from, on port 8000
+ *                      (localhost on the laptop, the laptop's address from a phone on the same network)
+ * There is no offline feed: every screen shows the wearer's real data, or says why it cannot.
  */
-const DEFAULT_LIVE = 'http://localhost:8000';
+export const BACKEND_PORT = 8000;
 const KEY = 'undertone:bus';
 
 export interface BusConfig {
-  /** Base HTTP URL of the backend, or null for the mock feed. */
-  url: string | null;
-  startAt?: number;
-  freeze?: boolean;
-  speed?: number;
+  /** Base HTTP URL of the backend. */
+  url: string;
 }
 
-function normalise(value: string | null | undefined): string | null | undefined {
-  if (value === null || value === undefined || value === '') return undefined;
-  if (value === 'mock') return null;
-  if (value === 'live') return DEFAULT_LIVE;
-  return value.replace(/^ws/, 'http').replace(/\/ws\/?$/, '').replace(/\/+$/, '');
+/** A backend address in canonical form ("ws://h:1/ws/" -> "http://h:1"), or undefined when blank or not an address. */
+export function normaliseBusUrl(value: string | null | undefined): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  let v = value.trim();
+  // "172.20.10.2:8000", "laptop.local", "localhost:8000": an address typed without a scheme means http.
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v) && /^(localhost|[\w-]+(\.[\w-]+)+|[\w.-]+:\d+)(:\d+)?(\/\S*)?$/i.test(v)) v = `http://${v}`;
+  if (!/^(https?|wss?):\/\/[^/\s]+/i.test(v)) return undefined;
+  return v.replace(/^ws/i, 'http').replace(/\/ws\/?$/, '').replace(/\/+$/, '');
+}
+
+/** The default address: the page's own host on the backend port. */
+export function defaultBusUrl(hostname: string | null | undefined): string {
+  const host = hostname && hostname.length > 0 ? hostname : 'localhost';
+  return `http://${host}:${BACKEND_PORT}`;
+}
+
+export interface BusUrlInputs {
+  /** The ?bus= query value, if any. */
+  query?: string | null;
+  /** The value remembered for this tab, if any. */
+  stored?: string | null;
+  /** NEXT_PUBLIC_BUS_URL. */
+  env?: string | null;
+  /** window.location.hostname. */
+  hostname?: string | null;
+}
+
+/** Pure: picks the backend address from the inputs above. */
+export function resolveBusUrl({ query, stored, env, hostname }: BusUrlInputs): string {
+  return normaliseBusUrl(query) ?? normaliseBusUrl(stored) ?? normaliseBusUrl(env) ?? defaultBusUrl(hostname);
 }
 
 let cached: BusConfig | null = null;
 
 export function getBusConfig(): BusConfig {
   if (cached) return cached;
-  const env = normalise(process.env.NEXT_PUBLIC_BUS_URL);
-  if (typeof window === 'undefined') return { url: env ?? null };
-  const q = new URLSearchParams(window.location.search);
-  let chosen = normalise(q.get('bus'));
+  const env = process.env.NEXT_PUBLIC_BUS_URL;
+  if (typeof window === 'undefined') return { url: resolveBusUrl({ env }) };
+  const query = normaliseBusUrl(new URLSearchParams(window.location.search).get('bus'));
+  let stored: string | null = null;
   try {
-    if (chosen !== undefined) window.sessionStorage.setItem(KEY, chosen ?? 'mock');
-    else chosen = normalise(window.sessionStorage.getItem(KEY));
+    if (query) window.sessionStorage.setItem(KEY, query);
+    else stored = window.sessionStorage.getItem(KEY);
   } catch {
     /* private mode: the query param still works for this page */
   }
-  const num = (name: string) => (q.get(name) !== null && !Number.isNaN(Number(q.get(name))) ? Number(q.get(name)) : undefined);
-  cached = { url: chosen !== undefined ? chosen : env ?? null, startAt: num('t'), freeze: q.get('freeze') === '1', speed: num('speed') };
+  cached = { url: resolveBusUrl({ query, stored, env, hostname: window.location.hostname }) };
   return cached;
 }
 
-export function apiBase(): string | null {
+export function apiBase(): string {
   return getBusConfig().url;
 }

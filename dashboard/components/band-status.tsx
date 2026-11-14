@@ -24,12 +24,14 @@ export function BandStatus() {
 
   const text = !band ? 'Band: waiting' : !connected ? 'Band off' : alwaysOn ? 'Listening all day' : listening ? 'Listening' : 'Connected, not listening';
   const battery = band?.connected && band.battery_pct !== null ? `${Math.round(band.battery_pct)}%` : null;
+  // §2.4: listening is an ink dot in a breathing ring, connected a filled dot, off a hollow ring. Never a hue.
+  const mark = listening || alwaysOn ? 'state-listening' : connected ? 'state-on' : '';
   return (
-    <span className="flex items-center gap-2 text-[12px]" role="status" aria-label={`Band status: ${text}`}
+    <span className="text-s flex items-center gap-2" role="status" aria-label={`Band status: ${text}`}
       title={listening ? 'The band’s light is solid blue: the mic is on' : undefined}>
-      <span className={`inline-block h-2 w-2 rounded-full ${listening || alwaysOn ? 'live-dot bg-mic' : connected ? 'bg-ink' : 'border border-ink-3'}`} aria-hidden />
-      <span className="caps !text-ink">{text}</span>
-      {battery && <span className="num text-ink-2">{battery}</span>}
+      <span className={`state ${mark}`} aria-hidden />
+      <span className={connected ? 'text-ink' : 'text-ink-2'}>{text}</span>
+      {battery && <span className="num-s text-ink-3">{battery}</span>}
     </span>
   );
 }

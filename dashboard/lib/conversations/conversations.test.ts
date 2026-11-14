@@ -6,8 +6,6 @@ import {
   filterSessions, fractionOf, groupByDay, longDate, parseLibrary, parseLibraryUrl, parseLibrarySession, parseTranscript,
   reasonLabel, relativeDayName, restoreSession, splitFillers, timeAtPointer, timeOfDay, transcriptText, writeLibraryUrl,
 } from './model.ts';
-import { SAMPLE_LIBRARY, sampleTranscript } from './sample.ts';
-import { synthWav } from './sample-audio.ts';
 import type { LibrarySession, TranscriptTurn } from './types';
 
 const session = (id: string, started_at: string, extra: Partial<LibrarySession> = {}): LibrarySession => ({
@@ -110,7 +108,7 @@ describe('library url', () => {
   test('round trip, keeping other params', () => {
     assert.deepEqual(parseLibraryUrl('?all=1&q=sam'), { all: true, q: 'sam' });
     assert.deepEqual(parseLibraryUrl(''), { all: false, q: '' });
-    assert.equal(writeLibraryUrl('?bus=mock', { all: true, q: 'sam trip' }), '?bus=mock&all=1&q=sam+trip');
+    assert.equal(writeLibraryUrl('?bus=x', { all: true, q: 'sam trip' }), '?bus=x&all=1&q=sam+trip');
     assert.equal(writeLibraryUrl('?all=1&q=x', { all: false, q: '' }), '');
   });
 });
@@ -169,29 +167,5 @@ describe('transcript text', () => {
     assert.equal(transcriptText(t, 'Sam, 13 Nov'), 'Sam, 13 Nov\n\nYou (0:00): Um hi\nThem (1:05): Hello um');
     assert.equal(transcriptText(t), 'You (0:00): Um hi\nThem (1:05): Hello um');
     assert.equal(fillerCount(t.turns), 1);
-  });
-});
-
-describe('sample data', () => {
-  test('every sample session parses, and kept ones have transcripts', () => {
-    for (const s of SAMPLE_LIBRARY) {
-      assert.ok(parseLibrarySession(s), s.session_id);
-      const t = sampleTranscript(s.session_id);
-      assert.ok(t && parseTranscript(t), s.session_id);
-      for (let i = 1; i < t.turns.length; i++) assert.ok(t.turns[i].start >= t.turns[i - 1].end, `${s.session_id} turn ${i}`);
-    }
-    assert.equal(sampleTranscript('nope'), null);
-    assert.ok(SAMPLE_LIBRARY.some((s) => !s.kept));
-  });
-  test('the synthesised WAV has a valid header and the right length', () => {
-    const wav = synthWav([turn(0.5, { end: 1 })], 2, 0, 1000);
-    const v = new DataView(wav.buffer);
-    assert.equal(String.fromCharCode(...wav.slice(0, 4)), 'RIFF');
-    assert.equal(String.fromCharCode(...wav.slice(8, 12)), 'WAVE');
-    assert.equal(v.getUint32(24, true), 1000);
-    assert.equal(v.getUint32(40, true), 2000);
-    assert.equal(wav.length, 2044);
-    assert.equal(wav[44 + 100], 128); // silence before the turn
-    assert.notEqual(wav.slice(44 + 520, 44 + 980).some((b) => b !== 128), false);
   });
 });
