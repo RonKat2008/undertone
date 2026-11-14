@@ -23,7 +23,7 @@ export function Fetching({ what = 'Loading', style }: { what?: string; style?: S
 export function NotPaired({ style }: { style?: StyleProp<ViewStyle> }) {
   const router = useRouter();
   return (
-    <EmptyState title="Not paired" line="Pair with your laptop to see this." style={style}
+    <EmptyState icon="link" title="Not paired" line="Pair with your laptop to see this." style={style}
       action={<Button kind="primary" label="Pair" onPress={() => router.push('/pair')} />} />
   );
 }

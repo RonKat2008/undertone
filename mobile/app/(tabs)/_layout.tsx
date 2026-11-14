@@ -1,16 +1,17 @@
 /**
  * Three tabs: Now, Conversations, You. expo-router's real Tabs keep each screen mounted,
- * so switching never refetches or loses scroll. Text tabs only: no icons to decode.
+ * so switching never refetches or loses scroll. A simple drawn icon and a word per tab.
  */
 import { Tabs } from 'expo-router';
 import type { BottomTabBarProps } from 'expo-router/tabs';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBus } from '@/bus/use-bus';
-import { T } from '@/ui/kit';
-import { C, S } from '@/ui/theme';
+import { Icon, T, type IconName } from '@/ui/kit';
+import { C, S, SHADOW } from '@/ui/theme';
 
 const LABELS: Record<string, string> = { index: 'Now', conversations: 'Conversations', you: 'You' };
+const ICONS: Record<string, IconName> = { index: 'now', conversations: 'talk', you: 'you' };
 
 function TabBar({ state, navigateToTab }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -26,10 +27,11 @@ function TabBar({ state, navigateToTab }: BottomTabBarProps) {
           <Pressable key={route.key} onPress={onPress} accessibilityRole="tab" accessibilityState={{ selected: active }}
             accessibilityLabel={unread ? `${label}, new debrief` : label}
             style={({ pressed }) => [styles.tab, pressed && styles.pressed]}>
-            <View style={styles.labelRow}>
-              <T v="small" strong color={active ? C.text : C.muted}>{label}</T>
+            <View>
+              <Icon name={ICONS[route.name] ?? 'now'} size={24} color={active ? C.accent : C.muted} />
               {unread ? <View style={styles.unread} /> : null}
             </View>
+            <T v="caption" strong color={active ? C.accent : C.muted} style={styles.label}>{label}</T>
           </Pressable>
         );
       })}
@@ -49,9 +51,9 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  bar: { flexDirection: 'row', backgroundColor: C.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line },
+  bar: { flexDirection: 'row', backgroundColor: C.bgDeep, paddingTop: S[2], ...SHADOW },
   tab: { flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.6 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  unread: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.accent },
+  label: { marginTop: 2 },
+  unread: { position: 'absolute', top: -1, right: -4, width: 9, height: 9, borderRadius: 5, backgroundColor: C.warm, borderWidth: 2, borderColor: C.bgDeep },
 });

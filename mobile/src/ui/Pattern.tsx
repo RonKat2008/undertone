@@ -40,7 +40,7 @@ export function PatternMark({ pattern, color = C.muted }: { pattern: HapticPatte
   const spec = PATTERNS[pattern];
   if (!spec) return null;
   return (
-    <View style={styles.row} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+    <View style={styles.row} aria-hidden>
       {spec.pulses.map((p, i) => (
         <View key={i} style={[styles.dash, p.dur >= LONG_MS ? styles.long : styles.short, { backgroundColor: color }]} />
       ))}
