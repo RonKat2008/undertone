@@ -74,6 +74,3 @@ export const EASE = {
   sine: Easing.bezier(0.37, 0, 0.63, 1),
 } as const;
 export const DUR = { press: 120, enter: 240, exit: 200, hold: 2500, breath: 3200 } as const;
-
-/** One switch for every "sample" label in the app. */
-export const SHOW_SAMPLE_LABELS = true;

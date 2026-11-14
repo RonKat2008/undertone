@@ -4,14 +4,16 @@
  * Transcript text is speech from the room: untrusted, rendered as plain text only.
  */
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native';
 import { getTranscript, listSessions, mediaUrl, type SessionTranscript, type TranscriptResult, type TranscriptTurn } from '@/api/client';
 import { activeTurnIndex, markFillers } from '@/api/transcript';
 import { usePlayback, type Playback } from '@/audio/player';
 import { Header } from '@/ui/Header';
 import { PlayerBar } from '@/ui/PlayerBar';
-import { Btn, Label, SampleTag, Screen, T, clock } from '@/ui/kit';
+import { useBus } from '@/bus/use-bus';
+import { Label, Screen, T, clock } from '@/ui/kit';
+import { Failed, Fetching, Notice, NotPaired } from '@/ui/States';
 import { C, S, TONE } from '@/ui/theme';
 
 const SCROLL_PAUSE_MS = 4000; // after the wearer scrolls by hand, leave the scroll alone this long
@@ -21,6 +23,7 @@ export default function TranscriptScreen() {
   const [result, setResult] = useState<TranscriptResult | null>(null);
   const [headline, setHeadline] = useState<string | null>(headlineParam ?? null);
   const [attempt, setAttempt] = useState(0);
+  const { mode } = useBus();
 
   useEffect(() => {
     if (!id) return;
@@ -28,38 +31,28 @@ export default function TranscriptScreen() {
     setResult(null);
     getTranscript(id).then((r) => on && setResult(r));
     return () => { on = false; };
-  }, [id, attempt]);
+  }, [id, attempt, mode]);
 
   useEffect(() => {
     if (!id || headlineParam) return;
     let on = true;
-    listSessions().then((s) => { const row = s.data.find((x) => x.session_id === id); if (on && row) setHeadline(row.headline_fact); });
+    listSessions().then((s) => {
+      const row = s.kind === 'ok' ? s.data.find((x) => x.session_id === id) : undefined;
+      if (on && row?.headline_fact) setHeadline(row.headline_fact);
+    });
     return () => { on = false; };
-  }, [id, headlineParam]);
+  }, [id, headlineParam, mode]);
 
-  const sample = result?.kind === 'ok' && result.sample;
   return (
     <Screen scroll={false} style={{ flex: 1, paddingBottom: 0 }}>
-      <Header title="What was said" right={<SampleTag show={sample} />} />
+      <Header title="What was said" />
       {!id ? <Notice title="Nothing to show." body="Open a conversation from History to read what was said." />
-        : !result ? <T v="displayM" color={C.fg3}>Fetching what was said…</T>
-          : result.kind === 'not-found' ? <Notice title="The laptop has no conversation by that name." body="It may have been a capture the laptop chose not to keep." />
-            : result.kind === 'unreachable' ? (
-              <Notice title="Laptop unreachable" body={`${result.message} Check the laptop is awake and on this Wi-Fi.`}>
-                <Btn small label="Try again" onPress={() => setAttempt((n) => n + 1)} style={{ marginTop: S[4], alignSelf: 'flex-start' }} />
-              </Notice>
-            ) : <Script t={result.data} headline={headline} dropped={result.dropped} />}
+        : !result ? <Fetching what="Fetching what was said…" />
+          : result.kind === 'not-paired' ? <NotPaired />
+            : result.kind === 'not-found' ? <Notice title="The laptop has no conversation by that name." body="It may have been a capture the laptop chose not to keep." />
+              : result.kind === 'unreachable' ? <Failed message={result.message} onRetry={() => { setResult(null); setAttempt((n) => n + 1); }} />
+                : <Script t={result.data} headline={headline} dropped={result.dropped} />}
     </Screen>
-  );
-}
-
-function Notice({ title, body, children }: { title: string; body: string; children?: ReactNode }) {
-  return (
-    <View>
-      <T v="displayM">{title}</T>
-      <T v="small" style={{ marginTop: S[2] }}>{body}</T>
-      {children}
-    </View>
   );
 }
 

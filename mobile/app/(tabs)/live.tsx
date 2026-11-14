@@ -12,7 +12,8 @@ import { useBus, useNow } from '@/bus/use-bus';
 import { Glyph } from '@/ui/Glyph';
 import { LISTEN_LABEL, ListeningIdle, listenMark, useKeepAwakeWhile } from '@/ui/Listening';
 import { Budget, Metronome, QuarterNote, amplitude } from '@/ui/Metronome';
-import { Btn, Link, StateMark, T, clock } from '@/ui/kit';
+import { Btn, Link, Screen, StateMark, T, clock } from '@/ui/kit';
+import { NotPaired } from '@/ui/States';
 import { useReduceMotion } from '@/ui/motion';
 import { C, DUR, EASE, F, R, S, TONE } from '@/ui/theme';
 
@@ -20,6 +21,8 @@ const STATUS_MS = 3000; // "How am I doing?" holds 3 s, then the pendulum return
 const SUCCESS_MS = 1500; // practice: only `success` takes over, for 1.5 s
 const FADE_MS = 400;
 const DEFAULT_BASELINE = 160;
+/** After this long with no debrief, a conversation that closed quietly is not getting one. */
+const DEBRIEF_WAIT_MS = 120000;
 
 interface Take { key: string; pattern: HapticPattern; title: string; detail: string; at: number; hold: number }
 
@@ -71,6 +74,8 @@ export default function LiveScreen() {
   const listen = listenState(state);
   // Tap-to-start: awake while this tab is open (as before). Always-on: the root layout holds it during a conversation only.
   useKeepAwakeWhile(!alwaysOn, 'undertone-live-tab');
+  const debriefReady = !!session && state.debrief?.session_id === session.id;
+  const debriefLate = !!session?.endedAt && !debriefReady && now - session.endedAt > DEBRIEF_WAIT_MS;
   // always-on idle shows 0:00: the last conversation's length lives in the "Last conversation" line
   const elapsed = session && (live || !state.alwaysOn) ? ((session.endedAt ?? now) - session.startedAt) / 1000 : 0;
 
@@ -90,15 +95,17 @@ export default function LiveScreen() {
   const policy = session?.policy;
   const budgetTotal = policy?.budget_per_session ?? 3;
   const budgetLeft = Math.min(state.budgetLeft ?? budgetTotal, budgetTotal);
-  const focus = state.coach?.nudge_rules.find((r) => r.id === policy?.focus_rule_id)?.haptic ?? 'slow_down';
-  const coachName = state.coach ? (/coach$/i.test(state.coach.name) ? state.coach.name : `${state.coach.name} coach`) : 'No coach yet';
+  const ruleHaptic = state.coach?.nudge_rules?.find((r) => r.id === policy?.focus_rule_id)?.haptic;
+  const focus: HapticPattern = ruleHaptic && PATTERNS[ruleHaptic] ? ruleHaptic : 'slow_down';
+  const coachName = state.coach?.name ? (/coach$/i.test(state.coach.name) ? state.coach.name : `${state.coach.name} coach`) : 'No coach yet';
   const offline = state.status === 'offline';
+  const connecting = state.status === 'connecting';
   // The connection line: always-on says plainly what is listening (band, mic, laptop); tap-to-start keeps the short form.
-  const lineMark = alwaysOn ? listenMark(listen) : offline ? 'fault' : live ? 'listening' : mode === 'mock' ? 'off' : 'on';
+  const lineMark = alwaysOn ? listenMark(listen) : offline ? 'fault' : live ? 'listening' : connecting ? 'off' : 'on';
   const lineFault = lineMark === 'fault';
   const lineText = alwaysOn
     ? (listen === 'offline' ? 'Offline: laptop unreachable' : LISTEN_LABEL[listen])
-    : offline ? 'Offline: laptop unreachable' : live ? 'Listening' : mode === 'mock' ? 'Demo feed' : 'Connected';
+    : offline ? 'Offline: laptop unreachable' : live ? 'Listening' : connecting ? 'Connecting to the laptop' : 'Connected';
   const alwaysOnIdle = alwaysOn && !live && !practice;
 
   const wpm = state.metrics?.wpm ?? 0;
@@ -109,6 +116,8 @@ export default function LiveScreen() {
 
   const keysH = live ? 96 : 64;
   const keysBottom = S[4];
+
+  if (mode === 'unpaired') return <Screen><NotPaired style={{ marginTop: S[6] }} /></Screen>;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -138,14 +147,15 @@ export default function LiveScreen() {
             ) : practice ? (
               <Drill live={live} ended={ended} />
             ) : alwaysOnIdle ? (
-              <ListeningIdle state={state} listen={listen} isDemo={mode === 'mock'} onOpenDebrief={() => router.push('/debrief')} />
+              <ListeningIdle state={state} listen={listen} debriefLate={debriefLate} onOpenDebrief={() => router.push('/debrief')} />
             ) : (
               <Pendulum wpm={live ? wpm : 0} baseline={baseline} tolerance={tolerance} width={centre.w} height={centre.h} screenH={screenH}
                 dim={!live} ritFrom={ritFrom}
                 lastNudge={live && n?.pattern ? n : null}
                 idle={!session ? 'Double-tap the band to begin.' : ended ? 'Conversation ended.' : null}
-                after={ended ? (
-                  <Link label={state.debrief ? 'Read the debrief' : 'The debrief is being written…'} onPress={() => router.push('/debrief')} />
+                after={ended && session ? (
+                  debriefLate ? <T v="body" color={C.fg2} style={{ marginTop: S[2] }}>No debrief for this one. Very short ones close quietly, without one.</T>
+                    : <Link label={debriefReady ? 'Read the debrief' : 'The debrief is being written…'} onPress={() => router.push({ pathname: '/debrief', params: { id: session.id } })} />
                 ) : !session ? <T v="small" style={{ marginTop: S[2] }}>Keep this screen open and the phone on you. It taps; it never rings.</T> : null}
               />
             )}
@@ -303,8 +313,8 @@ function Drill({ live, ended }: { live: boolean; ended: boolean }) {
   const { state } = useBus();
   const reduce = useReduceMotion();
   const [w, setW] = useState(350);
-  const words = state.coach?.filler_words.slice(0, 3) ?? [];
-  const prompt = state.coach?.drill.prompts[0] ?? 'Tell me about yourself.';
+  const words = state.coach?.filler_words?.slice(0, 3) ?? [];
+  const prompt = state.coach?.drill?.prompts?.[0] ?? null;
   const caught = state.marks.filter((m) => m.kind === 'nudge' && m.pattern === 'filler');
   const span = Math.max(12, ...caught.map((m) => m.ts + 1.5));
   const p = state.practice;
@@ -329,10 +339,10 @@ function Drill({ live, ended }: { live: boolean; ended: boolean }) {
   });
   return (
     <View style={{ flex: 1 }}>
-      <T v="displayS" italic>“{prompt}”</T>
+      {prompt ? <T v="displayS" italic>“{prompt}”</T> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: S[3], marginTop: S[2] }}>
         <T v="small" color={C.fg3}>Taps on</T>
-        {words.map((word) => <T key={word} v="label" color={TONE.ochre.text}>{word}</T>)}
+        {words.length ? words.map((word) => <T key={word} v="label" color={TONE.ochre.text}>{word}</T>) : <T v="small" color={C.fg3}>your crutch words</T>}
       </View>
 
       {/* the drill stave */}

@@ -1,6 +1,6 @@
 /**
  * A new debrief arrived: one quiet line at the top of the screen that opens it. Arrives, goes by itself.
- * Tempo (§4.5): sits above the page like the director panel: `well`, 1 px `ruleStrong`, square, one ink-tinted shadow.
+ * Tempo (§4.5): sits above the page: `well`, 1 px `ruleStrong`, square, one ink-tinted shadow.
  * Neutral throughout: no pattern hue, because a debrief is not a nudge.
  */
 import { useEffect, useState } from 'react';
@@ -37,13 +37,13 @@ export function DebriefNotice({ notice, onOpen, onDismiss }: Props) {
     <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: insets.top + S[2], paddingHorizontal: S[3], opacity: fade, transform: [{ translateY }] }}>
       <View accessibilityLiveRegion="polite" style={{
         flexDirection: 'row', alignItems: 'stretch', backgroundColor: C.well, borderWidth: 1, borderColor: C.ruleStrong,
-        // the director panel's shadow (§4.5), pointing down
+        // the §4.5 overlay shadow, pointing down
         shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 6,
       }}>
-        <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={`New debrief. ${notice.headline} Open it.`}
+        <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={notice.headline ? `New debrief. ${notice.headline} Open it.` : 'New debrief. Open it.'}
           style={({ pressed }) => ({ flex: 1, paddingVertical: S[3], paddingLeft: S[4], paddingRight: S[2], opacity: pressed ? 0.6 : 1 })}>
           <T v="label" color={C.fg}>New debrief · open</T>
-          <T v="small" numberOfLines={2} style={{ marginTop: S[1] }}>{notice.headline}</T>
+          {notice.headline ? <T v="small" numberOfLines={2} style={{ marginTop: S[1] }}>{notice.headline}</T> : null}
         </Pressable>
         <Pressable onPress={onDismiss} accessibilityRole="button" accessibilityLabel="Dismiss" hitSlop={8}
           style={({ pressed }) => ({ width: 48, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: C.rule, backgroundColor: pressed ? C.rule : 'transparent' })}>

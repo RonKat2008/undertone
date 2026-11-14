@@ -18,9 +18,10 @@ function LinkRow({ title, note, onPress, badge }: { title: string; note: string;
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { mode, pairing, state, unpair, alwaysOnDemo, setAlwaysOnDemo } = useBus();
+  const { mode, pairing, state, unpair } = useBus();
+  const unpaired = mode === 'unpaired';
   const pending = state.appRequests.length;
-  const connected = mode !== 'mock' && state.status === 'live';
+  const connected = mode === 'live' && state.status === 'live';
   return (
     <Screen title="Settings">
       <View style={{ borderTopWidth: 1, borderTopColor: C.rule }}>
@@ -29,23 +30,20 @@ export default function SettingsScreen() {
       </View>
 
       <Label style={{ marginTop: S[7] }}>This phone</Label>
-      {/* Neutral state marks (§2.4): a hollow ring when idle, a dot when connected, a dashed ring when offline. */}
+      {/* Neutral state marks (§2.4): a hollow ring when not paired, a dot when connected, a dashed ring when offline. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: S[3], marginTop: S[3] }}>
-        <StateMark kind={mode === 'mock' ? 'off' : connected ? 'on' : 'fault'} size={14} />
-        <T v="displayS">{mode === 'mock' ? 'Demo pairing' : connected ? 'Connected to the laptop' : 'Laptop unreachable'}</T>
-        {mode !== 'mock' && !connected ? <T v="body" style={{ fontFamily: F.sansMedium }}>Offline</T> : null}
+        <StateMark kind={unpaired ? 'off' : connected ? 'on' : 'fault'} size={14} />
+        <T v="displayS">{unpaired ? 'Not paired' : connected ? 'Connected to the laptop' : 'Laptop unreachable'}</T>
+        {!unpaired && !connected ? <T v="body" style={{ fontFamily: F.sansMedium }}>Offline</T> : null}
       </View>
-      {mode === 'mock'
-        ? <T v="small" style={{ marginTop: S[1], marginLeft: 14 + S[3] }}>A scripted conversation, on a loop. No network.</T>
+      {unpaired
+        ? <T v="small" style={{ marginTop: S[1], marginLeft: 14 + S[3] }}>Pair with your laptop to see your conversations.</T>
         : <T v="numS" color={C.fg2} style={{ marginTop: S[2], marginLeft: 14 + S[3] }}>{pairing ? `${pairing.server_url}\n${pairing.device_id}` : process.env.EXPO_PUBLIC_BUS_URL ?? ''}</T>}
       <T v="small" style={{ marginTop: S[4] }}>{state.alwaysOn
         ? 'Always on: the band listens all day and conversations open by themselves. Buzzes only arrive while Undertone is open on screen; the screen stays awake during a conversation and may sleep between them. Open Undertone again to catch up.'
         : 'Buzzes only arrive while Undertone is open on screen. The Live tab keeps the screen awake.'}</T>
-      {mode === 'mock' ? (
-        <Btn small label={alwaysOnDemo ? 'Demo: always-on day (switch to tap to start)' : 'Demo: tap to start (switch to always-on day)'} onPress={() => setAlwaysOnDemo(!alwaysOnDemo)} style={{ marginTop: S[4] }} />
-      ) : null}
-      <Btn label={mode === 'mock' ? 'Pair with a laptop' : 'Unpair this phone'} onPress={() => void unpair()} style={{ marginTop: S[5] }} />
-      <T v="small" color={C.fg3} style={{ marginTop: S[6] }}>Three fingers on the screen opens the rehearsal panel.</T>
+      {unpaired ? <Btn label="Pair with your laptop" onPress={() => router.push('/pair')} style={{ marginTop: S[5] }} />
+        : pairing ? <Btn label="Unpair this phone" onPress={() => void unpair()} style={{ marginTop: S[5] }} /> : null}
     </Screen>
   );
 }

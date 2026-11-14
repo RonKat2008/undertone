@@ -4,7 +4,8 @@ import { approveApp, listApps, revokeApp, type AppInfo } from '@/api/client';
 import { useBus } from '@/bus/use-bus';
 import { Glyph } from '@/ui/Glyph';
 import { Header } from '@/ui/Header';
-import { Btn, Label, SampleTag, Screen, StateMark, T } from '@/ui/kit';
+import { Btn, Label, Screen, StateMark, T } from '@/ui/kit';
+import { NotPaired } from '@/ui/States';
 import { C, F, S, TONE } from '@/ui/theme';
 
 function ago(seconds: number | null): string {
@@ -19,14 +20,15 @@ function ago(seconds: number | null): string {
 export default function ConnectedApps() {
   const { state, buzzes, resolveApp, mode } = useBus();
   const [apps, setApps] = useState<AppInfo[]>([]);
-  const [sample, setSample] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    try { const r = await listApps(); setApps(r.data); setSample(r.sample); setError(null); } catch (e) { setError(e instanceof Error ? e.message : 'Cannot reach the laptop.'); }
+    const r = await listApps();
+    if (r.kind === 'ok') { setApps(r.data); setError(null); } else if (r.kind === 'error') setError(r.message);
   }, []);
   const requests = state.appRequests.length;
   useEffect(() => {
+    if (mode === 'unpaired') return;
     void refresh();
     const id = setInterval(refresh, 4000);
     return () => clearInterval(id);
@@ -39,9 +41,10 @@ export default function ConnectedApps() {
   const rest = apps.filter((a) => a.status !== 'pending');
   const foreign = buzzes.filter((b) => b.source_app !== 'undertone').slice(0, 8);
 
+  if (mode === 'unpaired') return <Screen><Header title="Connected apps" /><NotPaired /></Screen>;
   return (
     <Screen>
-      <Header title="Connected apps" right={<SampleTag show={sample} />} />
+      <Header title="Connected apps" />
       <T v="small">Any site or app can ask to tap you. Nothing buzzes until you say yes here, and you can take it back.</T>
       {/* Errors are ink and words, never vermilion: vermilion is `interrupt`. */}
       {error ? (
