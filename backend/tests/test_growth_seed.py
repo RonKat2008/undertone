@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -154,7 +155,18 @@ def test_force_does_not_touch_lookalike_ids(db: DB) -> None:
 def _run_script(*args: str) -> subprocess.CompletedProcess[str]:
     cmd = [sys.executable, str(SCRIPT), *args]
     return subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=60,
-                          env={"PATH": "/usr/bin:/bin", "HOME": str(Path.home())})
+                          env=_clean_env())
+
+
+def _clean_env() -> dict[str, str]:
+    """A bare environment, but Windows needs SYSTEMROOT (and friends) or asyncio fails to
+    import in the child with WinError 10106."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin") if os.name == "nt" else "/usr/bin:/bin",
+           "HOME": str(Path.home())}
+    for k in ("SYSTEMROOT", "SystemRoot", "WINDIR", "TEMP", "TMP", "USERPROFILE"):
+        if k in os.environ:
+            env[k] = os.environ[k]
+    return env
 
 
 def test_script_seeds_then_refuses(tmp_path: Path) -> None:
