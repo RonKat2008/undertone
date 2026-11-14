@@ -24,6 +24,7 @@ from backend.contracts import (
     SignalEvent, StatusReplyEvent, TranscriptPartialEvent, TurnContext, TurnFinalEvent,
 )
 from backend.metrics import MetricsEngine
+from backend.nudge import modes
 from backend.nudge import NudgeEngine, next_policy
 from backend.state import AppState, SessionState
 
@@ -82,11 +83,13 @@ class Brain:
             coach = self.find_coach(coach_id)
             if coach is None:
                 raise ValueError(f"unknown coach {coach_id}")
+        if mode == "regular":
+            coach = modes.with_pace_rule(coach)
         policy = self._policy_for(coach, mode)
         sid = f"s-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
         session = SessionState(session_id=sid, coach=coach, mode=mode, policy=policy)
         self.metrics = MetricsEngine(profile.baseline_wpm, profile.baseline_volume_db, coach.filler_words)
-        self.nudge = NudgeEngine(coach, policy)
+        self.nudge = NudgeEngine(coach, policy, mode=mode)
         self.motion, self._fidget_since, self._last_nudge = MotionSnapshot(), None, None
         self.app.session = session
         self.app.db.create_session(sid, coach.id, coach.name, mode, session.started_at_iso)
@@ -100,10 +103,10 @@ class Brain:
     def _policy_for(self, coach: CoachSpec, mode: SessionMode) -> NudgePolicy:
         """Demo override wins; otherwise regular sessions fade the budget as the focus habit
         improves and every fifth session is silent (nudge.next_policy). Never raises."""
-        policy = coach.nudge_policy
+        if mode == "practice":
+            return modes.practice_policy(coach)
+        policy = modes.regular_policy(coach, demo=self.settings.demo_policy)  # pace only (plan 4.5)
         if self.settings.demo_policy:
-            return policy.model_copy(update={"min_gap_s": DEMO_MIN_GAP_S, "budget_per_session": DEMO_BUDGET})
-        if mode != "regular":
             return policy
         try:
             rates = growth.focus_rates(self.app.db, coach.id, policy.focus_rule_id)

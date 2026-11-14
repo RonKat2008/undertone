@@ -172,8 +172,9 @@ def test_scripted_speech_runs_the_real_path(tmp_path, monkeypatch):
     assert debrief.data.numbers.talk_ratio > 0.3
 
 
-def test_demo_script_fires_the_interrupt_nudge(tmp_path, monkeypatch):
-    """fixtures/demo_script.jsonl: the wearer cuts in, the Brain buzzes `interrupt`, the debrief names it."""
+def test_demo_script_marks_the_interrupt_quietly(tmp_path, monkeypatch):
+    """fixtures/demo_script.jsonl: the wearer cuts in. Regular mode buzzes pace only, so the
+    interruption is a quiet mark (laptop + debrief), and the debrief names it."""
     _stub_fastapi_if_missing()
     monkeypatch.setenv("BAND_TRANSPORT", "sim")
     monkeypatch.setenv("STT", "fake")
@@ -217,7 +218,8 @@ def test_demo_script_fires_the_interrupt_nudge(tmp_path, monkeypatch):
     seen = asyncio.run(run())
     me = [e for e in seen if e.type == "turn.final" and e.speaker == "me"]
     assert len(me) == 3  # the overlap is one long turn, not fragments
-    assert any(e.type == "nudge" and e.haptic == "interrupt" for e in seen)
+    assert any(e.type == "nudge.quiet" and e.rule_id == "interrupt" for e in seen)
+    assert not any(e.type == "nudge" and e.haptic == "interrupt" for e in seen)
     debrief = next(e for e in seen if e.type == "debrief")
     assert debrief.data.numbers.interruptions >= 1
 

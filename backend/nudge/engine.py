@@ -30,6 +30,7 @@ UPPER_OPS = frozenset({">", ">="})
 # Session-cumulative ratios are noise on a tiny sample (one "um" in a 5 s first answer reads as
 # 12/min; whoever speaks first has talk_ratio 1.0), so rules on them wait this long to fire.
 RATE_WARMUP_S = 30.0
+REGULAR_WARMUP_S = 60.0  # plan 4.5: no buzz in the first 60 s of a regular conversation
 RATE_PATHS = frozenset({("metrics", "fillers_per_min"), ("metrics", "talk_ratio")})
 
 
@@ -80,9 +81,12 @@ def _compile(rules: list[NudgeRule]) -> list[_Rule]:
 
 
 class NudgeEngine:
-    def __init__(self, coach: CoachSpec, policy: NudgePolicy) -> None:
+    def __init__(self, coach: CoachSpec, policy: NudgePolicy, mode: str | None = None) -> None:
+        """mode "regular" / "practice" applies the per-mode rules in backend/nudge/modes.py;
+        None keeps the original single-focus behaviour (any rule may buzz in demo)."""
         self.coach = coach
         self.policy = policy
+        self.mode = mode
         self._demo = load_settings().demo_policy
         self._rules = _compile([*coach.nudge_rules, *coach.motion_rules])
         self._talk_target = talk_target([r.cond for r in self._rules])
@@ -157,8 +161,18 @@ class NudgeEngine:
             return False
         if is_success and self._success_used:
             return False
-        if not (self._demo or is_success or r.id == self.policy.focus_rule_id):
+        if self.mode == "practice":
+            if r.rule.haptic == "filler":
+                return False  # crutch words are buzzed word by word by backend/practice.py
+        elif self.mode == "regular":
+            if not (is_success or r.id == self.policy.focus_rule_id):
+                return False  # regular: only the focus (pace) rule buzzes; the rest are quiet marks
+        elif not (self._demo or is_success or r.id == self.policy.focus_rule_id):
             return False
+        if self.mode == "regular" and not self._demo and now < REGULAR_WARMUP_S:
+            return False      # none in the first 60 s while the baseline settles
+        if self.mode == "regular" and is_success:
+            return False      # no success buzz in regular mode
         if self._last_buzz is not None and now - self._last_buzz < self.policy.min_gap_s:
             return False
         last = self._last_rule_buzz.get(r.id)
