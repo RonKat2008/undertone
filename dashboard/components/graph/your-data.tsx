@@ -7,6 +7,7 @@ import { KindSwatch } from '@/components/graph/node-shape';
 import { SampleTag } from '@/components/sample-tag';
 import type { Sampled } from '@/lib/api/client';
 import type { HabitProfile, SessionSummary, WeeklyReport } from '@/lib/bus/contracts';
+import { conversationHref, LIBRARY_HREF } from '@/lib/conversations/links';
 import { duration, relativeDay } from '@/lib/graph/format';
 import type { GraphNode, GraphStats } from '@/lib/graph/types';
 
@@ -49,22 +50,24 @@ export function RecentConversations({ sessions, now }: { sessions: Sampled<Sessi
         {sessions?.data.slice(0, 6).map((s) => {
           const when = Date.parse(s.started_at) / 1000;
           return (
-            <li key={s.session_id} className="border-b border-rule">
-              <Link href={debriefHref(s.session_id)} className="group grid grid-cols-[76px_1fr] gap-x-4 py-3 hover:bg-well/60">
-                <span className="text-[12px] leading-tight text-ink-2">
-                  <span className="block">{Number.isFinite(when) ? (now > 0 ? relativeDay(when, now) : s.started_at.slice(0, 10)) : '—'}</span>
-                  <span className="num block">{duration(s.duration_s)}</span>
-                  {s.mode === 'practice' && <span className="caps mt-1 block !text-[9px]">practice</span>}
-                </span>
-                <span>
-                  <span className="block text-[14px] leading-snug group-hover:underline">{s.headline_fact}</span>
-                  <span className="num mt-1 block text-[11.5px] text-ink-2">{Math.round(s.numbers.talk_ratio * 100)}% you · {Math.round(s.numbers.wpm)} wpm · {s.coach_name}</span>
-                </span>
-              </Link>
+            <li key={s.session_id} className="grid grid-cols-[76px_1fr] gap-x-4 border-b border-rule py-3">
+              <span className="text-[12px] leading-tight text-ink-2">
+                <span className="block">{Number.isFinite(when) ? (now > 0 ? relativeDay(when, now) : s.started_at.slice(0, 10)) : '—'}</span>
+                <span className="num block">{duration(s.duration_s)}</span>
+                {s.mode === 'practice' && <span className="caps mt-1 block !text-[9px]">practice</span>}
+              </span>
+              <span className="min-w-0">
+                <Link href={debriefHref(s.session_id)} className="block text-[14px] leading-snug hover:underline">{s.headline_fact}</Link>
+                <span className="num mt-1 block text-[11.5px] text-ink-2">{Math.round(s.numbers.talk_ratio * 100)}% you · {Math.round(s.numbers.wpm)} wpm · {s.coach_name}</span>
+                <Link href={conversationHref(s.session_id)} className="mt-1 inline-block text-[11.5px] text-ink-2 underline decoration-rule underline-offset-2 hover:text-ink hover:decoration-ink">Transcript and recording</Link>
+              </span>
             </li>
           );
         })}
       </ul>
+      {sessions && sessions.data.length > 0 && (
+        <Link href={LIBRARY_HREF} className="caps mt-3 inline-block hover:text-ink">All conversations →</Link>
+      )}
     </section>
   );
 }

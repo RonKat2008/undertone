@@ -1,6 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { conversationHref } from '@/lib/conversations/links';
 import { clock } from '@/components/shell';
 import { SampleTag } from '@/components/sample-tag';
 import { getDebrief, listSessions, mediaUrl, type DebriefPayload, type Sampled } from '@/lib/api/client';
@@ -28,15 +30,18 @@ export default function DebriefPage() {
   if (!payload) return <p className="serif pt-16 text-[32px] text-ink-3">Fetching the debrief…</p>;
   // The transcript and marks on the bus belong to this debrief only if no newer session replaced them.
   const own = live !== null && state.session?.id === live.session_id;
-  return <DebriefView d={payload.data} audio={mediaUrl(payload.audio_url)} sample={live ? state.status === 'mock' : fallback?.sample ?? true}
+  return <DebriefView sessionId={requested ?? payload.session_id} d={payload.data} audio={mediaUrl(payload.audio_url)} sample={live ? state.status === 'mock' : fallback?.sample ?? true}
     turns={own ? state.turns : []} marks={own ? state.marks : []} />;
 }
 
-function DebriefView({ d, audio, sample, turns, marks }: { d: Debrief; audio: string | null; sample: boolean; turns: TurnView[]; marks: Mark[] }) {
+function DebriefView({ sessionId, d, audio, sample, turns, marks }: { sessionId: string; d: Debrief; audio: string | null; sample: boolean; turns: TurnView[]; marks: Mark[] }) {
   const n = d.numbers;
   return (
     <article className="pt-8">
-      <div className="caps mb-5 flex items-center gap-3">Debrief <SampleTag show={sample} /></div>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="caps flex items-center gap-3">Debrief <SampleTag show={sample} /></div>
+        <Link href={conversationHref(sessionId)} className="btn btn-sm">Transcript and recording</Link>
+      </div>
       <div className="grid gap-x-16 gap-y-10 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div>
           <h1 className="serif max-w-[22ch] text-[clamp(38px,4.6vw,72px)] leading-[0.98]">{d.headline_fact}</h1>

@@ -168,6 +168,11 @@ export interface SessionSummary {
   person_id: string | null;
   headline_fact: string;
   numbers: Debrief['numbers'];
+  /** Whether the backend kept this capture (missing means kept). GET /sessions returns kept ones only. */
+  kept?: boolean;
+  kept_reason?: 'keep' | 'trivial' | 'noise' | 'sensitive' | null;
+  /** Backend-relative path to the recording, or null when none was kept. */
+  audio_url?: string | null;
 }
 
 export interface DailyMission {

@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { KindSwatch } from '@/components/graph/node-shape';
 import { SampleTag } from '@/components/sample-tag';
 import { getGraphNode, type GraphResult } from '@/lib/api/client';
+import { conversationHref } from '@/lib/conversations/links';
 import { duration, KIND_LABEL, nodeFacts, relativeDay } from '@/lib/graph/format';
 import { buildAdjacency, groupByKind, NODE_KINDS, neighbourIds } from '@/lib/graph/model';
 import type { GraphNode, GraphNodeDetail } from '@/lib/graph/types';
@@ -121,7 +122,12 @@ function Facts({ node }: { node: GraphNode }) {
           ))}
         </dl>
       )}
-      {sessionId && <Link href={debriefHref(sessionId)} className="btn btn-solid mt-4">Open the debrief</Link>}
+      {sessionId && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link href={debriefHref(sessionId)} className="btn btn-solid">Open the debrief</Link>
+          <Link href={conversationHref(sessionId)} className="btn">Transcript and recording</Link>
+        </div>
+      )}
     </div>
   );
 }
@@ -153,11 +159,12 @@ function Conversations({ detail, now }: { detail: GraphNodeDetail; now: number }
         {detail.conversations.slice(0, 6).map((c) => {
           const when = Date.parse(c.started_at) / 1000;
           return (
-            <li key={c.session_id} className="border-b border-rule">
-              <Link href={debriefHref(c.session_id)} className="group grid grid-cols-[84px_1fr] gap-x-3 py-2.5 hover:bg-well/60">
-                <span className="num pt-0.5 text-[12px] text-ink-2">{Number.isFinite(when) ? relativeDay(when, now) : '—'}<br />{duration(c.duration_s)}</span>
-                <span className="text-[13px] leading-snug group-hover:underline">{c.headline_fact || 'Open the debrief'}</span>
-              </Link>
+            <li key={c.session_id} className="grid grid-cols-[84px_1fr] gap-x-3 border-b border-rule py-2.5">
+              <span className="num pt-0.5 text-[12px] text-ink-2">{Number.isFinite(when) ? relativeDay(when, now) : '—'}<br />{duration(c.duration_s)}</span>
+              <span className="min-w-0">
+                <Link href={debriefHref(c.session_id)} className="block text-[13px] leading-snug hover:underline">{c.headline_fact || 'Open the debrief'}</Link>
+                <Link href={conversationHref(c.session_id)} className="mt-1 inline-block text-[11.5px] text-ink-2 underline decoration-rule underline-offset-2 hover:text-ink hover:decoration-ink">Transcript and recording</Link>
+              </span>
             </li>
           );
         })}
