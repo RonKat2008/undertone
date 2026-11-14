@@ -1,0 +1,117 @@
+{
+  "id": "clear_across",
+  "name": "Clear Across",
+  "goal": "Be understood and land your point when English is one of your languages: say it another way when someone asks you to repeat, keep a pace that is comfortable for you, and check now and then that the other person is with you. The aim is being clear, never sounding like someone else.",
+  "kind": "prebuilt",
+  "confidence_threshold": 0.8,
+  "keyterms": [
+    "does that make sense",
+    "let me put it another way",
+    "sorry, could you repeat that",
+    "what I mean is",
+    "do you mean",
+    "in other words",
+    "for example",
+    "am I explaining this clearly"
+  ],
+  "filler_words": [
+    "um",
+    "uh",
+    "like",
+    "you know",
+    "kind of",
+    "sort of",
+    "basically"
+  ],
+  "questions": {
+    "repair_request": {
+      "type": "noul",
+      "instructions": "Look only at the OTHER PERSON's previous turn; the wearer's turn is context. Answer YES if that previous turn asks the wearer to repeat or clarify something the wearer had just said: a bare 'Sorry?', 'What?', 'Pardon?', 'Huh?' or 'Come again?'; 'Could you say that again?', 'I didn't catch that', 'I'm not sure I follow', 'What do you mean?', 'What do you mean by...?'; a checking question such as 'You mean the Berlin office?' or 'Do you mean Monday?'; or repeating a word or short phrase back as a question, usually a fragment like 'Assist the meeting?' or 'Since March?'. Answer NO if there is no previous turn; for 'Sorry to hear that', 'Sorry I'm late' and other apologies; for a new question about a new topic ('What do you think about the plan?'); for 'I mean, ...' used by the other person about their own words; and for short questions that do not repeat or query what the wearer said ('Lunch tomorrow?')."
+    },
+    "checked_understanding": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer's turn checks that the other person is following: 'Does that make sense?', 'Am I explaining this clearly?', 'Are you with me so far?', 'Is that clear?', 'Am I making sense?', 'Did that come across?', 'Should I say that differently?'. Answer NO for the filler 'you know?' or 'you know what I mean' said without waiting for an answer, for 'That makes sense' said about the other person's point, and for ordinary questions about something else ('Do you know where the meeting is?')."
+    },
+    "word_misfit": {
+      "type": "noul",
+      "instructions": "Answer YES only if the wearer uses a word or phrase whose meaning a typical English listener would likely misread in this context, so the listener could take away a different meaning from the one intended. Typical cases: a false friend, such as 'actually' meant as 'currently' ('Actually I work in sales' meaning 'at the moment'), 'eventually' meant as 'possibly', 'assist' meant as 'attend' ('I will assist the meeting'), 'sympathetic' meant as 'friendly'; or an idiom translated word for word that has no English meaning or a different one. Answer NO for missing or extra articles ('I went to office'), plural -s, third-person -s ('she work'), prepositions ('on the weekend' vs 'at the weekend'), question word order, formal or bookish vocabulary, and anything that is merely non-standard but whose meaning is still clear. When unsure whether the listener would misread it, answer NO."
+    },
+    "time_or_who_unclear": {
+      "type": "noul",
+      "instructions": "Answer YES only if the listener could be genuinely unsure WHEN something happened or WHO did it because of a verb form or a pronoun. Examples: 'I'm here since March' where it is unclear whether the wearer has left; 'I finish the report' where it is unclear whether it is done or planned; switching 'he' and 'she' for the same person so the listener could think two people are meant; 'they' with no clear person. Answer NO if a time word or the context makes it clear ('Yesterday I go to the client' is clear), if the verb form is non-standard but the meaning is still obvious, and if the wearer corrects it in the same turn."
+    },
+    "strategy_used": {
+      "type": "choice",
+      "instructions": "Which communication strategy, if any, did the wearer use in this turn to make sure they were understood or to understand the other person? Pick the most important one. These are strengths.",
+      "criteria": {
+        "paraphrase": "Says the same point again in different words ('What I mean is...', 'Let me put it another way', 'In other words...').",
+        "example": "Gives a concrete example or comparison to make the point clear ('For example, last week...', 'It's like a...').",
+        "asked_to_clarify": "Asks the other person to repeat or explain instead of guessing ('Do you mean the Monday meeting?', 'Sorry, could you repeat that?').",
+        "none": "None of these appears in this turn."
+      }
+    },
+    "let_it_pass": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer replies as if they understood the other person's previous turn, but the reply does not fit what was said: for example the other person asked when the report is due and the wearer answers 'Yes, it's good', or the other person changed the topic and the wearer carries on as if they had agreed. Answer NO if there is no previous turn, if the reply fits, if the wearer asks what was meant, or if the wearer simply chooses to change the topic openly ('Before that, can I ask...')."
+    },
+    "directness_fit": {
+      "type": "score",
+      "instructions": "Rate how well the directness of the wearer's turn fits the situation, judged from the words alone (not tone or pronunciation). Both ends of the scale are off: level 1 lands blunter than the wearer likely intends, level 5 is so apologetic or indirect that the point gets lost; level 3 is well-pitched. Requests, disagreement and bad news are where this matters most. If the turn contains no request, disagreement, refusal or opinion, choose level 3.",
+      "criteria": [
+        "Blunt: a request or disagreement lands as an order or a put-down ('Send me the file.', 'This is wrong.') with no softening at all",
+        "A little abrupt: mostly fine, but one request or disagreement sounds sharper than the situation needs",
+        "Well-pitched: direct enough to be clear, polite enough for the situation ('Could you send me the file today?', 'I see it differently')",
+        "A little indirect: the point is there but wrapped in extra softeners or apologies",
+        "Over-apologetic or indirect: repeated apologies or hedges hide the request or the point"
+      ]
+    },
+    "self_deprecation": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer apologises for or belittles their own English or way of speaking: 'Sorry for my English', 'My English is not so good', 'Excuse my English', 'I don't speak English very well, sorry', 'Sorry, my grammar is bad'. Answer NO for a neutral fact ('English is my second language'), for apologies about something else ('Sorry I'm late'), and for 'I don't know how to say this in English' followed by an attempt to explain it (that is a strategy, not belittling)."
+    }
+  },
+  "nudge_rules": [
+    {
+      "id": "repair_request",
+      "when": "judge.repair_request.p >= 0.8",
+      "haptic": "tap",
+      "message": "Say it another way",
+      "cooldown_s": 180,
+      "enabled": true
+    },
+    {
+      "id": "rushing",
+      "when": "metrics.wpm > 170",
+      "haptic": "slow_down",
+      "message": "Breathe, then go on",
+      "cooldown_s": 180,
+      "enabled": true
+    },
+    {
+      "id": "check_in",
+      "when": "metrics.monologue_s > 60",
+      "haptic": "wrap_up",
+      "message": "Check they're with you",
+      "cooldown_s": 180,
+      "enabled": true
+    }
+  ],
+  "motion_rules": [],
+  "nudge_policy": {
+    "focus_rule_id": "repair_request",
+    "budget_per_session": 4,
+    "min_gap_s": 180,
+    "tolerance": 0.3,
+    "silent": false
+  },
+  "debrief_rubric": "This coach is for someone speaking English as one of their languages. Everything is about landing the point and being understood, never about sounding like someone who grew up with English. Focus habit: saying it another way when the other person asks for a repeat or clarification. Strength first: quote one real moment that helped understanding, and count paraphrasing, giving an example, or asking for clarification as real strengths, not as signs of trouble. Name at most one fix, quote the wearer's own words, and describe it as what happened in the conversation ('when Ana asked \"sorry?\", you said the same sentence again'), never as a trait. Do not describe how the wearer sounds or how they say words, and never label anything the wearer said as wrong or incorrect: describe only what helped or slowed understanding. Never comment on pronunciation, articles, plurals, third-person -s, prepositions or formal word choice. Describe listener confusion as shared and ordinary ('it took a second pass'), not as failure. At most two word-choice examples in the whole debrief, and only ones that changed what the listener understood. If the wearer apologised for their English, add one brief, warm note that they don't need to; the conversation was working. Compare only with the wearer's own past sessions, never with other speakers. If-then: one plan starting with 'When' or 'If' and tied to a cue, for example 'If an answer runs past a minute, end with \"does that make sense?\"' or 'When someone says \"sorry?\", give one example instead of repeating the sentence.' For better_version, keep the wearer's meaning and facts and change only what affected understanding (a misread word, an unclear when or who, a buried point); leave everything else in the wearer's own words.",
+  "drill": {
+    "partner_persona": "Lena, a patient colleague in an international product team who works with people from many countries. She is friendly and curious, asks follow-up questions about the details, lets you take your time, and every few turns says 'sorry, what do you mean?' or repeats a word back as a question so you can practise saying it another way.",
+    "prompts": [
+      "Hi! I missed the planning call this morning. Can you tell me what we decided about the release?",
+      "Can you walk me through what you're working on this week and what's blocking you?",
+      "I heard your team changed the process for reviews. How does it work now?",
+      "The client wants the deadline moved forward by two weeks. What do you think we should tell them?"
+    ]
+  }
+}

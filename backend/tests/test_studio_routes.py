@@ -37,7 +37,7 @@ def _ids(client: TestClient) -> list[str]:
 
 def test_list_includes_builtins(client: TestClient) -> None:
     ids = _ids(client)
-    assert {"core", "interview", "listener"} <= set(ids)
+    assert {"core", "interview", "listener", "clear_across"} <= set(ids)
     assert len(ids) == len(set(ids))
 
 

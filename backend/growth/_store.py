@@ -38,6 +38,9 @@ RULE_LABELS: dict[str, str] = {
     "self_redirect": "Turning the topic to yourself",
     "no_acknowledgement": "Not acknowledging",
     "unsolicited_advice": "Unasked-for advice",
+    "repair_request": "Saying it another way when asked",
+    "rushing": "Rushing past your own pace",
+    "check_in": "Long stretches without a check-in",
 }
 
 

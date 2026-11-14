@@ -280,7 +280,7 @@ def _as_draft(d: object) -> DebriefDraft:
         "headline_fact", "strength", "one_fix", "if_then", "best_moment_quote", "vs_last_time", "notes"}))
 
 
-@pytest.mark.parametrize("coach_name", ["interview", "listener"])
+@pytest.mark.parametrize("coach_name", ["interview", "listener", "clear_across"])
 def test_fallback_rule_compliant(coach_name: str, metrics: Metrics) -> None:
     s = make_session(coach_name)
     last = SessionSummary(session_id="s-old", started_at="2026-11-13T10:00:00+00:00", duration_s=80,

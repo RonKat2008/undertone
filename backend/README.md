@@ -124,7 +124,7 @@ REST routes:
 | POST | `/session/tap` | returns `status`; 409 if no session |
 | POST | `/dev/publish` | `DEV=1` only; injects one validated bus event |
 | GET | `/coaches` | list |
-| GET | `/coaches/{id}.json` | one coach |
+| GET | `/coaches/{id}.json` | one coach; optional `?first_language_family=romance\|sinitic\|japanese_korean\|slavic\|south_asian\|arabic\|germanic` adds judge examples (Clear Across) |
 | PUT | `/coaches/{id}` | validated save |
 | POST | `/coaches/build` | body `{goal}` |
 | POST | `/coaches/{id}/activate` | |

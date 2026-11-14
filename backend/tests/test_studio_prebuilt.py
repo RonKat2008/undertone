@@ -22,7 +22,7 @@ def _fires(when: str, qid: str, level: float, levels: int) -> bool:
     return evaluate_condition(when, env)
 
 
-@pytest.mark.parametrize("coach_id", ["interview", "listener"])
+@pytest.mark.parametrize("coach_id", ["interview", "listener", "clear_across"])
 def test_prebuilt_coaches_validate(coach_id: str) -> None:
     assert studio.validate_coach(_coach(coach_id)) == []
 

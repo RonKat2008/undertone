@@ -253,7 +253,7 @@ def test_evaluate_parsed_with_bad_env() -> None:
 # ---------- prebuilt coaches ----------
 
 
-@pytest.mark.parametrize("name", ["interview.json", "listener.json"])
+@pytest.mark.parametrize("name", ["interview.json", "listener.json", "clear_across.json"])
 def test_prebuilt_coaches_parse(name: str) -> None:
     spec = CoachSpec.model_validate_json((PREBUILT / name).read_text())
     rules = [*spec.nudge_rules, *spec.motion_rules]

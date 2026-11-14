@@ -51,7 +51,7 @@ def test_default_coach_is_valid() -> None:
 
 def test_prebuilt_coaches_are_valid() -> None:
     prebuilt = load_prebuilt()
-    assert sorted(c.id for c in prebuilt) == ["interview", "listener"]
+    assert sorted(c.id for c in prebuilt) == ["clear_across", "interview", "listener"]
     for coach in prebuilt:
         assert validate_coach(coach) == [], coach.id
 

@@ -118,3 +118,66 @@ def words(text: str) -> list[str]:
 
 def sentences(text: str) -> list[str]:
     return [s.strip() for s in SENTENCE.findall(text) if s.strip(" \t\n.?!,")]
+
+
+# ---------- coach questions (Clear Across) ----------
+# The other person asks the wearer to repeat or clarify. Whole-turn forms first, then phrases.
+REPAIR_BARE = re.compile(
+    r"^\W*(?:sorry|pardon(?: me)?|what|huh|come again|excuse me|eh|hm+)\W*\?\W*$"
+    r"|^\W*sorry\W*$",
+    _I,
+)
+REPAIR_PHRASE = re.compile(
+    r"\b(?:(?:can|could|would) you (?:please )?(?:repeat|say (?:that|it) again|say that one more time|"
+    r"rephrase|explain (?:that|what you mean))|say (?:that|it) again|"
+    r"(?:i )?didn'?t (?:quite )?(?:catch|get|hear) (?:that|it|you|the)|"
+    r"(?:i'?m )?not (?:sure )?(?:i )?(?:follow|following)|i don'?t follow|you(?:'ve)? lost me|"
+    r"what do you mean|what did you (?:say|mean)|what was that|sorry,? what)\b"
+    r"|^\W*(?:so,?\s+|sorry,?\s+)?(?:do |did )?you mean\b",
+    _I,
+)
+REPAIR_ECHO_MAX_WORDS = 6
+STOPWORDS = frozenset(
+    "a an the to of in on at for and or but is are was were be been i you we they he she it this that "
+    "with my your our their so do did does will would can could".split()
+)
+STARTS_NEW_QUESTION = re.compile(
+    r"^\W*(?:what|how|why|where|when|who|which|do|did|does|is|are|was|were|can|could|would|will|"
+    r"should|have|has)\b",
+    _I,
+)
+
+CHECK_IN = re.compile(
+    r"\b(?:does (?:that|this|it) make sense|make sense\s*\?|am i (?:explaining|saying) (?:this|that|it) "
+    r"(?:clearly|right|well)|am i making sense|are you (?:with me|following)|is (?:that|this|it) clear|"
+    r"did (?:that|this|it) (?:come across|make sense)|with me so far|(?:do you )?see what i mean\s*\?|"
+    r"should i (?:say|explain) (?:that|it|this) (?:differently|another way|again)|"
+    r"does that answer your question)",
+    _I,
+)
+SELF_DEPRECATION = re.compile(
+    r"\b(?:sorry|excuse|forgive|pardon)(?: me)?,? (?:for )?(?:my|about my) (?:bad |poor |broken )?"
+    r"(?:english|grammar|pronunciation|vocabulary)"
+    r"|\bmy (?:english|grammar) (?:is|isn'?t|is not)(?: (?:so|very|that|really|too))? "
+    r"(?:not|bad|terrible|poor|awful|weak|limited|good|great)"
+    r"|\bi (?:don'?t|do not|can'?t|cannot) speak (?:english )?(?:very |so |that )?(?:well|good)"
+    r"|\bi'?m (?:not|bad) (?:good|great) (?:at|with|in) english\b",
+    _I,
+)
+ASKED_TO_CLARIFY = re.compile(
+    r"^\W*(?:sorry,?\s+)?(?:do |did )?you mean\b|\bwhat do you mean\b|"
+    r"\b(?:can|could|would) you (?:please )?(?:repeat|say (?:that|it) again|explain|rephrase)|"
+    r"\bdid you say\b|\bsorry\s*\?\s*$",
+    _I,
+)
+PARAPHRASE = re.compile(
+    r"\b(?:what i mean is|what i'?m (?:trying to )?say(?:ing)? is|in other words|"
+    r"let me (?:put|say) (?:it|that|this) (?:another|a different) way|let me (?:say|explain) (?:it|that|this) "
+    r"(?:differently|again)|to put it (?:simply|another way)|i mean to say)\b",
+    _I,
+)
+EXAMPLE = re.compile(
+    r"\b(?:for example|for instance|let me give you an example|an example is|e\.g\.|such as|"
+    r"it'?s like (?:a|an|when)|like when)\b",
+    _I,
+)
