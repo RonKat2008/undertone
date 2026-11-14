@@ -4,10 +4,12 @@ Each is a CoachQuestion. `CoachQuestion.model_dump()` is already in the shape th
 Gemini Decisions API accepts ({"type", "instructions", "criteria"?}).
 
 The judge input (see judge.format_input) labels the parts:
-  OTHER PERSON (previous turn): ...
-  WEARER (turn being judged, start-end s): ...
-  OVERLAP: the wearer started X s before the other person finished | none
+  OTHER PERSON (previous turn): ... | none — the wearer is speaking first
+  WEARER (turn being judged): ...
+  TIMING: the wearer started X s before / immediately as / X s after the other person finished
   MOTION: ...
+
+Score answers go on the wire 1-BASED (1..len(criteria)); see judge/decisions.py.
 """
 
 from __future__ import annotations
@@ -20,16 +22,21 @@ CORE_QUESTIONS: dict[str, CoachQuestion] = {
     "interrupted": NoulQuestion(
         instructions=_SCOPE
         + "Did the wearer interrupt the other person, i.e. start talking before the other person "
-        "had finished their thought? True if the OVERLAP line shows the wearer started before the "
-        "other person's turn ended, or the other person's turn is visibly cut off mid-sentence "
-        "(ends with a dash or an unfinished clause) and the wearer took over. False if the other "
-        "person had clearly finished, or the wearer only gave a brief backchannel like 'mm-hm'."
+        "had finished their thought? True if the TIMING line says the wearer started before the "
+        "other person finished, or the other person's turn is visibly cut off mid-sentence (ends "
+        "with a dash or an unfinished clause) and the wearer took over, including finishing the "
+        "other person's sentence for them. A cut-off turn counts even when TIMING shows a short "
+        "gap (the transcript timing is approximate). Starting immediately as they stopped is a "
+        "weaker sign on its own. "
+        "False if the other person had clearly finished their thought, if there is no previous "
+        "turn, or if the wearer only gave a brief backchannel like 'mm-hm'."
     ),
     "asked_question": NoulQuestion(
         instructions=_SCOPE
-        + "Did the wearer ask the other person at least one genuine question that invites them to "
-        "respond? Rhetorical questions the wearer answers themselves, and tag questions like "
-        "'right?' or 'you know?', do not count."
+        + "Did the wearer ask the other person at least one question that invites them to respond "
+        "or confirm? Leading and tag questions that push for agreement ('You're going to take it, "
+        "right?', '..., don't we?') DO count. Rhetorical questions the wearer immediately answers "
+        "themselves, filler tags like 'you know?', and uptalk on a hedged statement do not count."
     ),
     "question_type": ChoiceQuestion(
         instructions=_SCOPE
@@ -46,17 +53,19 @@ CORE_QUESTIONS: dict[str, CoachQuestion] = {
     ),
     "answered_the_question": NoulQuestion(
         instructions=_SCOPE
-        + "If the other person's previous turn asked the wearer a question or gave them a task, did "
-        "the wearer's turn directly address it (even partially and early in the turn)? If the other "
-        "person asked nothing, answer true only if the wearer's turn is a relevant response to what "
-        "they said."
+        + "If the other person's previous turn asked the wearer a question or made a request, did "
+        "the wearer's turn actually answer it (even briefly or partially)? False if the wearer "
+        "deflects, changes the subject, or only makes false starts and restarts without ever "
+        "delivering an answer. If the other person asked nothing, or there is no previous turn, "
+        "answer true."
     ),
     "hedging": NoulQuestion(
         instructions=_SCOPE
         + "Does the wearer noticeably hedge, undercutting their own point with qualifiers such as "
-        "'I think maybe', 'I'm not sure but', 'kind of', 'sort of', 'possibly', 'I guess', or "
-        "apologising for their idea? One mild, appropriate qualifier is not hedging; repeated or "
-        "stacked qualifiers are."
+        "'I think maybe', 'I'm not sure but', 'kind of', 'sort of', 'possibly', 'I guess', 'might', "
+        "noncommittal vagueness ('at some point', 'maybe', 'whenever'), or apologising for their "
+        "idea? One mild, appropriate qualifier is not hedging; repeated or stacked qualifiers are. "
+        "Fillers like 'um' are not hedges, and a definite answer is not hedged."
     ),
     "rambling": NoulQuestion(
         instructions=_SCOPE
@@ -66,9 +75,10 @@ CORE_QUESTIONS: dict[str, CoachQuestion] = {
     ),
     "acknowledged": NoulQuestion(
         instructions=_SCOPE
-        + "Did the wearer explicitly acknowledge what the other person just said before moving on, "
-        "e.g. by referring back to it, paraphrasing it, or thanking them for a specific point? "
-        "Generic filler like 'okay so' or 'yeah' alone does not count."
+        + "Did the wearer acknowledge what the other person just said before moving on: reacting "
+        "to it ('that sounds hard', 'fair point', 'welcome back'), paraphrasing it, thanking them "
+        "for it, or signalling they heard it ('mm-hm, right') and then following up on that same "
+        "topic? A bare 'okay' or 'yeah' followed by a change of subject does not count."
     ),
     "tone": ChoiceQuestion(
         instructions=_SCOPE
@@ -96,10 +106,10 @@ CORE_QUESTIONS: dict[str, CoachQuestion] = {
     ),
     "commitment_made": NoulQuestion(
         instructions=_SCOPE
-        + "Did the wearer make a concrete promise or commitment to do something after the "
-        "conversation, e.g. 'I'll send you the deck tonight' or 'I will follow up with the numbers "
-        "on Monday'? Vague intentions ('we should catch up sometime') and things done within the "
-        "conversation itself do not count."
+        + "Did the wearer commit to a specific action with a time or an owner, e.g. 'I'll send the "
+        "deck tonight' or 'I'll email Priya in legal tomorrow'? False for vague or conditional "
+        "intentions ('we should catch up sometime', 'I'll try to read it when I can', 'I might "
+        "look at some point') and for things done within the conversation itself."
     ),
 }
 
