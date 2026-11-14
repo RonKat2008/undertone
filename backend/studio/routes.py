@@ -58,6 +58,28 @@ def _all_coaches(st: AppState) -> list[CoachSpec]:
     return list(by_id.values())
 
 
+MAX_ID_CHARS = 64
+MAX_ID_SUFFIX = 99
+
+
+def _unique_spec(st: AppState, spec: CoachSpec) -> CoachSpec:
+    """A built coach must not silently replace a saved coach built for a different goal.
+
+    Ids come from a slug (non-Latin goals all slug to `custom-coach`, long goals share their first
+    40 chars), so two goals can collide. Rebuilding the same goal still replaces its coach.
+    """
+    existing = st.db.load_coach(spec.id)
+    if existing is None or existing.goal == spec.goal:
+        return spec
+    for n in range(2, MAX_ID_SUFFIX + 1):
+        suffix = f"-{n}"
+        candidate = spec.id[:MAX_ID_CHARS - len(suffix)].rstrip("-") + suffix
+        other = st.db.load_coach(candidate)
+        if other is None or other.goal == spec.goal:
+            return spec.model_copy(update={"id": candidate})
+    return spec  # 99 colliding coaches: replace rather than fail the build
+
+
 def _goal_errors(goal: str) -> list[str]:
     if not goal:
         return ["goal is empty; describe what you want to practise"]
@@ -73,13 +95,14 @@ def list_coaches(st: AppState = Depends(get_app_state)) -> list[CoachSpec]:
 
 @router.get("/coaches/{coach_id}.json", response_model=CoachSpec)
 def get_coach(coach_id: str, brain: "Brain" = Depends(get_brain),
-             first_language_family: FirstLanguageFamily | None = Query(None)) -> CoachSpec:
+             first_language_family: FirstLanguageFamily | Literal[""] | None = Query(None)) -> CoachSpec:
     """Optional `first_language_family` (chosen by the wearer, never inferred) returns a copy with
-    extra judge examples (studio/clear_across.py); PUT it back to keep it as the saved coach."""
+    extra judge examples (studio/clear_across.py); PUT it back to keep it as the saved coach.
+    An empty value (a "none" choice in a form) means no family."""
     coach = brain.find_coach(coach_id)
     if coach is None:
         raise HTTPException(404, f"coach {coach_id!r} not found")
-    return with_first_language(coach, first_language_family)
+    return with_first_language(coach, first_language_family or None)
 
 
 @router.put("/coaches/{coach_id}", response_model=CoachSpec)
@@ -110,8 +133,9 @@ async def build(req: BuildRequest,
     if errors:  # the builder guarantees a valid spec; this should never happen
         log.error("builder returned an invalid coach (%s): %s", result.source, "; ".join(errors))
         raise _errors(500, "invalid_built_coach", errors)
-    st.db.save_coach(result.spec)
-    return BuildResponse(spec=result.spec, source=result.source, elapsed_ms=result.elapsed_ms,
+    spec = _unique_spec(st, result.spec)
+    st.db.save_coach(spec)
+    return BuildResponse(spec=spec, source=result.source, elapsed_ms=result.elapsed_ms,
                          notes=list(result.notes))
 
 

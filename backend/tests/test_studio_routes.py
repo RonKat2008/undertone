@@ -137,6 +137,61 @@ def test_build_prompt_injection_goal_is_just_a_goal(client: TestClient) -> None:
     assert spec.kind == "custom" and validate_coach(spec) == []
 
 
+def _fake_builder(monkeypatch: pytest.MonkeyPatch, coach_id: str) -> None:
+    async def fake(goal: str) -> BuildResult:
+        spec = _custom(coach_id).model_copy(update={"goal": goal})
+        return BuildResult(spec, "fallback", 1.0, [])
+
+    monkeypatch.setattr(studio, "build_coach_with_meta", fake)
+
+
+def _drop(client: TestClient, *ids: str) -> None:
+    for cid in ids:
+        client.app.state.app.db.execute("DELETE FROM coaches WHERE id = ?", (cid,))  # type: ignore[attr-defined]
+
+
+def test_build_colliding_id_keeps_other_goals_coach(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Non-Latin goals all slug to the same id; the second build must not overwrite the first.
+    _fake_builder(monkeypatch, "custom-coach")
+    first = client.post("/coaches/build", json={"goal": "慢一点说话"}).json()["spec"]
+    second = client.post("/coaches/build", json={"goal": "Говорить медленнее"}).json()["spec"]
+    try:
+        assert first["id"] == "custom-coach" and second["id"] == "custom-coach-2"
+        assert client.get("/coaches/custom-coach.json").json()["goal"] == "慢一点说话"
+        assert client.get("/coaches/custom-coach-2.json").json()["goal"] == "Говорить медленнее"
+    finally:
+        _drop(client, "custom-coach", "custom-coach-2")
+
+
+def test_build_same_goal_replaces_its_coach(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_builder(monkeypatch, "custom-rebuild")
+    try:
+        ids = [client.post("/coaches/build", json={"goal": "pause more"}).json()["spec"]["id"] for _ in range(2)]
+        assert ids == ["custom-rebuild", "custom-rebuild"]
+        assert "custom-rebuild-2" not in _ids(client)
+    finally:
+        _drop(client, "custom-rebuild")
+
+
+def test_build_collision_suffix_keeps_id_valid(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    long_id = "custom-" + "a" * 57  # 64 chars, the maximum
+    _fake_builder(monkeypatch, long_id)
+    client.post("/coaches/build", json={"goal": "goal one"})
+    try:
+        spec = CoachSpec.model_validate(client.post("/coaches/build", json={"goal": "goal two"}).json()["spec"])
+        assert spec.id != long_id and spec.id.endswith("-2") and len(spec.id) <= 64
+        assert validate_coach(spec) == []
+    finally:
+        _drop(client, long_id, spec.id)
+
+
+def test_get_coach_empty_family_means_none(client: TestClient) -> None:
+    r = client.get("/coaches/clear_across.json?first_language_family=")
+    assert r.status_code == 200, r.text
+    assert r.json() == client.get("/coaches/clear_across.json").json()
+    assert client.get("/coaches/clear_across.json?first_language_family=klingon").status_code == 422
+
+
 @pytest.mark.parametrize(("goal", "needle"), [("   ", "empty"), ("x" * 301, "301 chars")])
 def test_build_rejects_bad_goal(client: TestClient, goal: str, needle: str) -> None:
     r = client.post("/coaches/build", json={"goal": goal})
