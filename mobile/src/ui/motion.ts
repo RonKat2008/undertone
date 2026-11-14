@@ -1,30 +1,13 @@
-/** Reduced motion (§5.4): AccessibilityInfo.isReduceMotionEnabled, shared by every animated part. */
-import { useEffect, useState } from 'react';
-import { AccessibilityInfo } from 'react-native';
+/**
+ * Motion helpers. Everything animated uses Reanimated (UI thread) and honours Reduce Motion.
+ * Curves are the strong ease-out / ease-in-out pair from the expo-animation guidance.
+ */
+import { Easing, useReducedMotion } from 'react-native-reanimated';
 
-let current = false;
-const listeners = new Set<(v: boolean) => void>();
+export const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+export const EASE_IN_OUT = Easing.bezier(0.77, 0, 0.175, 1);
 
-function set(v: boolean) {
-  if (v === current) return;
-  current = v;
-  listeners.forEach((l) => l(v));
-}
-
-AccessibilityInfo.isReduceMotionEnabled().then(set).catch(() => undefined);
-AccessibilityInfo.addEventListener('reduceMotionChanged', set);
-
-/** For effects that only need the value at the moment they run. */
-export function reduceMotionNow(): boolean {
-  return current;
-}
-
+/** True when the system asks for reduced motion. Animations then cut instead of moving. */
 export function useReduceMotion(): boolean {
-  const [v, setV] = useState(current);
-  useEffect(() => {
-    listeners.add(setV);
-    setV(current);
-    return () => { listeners.delete(setV); };
-  }, []);
-  return v;
+  return useReducedMotion();
 }
