@@ -37,6 +37,13 @@ export function nodeRadius(node: Pick<GraphNode, 'kind' | 'weight'>, kindMax: nu
   return BASE_R[node.kind] + SIZE_RANGE[node.kind] * Math.min(1, share);
 }
 
+/** Radius of every node, sized within its own kind. */
+export function radiiFor(nodes: readonly GraphNode[]): Record<string, number> {
+  const kindMax = new Map<GraphNodeKind, number>();
+  for (const n of nodes) kindMax.set(n.kind, Math.max(kindMax.get(n.kind) ?? 0, n.weight));
+  return Object.fromEntries(nodes.map((n) => [n.id, nodeRadius(n, kindMax.get(n.kind) ?? 0)]));
+}
+
 /** The outer ring grows with the number of nodes so a big graph does not crowd. */
 export function outerRadius(count: number): number {
   return 150 + Math.sqrt(Math.max(0, count)) * 26;

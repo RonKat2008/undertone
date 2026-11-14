@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
+import { BandStatus } from '@/components/band-status';
 import { Glyph } from '@/components/glyph';
 import type { HapticPattern } from '@/lib/bus/contracts';
 import { PATTERNS, PATTERN_ORDER } from '@/lib/bus/patterns';
@@ -10,12 +11,14 @@ import { isLive } from '@/lib/bus/reducer';
 import { BusProvider, useBus, useNow } from '@/lib/bus/use-bus';
 
 const NAV = [
-  { href: '/', label: 'Live' },
+  { href: '/', label: 'Graph' },
   { href: '/studio', label: 'Studio' },
   { href: '/debrief', label: 'Debrief' },
   { href: '/pair', label: 'Pair' },
   { href: '/calibration', label: 'Calibration' },
 ];
+/** Live coaching belongs to the phone; the screen stays reachable for rehearsal, set apart. */
+const LIVE = { href: '/live', label: 'Live' };
 
 export const TAKEOVER_MS = 2800;
 
@@ -31,15 +34,21 @@ export function Shell({ children }: { children: ReactNode }) {
         <Masthead />
         <main className="flex-1 pb-10">{children}</main>
       </div>
-      <NudgeTakeover />
+      <LiveOnly><NudgeTakeover /></LiveOnly>
       <Director />
     </BusProvider>
   );
 }
 
+function LiveOnly({ children }: { children: ReactNode }) {
+  const path = usePathname();
+  return path.startsWith(LIVE.href) ? <>{children}</> : null;
+}
+
 function Masthead() {
   const { state, send } = useBus();
   const path = usePathname();
+  const onLive = path.startsWith(LIVE.href);
   const now = useNow(500);
   const live = isLive(state);
   const session = state.session;
@@ -60,7 +69,27 @@ function Masthead() {
             </Link>
           );
         })}
+        <span className="flex items-center gap-1.5 border-l border-rule pl-4">
+          <Link href={LIVE.href} aria-current={onLive ? 'page' : undefined}
+            className={`caps flex items-center gap-1.5 border-b pb-0.5 transition-colors hover:text-ink ${onLive ? 'border-ink !text-ink' : 'border-transparent !text-ink-3'}`}>
+            {live && <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-vermilion" aria-label="A conversation is live" />}
+            {LIVE.label}
+          </Link>
+        </span>
       </nav>
+      {!onLive ? (
+        <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px]">
+          <BandStatus />
+          <span className="flex items-center gap-1.5">
+            <span className={`inline-block h-2 w-2 rounded-full ${phone?.connected ? 'bg-green' : 'border border-ink-3'}`} />
+            <span className="caps">Phone</span>
+            <span>{phone ? (phone.connected ? phone.name : 'offline') : 'not paired'}</span>
+          </span>
+          <span className={`caps rounded-sm border px-1.5 py-0.5 ${state.status === 'live' ? 'border-green !text-green' : state.status === 'offline' ? 'border-vermilion !text-vermilion' : 'border-rule'}`}>
+            {state.status === 'mock' ? 'mock feed' : state.status}
+          </span>
+        </div>
+      ) : (
       <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px]">
         <StatusReply />
         <span className="hidden lg:inline"><span className="caps mr-1.5">Coach</span>{state.coach?.name ?? 'none'}</span>
@@ -87,6 +116,7 @@ function Masthead() {
           </span>
         )}
       </div>
+      )}
     </header>
   );
 }
