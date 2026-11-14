@@ -230,6 +230,26 @@ async def test_bootstrap_does_not_correct_until_confirmed(db: DB, namer: Namer) 
     assert store.wearer(db) is not None and store.wearer(db).wearer_state == "provisional"  # type: ignore[union-attr]
 
 
+async def test_waits_for_the_debrief_summary_before_recomputing(vm: VoiceMemory, db: DB) -> None:
+    import asyncio
+
+    from backend.contracts import DebriefNumbers, SessionSummary
+
+    await enrol(vm)
+    add(db, "s1", PLAN_A)
+    db.execute("UPDATE sessions SET summary_json = NULL WHERE session_id = 's1'")
+    task = asyncio.ensure_future(vm.process("s1", wait_s=0, await_summary=True))
+    await asyncio.sleep(0.3)
+    assert not task.done()  # still waiting for the Brain's end_session
+    numbers = DebriefNumbers(talk_ratio=0.95, interruptions=1, questions=2, fillers_per_min=0.0, wpm=120)
+    summary = SessionSummary(session_id="s1", started_at="2026-11-14T10:00:00+00:00", duration_s=20.0,
+                             coach_name="Default", mode="regular", headline_fact="x", numbers=numbers)
+    db.end_session("s1", "2026-11-14T11:00:00+00:00", 20.0, Metrics(talk_ratio=0.95), summary)
+    await task
+    stored = SessionSummary.model_validate_json(db.get_session("s1")["summary_json"])  # type: ignore[index]
+    assert stored.numbers.talk_ratio < 0.5 and stored.numbers.interruptions == 1
+
+
 async def test_model_missing_keeps_old_behaviour(db: DB, namer: Namer) -> None:
     vm = VoiceMemory(db, enabled=True, embedder_factory=lambda: None, namer=namer)
     add(db, "s1", PLAN_A)

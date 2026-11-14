@@ -41,6 +41,7 @@ from backend.voices.words import WordLog
 log = logging.getLogger("undertone.voices")
 
 RECORDING_WAIT_S = 30.0
+SUMMARY_WAIT_S = 120.0  # the debrief (and the summary row it writes) can take a while
 POLL_S = 0.5
 
 
@@ -70,8 +71,11 @@ class VoiceMemory:
             store.ensure_tables(db)
 
     # ---------- entry points ----------
-    def schedule(self, session_id: str, filler_words: Sequence[str] = ()) -> None:
-        """A conversation closed and its verdict is stored. Never raises."""
+    def schedule(self, session_id: str, filler_words: Sequence[str] = (), await_summary: bool = False) -> None:
+        """A conversation closed and its verdict is stored. Never raises.
+
+        await_summary: the Brain is still writing the debrief, whose end_session() stores the live
+        metrics and summary; wait for it, or the recomputed numbers would be overwritten."""
         if not self.enabled:
             self.words.take(session_id)
             return
@@ -79,7 +83,7 @@ class VoiceMemory:
             words = self.words.take(session_id)
             if words:
                 store.save_words(self.db, session_id, words)
-            self._spawn(self.process(session_id, filler_words))
+            self._spawn(self.process(session_id, filler_words, await_summary=await_summary))
         except Exception:  # noqa: BLE001
             log.exception("voice memory: could not schedule %s", session_id)
 
@@ -94,12 +98,12 @@ class VoiceMemory:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
     async def process(self, session_id: str, filler_words: Sequence[str] = (),
-                      wait_s: float = RECORDING_WAIT_S) -> dict[str, Any] | None:
+                      wait_s: float = RECORDING_WAIT_S, await_summary: bool = False) -> dict[str, Any] | None:
         """Run voice memory over one closed conversation. Returns the report. Never raises."""
         if not self.enabled:
             return None
         try:
-            path = await self._wait_for_recording(session_id, wait_s)
+            path = await self._wait_until_ready(session_id, wait_s, await_summary)
             async with self._lock:
                 report, target = await asyncio.to_thread(self._run_blocking, session_id, path, list(filler_words))
                 if report.get("status") == "done":
@@ -112,14 +116,16 @@ class VoiceMemory:
             self._safe_save(session_id, "failed", {"reason": type(exc).__name__})
             return None
 
-    async def _wait_for_recording(self, session_id: str, wait_s: float) -> Path | None:
-        deadline = time.monotonic() + wait_s
+    async def _wait_until_ready(self, session_id: str, wait_s: float, await_summary: bool) -> Path | None:
+        """The recording's path once it is stored (and the summary, when asked), or at the deadline."""
+        deadline = time.monotonic() + (max(wait_s, SUMMARY_WAIT_S) if await_summary else wait_s)
         while True:
             row = self.db.get_session(session_id)
             if row is None or (row.get("kept_reason") in DISCARD_AUDIO):
                 return None
             path = session_audio_path(row, recordings_dir(Path(self.db.path)))
-            if path is not None or time.monotonic() >= deadline:
+            ready = path is not None and (not await_summary or row.get("summary_json") is not None)
+            if ready or time.monotonic() >= deadline:
                 return path
             await asyncio.sleep(POLL_S)
 

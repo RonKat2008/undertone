@@ -171,8 +171,8 @@ class Brain:
         except Exception:
             log.exception("keep classification failed for %s", session.session_id)
             return
-        self._safe(lambda: voice_memory(self.app).schedule(session.session_id, session.coach.filler_words),
-                   "voice memory")
+        self._safe(lambda: voice_memory(self.app).schedule(session.session_id, session.coach.filler_words,
+                                                           await_summary=not quiet), "voice memory")
         if verdict is not None and not verdict.kept and not quiet:
             self._safe(lambda: growth.update_profile(db, session, Metrics()), "update_profile")
 
