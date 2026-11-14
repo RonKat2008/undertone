@@ -75,6 +75,10 @@ function foldExtras(state: PhoneState, action: BusAction): Pick<PhoneState, 'alw
     case 'session.ended':
       return { ...same, lastEnded: { session_id: e.session_id, at: action.at } };
     case 'debrief': {
+      // The laptop sends each debrief twice (again once its audio is ready) and replays the last one
+      // to every new connection. Only a debrief for a different conversation is news; the reducer
+      // still stores the repeat, so a late audio_url arrives.
+      if (state.debrief?.session_id === e.session_id) return same;
       const headline = (e.data as { headline_fact?: unknown } | null)?.headline_fact;
       return { ...same, notice: { session_id: e.session_id, headline: typeof headline === 'string' ? headline : '', at: action.at } };
     }
