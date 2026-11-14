@@ -54,12 +54,18 @@ class SessionController:
     def __init__(self, emit: Emit, coach_provider: Optional[Callable[[], Tuple[dict, str]]] = None,
                  status_provider: Optional[Callable[[], Optional[dict]]] = None,
                  baseline_provider: Optional[Callable[[], Optional[float]]] = None,
-                 band: Optional[BandSource] = None, use_pipecat: Optional[bool] = None) -> None:
+                 band: Optional[BandSource] = None, use_pipecat: Optional[bool] = None,
+                 on_double_tap: Optional[Callable[[], Awaitable[None]]] = None,
+                 on_single_tap: Optional[Callable[[], Awaitable[None]]] = None,
+                 on_wearer_volume: Optional[Callable[[float, float], None]] = None) -> None:
         self._emit_fn = emit
         self.coach_provider = coach_provider or (lambda: ({"id": "default", "keyterms": [],
                                                            "filler_words": DEFAULT_FILLERS,
                                                            "nudge_policy": DEFAULT_POLICY}, "regular"))
         self.status_provider = status_provider
+        self.on_double_tap = on_double_tap
+        self.on_single_tap = on_single_tap
+        self.on_wearer_volume = on_wearer_volume
         self.baseline_provider = baseline_provider or (lambda: None)
         self.band = band or BandSource.from_env(emit=self._emit)
         self.band.emit = self._emit
@@ -109,12 +115,18 @@ class SessionController:
     def running(self) -> bool:
         return self.session_id is not None
 
-    async def start_session(self) -> str:
+    async def start_session(self, session_id: Optional[str] = None, coach: Optional[dict] = None,
+                            announce: bool = True) -> str:
+        """Mic on + Deepgram worker. announce=False when the Brain already published
+        session.started (the attach_band() setup); then session_id and coach come from it."""
         async with self._lock:
             if self.session_id:
                 return self.session_id
-            coach, mode = self.coach_provider()
-            self.session_id = "s_" + uuid.uuid4().hex[:10]
+            if coach is None:
+                coach, mode = self.coach_provider()
+            else:
+                mode = "regular"
+            self.session_id = session_id or ("s_" + uuid.uuid4().hex[:10])
             self.started_wall = time.time()
             self.mapper = SpeakerMapper(self.single_speaker)
             self.fusion = Fusion(self._emit_sync)
@@ -135,13 +147,14 @@ class SessionController:
                 except Exception as e:  # noqa: BLE001
                     log.error("Deepgram/Pipecat failed to start: %s. Session runs without speech.", e)
                     self.hearing = None
-            await self._emit({"type": "session.started", "session_id": self.session_id,
-                              "coach_id": coach.get("id", "default"), "mode": mode,
-                              "policy": coach.get("nudge_policy") or DEFAULT_POLICY, "ts": 0})
+            if announce:
+                await self._emit({"type": "session.started", "session_id": self.session_id,
+                                  "coach_id": coach.get("id", "default"), "mode": mode,
+                                  "policy": coach.get("nudge_policy") or DEFAULT_POLICY, "ts": 0})
             log.info("session %s started", self.session_id)
             return self.session_id
 
-    async def stop_session(self) -> Optional[str]:
+    async def stop_session(self, announce: bool = True) -> Optional[str]:
         async with self._lock:
             if not self.session_id:
                 return None
@@ -154,7 +167,8 @@ class SessionController:
                     log.warning("stopping Deepgram: %s", e)
                 self.hearing = None
             self.session_id = None
-            await self._emit({"type": "session.ended", "session_id": sid})
+            if announce:
+                await self._emit({"type": "session.ended", "session_id": sid})
             log.info("session %s ended", sid)
             return sid
 
@@ -171,9 +185,12 @@ class SessionController:
             kind = await self.band.tap_q.get()
             try:
                 if kind == "double":
-                    await self.toggle()
-                elif kind == "single" and self.running:
-                    await self.status_reply()
+                    await (self.on_double_tap() if self.on_double_tap else self.toggle())
+                elif kind == "single":
+                    if self.on_single_tap:
+                        await self.on_single_tap()
+                    elif self.running:
+                        await self.status_reply()
             except Exception:  # noqa: BLE001
                 log.exception("tap handling failed")
 
@@ -208,6 +225,10 @@ class SessionController:
             self._talk[ev["speaker"]] += max(0.0, ev["end"] - ev["start"])
             if ev["speaker"] == "me" and "?" in ev["text"]:
                 self._last_question_ts = ev["end"]
+            if ev["speaker"] == "me" and self.on_wearer_volume:
+                db = self.band.loudness.mean_db(ev["start"], ev["end"])
+                if db is not None:
+                    self.on_wearer_volume(db, ev["end"])
             self._last_speaker = ev["speaker"]
             self.fusion.on_turn(ev)
         elif ev["type"] == "transcript.partial" and ev.get("speaker"):
@@ -308,5 +329,84 @@ def build_router(ctl: SessionController):
     @r.get("/band/status")
     async def band_status():
         return ctl.band.status_event()
+
+    return r
+
+
+# ---------- wiring into the Brain (backend/brain.py) ----------
+
+def _coach_dict(coach) -> dict:
+    if coach is None:
+        return {"id": "default", "keyterms": [], "filler_words": DEFAULT_FILLERS}
+    if hasattr(coach, "model_dump"):
+        return coach.model_dump(mode="json")
+    return dict(coach)
+
+
+async def attach_band(app_state, brain) -> SessionController:
+    """Connect the band (BAND_TRANSPORT) to the Brain. Two lines in main.py's lifespan:
+
+        from backend.session import attach_band
+        band = await attach_band(state, app.state.brain)      # after Brain(...)
+        ...                                                    # and in `finally`:
+        await band.shutdown()
+
+    Then: double-tap starts/ends a Brain session, single tap is brain.single_tap(), the mic
+    and Deepgram follow session.started / session.ended on the bus (so /session/start from
+    the dashboard works too), and turn.final, transcript.partial, motion, signal, band.status
+    and calibration go onto the bus. The wearer's loudness per turn goes to brain.on_volume.
+    """
+    bus = app_state.bus
+
+    async def double_tap():
+        if app_state.session is not None:
+            await brain.end_session()
+        else:
+            await brain.start_session()
+
+    async def single_tap():
+        await brain.single_tap()
+
+    ctl = SessionController(emit=bus.publish, on_double_tap=double_tap, on_single_tap=single_tap,
+                            on_wearer_volume=brain.on_volume,
+                            baseline_provider=lambda: getattr(getattr(brain, "metrics", None), "baseline_wpm", None))
+
+    async def on_started(ev):
+        coach = getattr(getattr(app_state, "session", None), "coach", None) or getattr(app_state, "active_coach", None)
+        await ctl.start_session(session_id=ev.session_id, coach=_coach_dict(coach), announce=False)
+
+    async def on_ended(ev):
+        await ctl.stop_session(announce=False)
+
+    bus.on("session.started", on_started)
+    bus.on("session.ended", on_ended)
+    await ctl.start()
+    return ctl
+
+
+def build_band_router(ctl: SessionController):
+    """Band-only routes that do not clash with main.py's /session/* routes."""
+    from fastapi import APIRouter
+
+    r = APIRouter()
+
+    @r.post("/band/tap")  # pretend tap when the band is not at hand: {"kind": "double" | "single"}
+    async def band_tap(body: TapIn):
+        ctl.band.tap(body.kind)
+        return {"ok": True}
+
+    @r.get("/band/status")
+    async def band_status():
+        return ctl.band.status_event()
+
+    @r.post("/calibration/motion")
+    async def calibration_motion():
+        return await ctl.calibrate_motion()
+
+    @r.post("/calibration/swap-speakers")
+    async def calibration_swap():
+        ctl.swap_speakers()
+        await ctl._emit({"type": "calibration", "kind": "speaker", "step": "swapped", "done": True})
+        return {"ok": True}
 
     return r
