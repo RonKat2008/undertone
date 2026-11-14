@@ -15,7 +15,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from backend.contracts import (
-    BookmarkEvent, CoachSpec, DailyMission, Debrief, HabitProfile, JudgeEvent, NudgeEvent,
+    BookmarkEvent, CoachSpec, DailyMission, Debrief, HabitProfile, JudgeEvent, NudgeEvent, NudgeQuietEvent,
     Person, TurnFinalEvent,
 )
 
@@ -137,13 +137,15 @@ class DB:
         rows = self.query("SELECT data_json FROM judge_results WHERE session_id = ?", (session_id,))
         return [JudgeEvent.model_validate_json(r["data_json"]) for r in rows]
 
-    def save_nudge(self, session_id: str, nudge: NudgeEvent) -> None:
+    def save_nudge(self, session_id: str, nudge: NudgeEvent | NudgeQuietEvent) -> None:
+        """Buzzed nudges and quiet marks share the table; `type` in the JSON tells them apart."""
         self.execute("INSERT INTO nudges (session_id, rule_id, ts, data_json) VALUES (?, ?, ?, ?)",
                      (session_id, nudge.rule_id, nudge.ts, _dump(nudge)))
 
     def load_nudges(self, session_id: str) -> list[NudgeEvent]:
         rows = self.query("SELECT data_json FROM nudges WHERE session_id = ? ORDER BY ts", (session_id,))
-        return [NudgeEvent.model_validate_json(r["data_json"]) for r in rows]
+        return [NudgeEvent.model_validate_json(r["data_json"]) for r in rows
+                if '"type":"nudge.quiet"' not in r["data_json"].replace(" ", "")]
 
     def save_bookmark(self, session_id: str, bm: BookmarkEvent) -> None:
         self.execute("INSERT INTO bookmarks (session_id, source, ts, data_json) VALUES (?, ?, ?, ?)",

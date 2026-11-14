@@ -262,8 +262,11 @@ class Brain:
     async def _publish_quiet_marks(self) -> None:
         """Rules that fired without buzzing reach the laptop as quiet marks."""
         assert self.nudge is not None
+        session = self.app.session
         for mark in self.nudge.drain_quiet_marks():
             await self.app.bus.publish(mark)
+            if session is not None:  # stored so the habit profile counts silent slips too
+                self.app.db.save_nudge(session.session_id, mark)
 
     # ---------- helpers ----------
     def _motion_summary(self, session: SessionState, turn: TurnFinalEvent,
