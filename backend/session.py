@@ -35,6 +35,7 @@ from .stt.turns import BaselinePace, SpeakerMapper
 
 if TYPE_CHECKING:
     from .always_on import AlwaysOn
+    from .capture.recorder import Recorder
 
 log = logging.getLogger("undertone.session")
 
@@ -93,6 +94,7 @@ class SessionController:
         self._lock = asyncio.Lock()
         self.always_on: Optional["AlwaysOn"] = None  # set by attach_band when ALWAYS_ON=1
         self._audio_offset = 0.0  # always-on: stream audio time that is this session's t=0
+        self.recorder: Optional["Recorder"] = None  # set by attach_recorder (attach_band does it)
 
     # ---------- emit ----------
 
@@ -152,6 +154,7 @@ class SessionController:
             else:
                 self.mapper = SpeakerMapper(self.single_speaker)
                 await self._start_listening(coach)
+            self._begin_recording(self.session_id)
             if announce:
                 await self._emit({"type": "session.started", "session_id": self.session_id,
                                   "coach_id": coach.get("id", "default"), "mode": mode,
@@ -168,15 +171,42 @@ class SessionController:
                 await self._stop_listening()
             self.session_id = None
             self._audio_offset = 0.0
+            await self._end_recording(sid)
             if announce:
                 await self._emit({"type": "session.ended", "session_id": sid})
             log.info("session %s ended", sid)
             return sid
 
+    # ---------- recording (backend/capture) ----------
+
+    def attach_recorder(self, recorder: Optional["Recorder"]) -> None:
+        """Tap every 80 ms chunk into the recorder (None detaches)."""
+        self.recorder = recorder
+        self.band.chunk_tap = recorder.feed if recorder is not None else None
+
+    def _begin_recording(self, session_id: str) -> None:
+        """Session t=0 is stream time _audio_offset (always-on) or 0 (after a clock reset)."""
+        if self.recorder is None:
+            return
+        try:
+            self.recorder.begin(session_id, self._audio_offset)
+        except Exception:  # noqa: BLE001 - no recording, but the session runs
+            log.exception("could not start recording %s", session_id)
+
+    async def _end_recording(self, session_id: str) -> None:
+        if self.recorder is None:
+            return
+        try:
+            await asyncio.to_thread(self.recorder.end, session_id)
+        except Exception:  # noqa: BLE001 - session end must go on
+            log.exception("could not finish recording %s", session_id)
+
     # ---------- listening: mic + Deepgram ----------
 
     async def _start_listening(self, coach: dict, end_on_failure: bool = False) -> None:
         self.band.reset_clock()
+        if self.recorder is not None:
+            self.recorder.clear()  # buffered audio is on the old clock
         await self.band.mic(True)
         if self.stt == "off":
             return
@@ -523,8 +553,25 @@ async def attach_band(app_state, brain, band: Optional[BandSource] = None,
     ctl.practice = attach_practice(ctl, app_state)  # practice mode: buzz on every crutch word
     if getattr(getattr(brain, "settings", None), "always_on", False):
         _attach_always_on(ctl, app_state, brain, join, clock)
+    _attach_recorder(ctl, app_state.db)
     await ctl.start()
     return ctl
+
+
+def _attach_recorder(ctl: SessionController, db) -> None:
+    """RECORD_AUDIO (default on): each conversation's audio goes to <db dir>/media/recordings."""
+    from pathlib import Path
+
+    from .capture.media import capture_settings
+    from .capture.recorder import Recorder
+    from .capture.store import store_recording
+
+    settings = capture_settings(Path(db.path))
+    if not settings.enabled:
+        log.info("recording: off (RECORD_AUDIO=0)")
+        return
+    ctl.attach_recorder(Recorder(settings, on_finished=lambda info: store_recording(db, settings.directory, info)))
+    log.info("recording: on (%s, cap %.0f MB)", settings.directory, settings.max_total_bytes / 2 ** 20)
 
 
 def _attach_always_on(ctl: SessionController, app_state, brain, join: Callable[[str], Awaitable[None]],

@@ -88,6 +88,8 @@ class BandSource:
         self.mic_on = False
         self.battery_pct: Optional[int] = None
         self.dropped_chunks = 0
+        # optional: every 80 ms chunk with its end time on the audio clock (the recorder uses it)
+        self.chunk_tap: Optional[Callable[[bytes, float], None]] = None
         self._decoder = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._t0 = time.time()
@@ -262,6 +264,12 @@ class BandSource:
     def _push_pcm(self, pcm: bytes) -> None:
         for chunk in self.chunker.feed(pcm):
             self.loudness.add(self.chunker.seconds, rms_db(chunk))
+            if self.chunk_tap is not None:
+                try:
+                    self.chunk_tap(chunk, self.chunker.seconds)
+                except Exception:  # noqa: BLE001 - a recorder problem must never stall speech
+                    log.exception("chunk tap failed; detaching it")
+                    self.chunk_tap = None
             try:
                 self.pcm_q.put_nowait(chunk)
             except asyncio.QueueFull:
