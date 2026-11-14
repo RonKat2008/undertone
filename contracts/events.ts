@@ -34,7 +34,7 @@ export type HapticPattern =
 export type JudgeAnswer =
   | { kind: 'noul'; p: number; confidence: number }
   | { kind: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
-  | { kind: 'score'; score: number; max: number; confidence: number };
+  | { kind: 'score'; score: number; max: number; confidence: number }; // score is 1-based: 1..max
 
 export interface Metrics {
   talk_ratio: number; // 0-1, share of speaking time that is the wearer's
@@ -44,7 +44,7 @@ export interface Metrics {
   wpm: number; // wearer's rolling pace
   baseline_wpm: number | null; // the wearer's own usual pace
   monologue_s: number; // length of the wearer's current uninterrupted run
-  volume_db: number; // wearer's rolling loudness
+  volume_db: number; // wearer's rolling loudness in dBFS (0 = full scale, about -60 = silence)
   volume_state: VolumeState;
   hand_energy: number; // 0-1: 0 frozen, ~0.5 natural gesturing, 1 overdoing it
 }
@@ -130,6 +130,7 @@ export type BusEvent =
   | ({ type: 'metrics' } & Metrics)
   | { type: 'signal'; kind: 'nerves' | 'checked_out'; detail: string; ts: number } // voice and body together
   | { type: 'nudge'; rule_id: string; haptic: HapticPattern; message: string; reason: string; confidence: number | null; latency_ms: number; budget_left: number; ts: number }
+  | { type: 'nudge.quiet'; rule_id: string; haptic: HapticPattern; message: string; reason: string; ts: number } // a rule fired but did not buzz: shown as a quiet mark
   | { type: 'nudge.snoozed'; rule_id: string; ts: number } // stretch: single tap within 3 s of a nudge
   | { type: 'status.reply'; verdict: 'good' | 'talking_too_much' | 'ask_question'; haptic: HapticPattern; ts: number } // single tap
   | { type: 'bookmark'; source: 'phone' | 'promise'; text: string | null; ts: number }

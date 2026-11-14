@@ -381,6 +381,10 @@ Both run on a mock event feed until Claude Code swaps in the real source (sectio
 - Haptic vocabulary: `tap`, `interrupt`, `filler`, `wrap_up`, `slow_down`, `still`, `success`, `approve`, plus three slow, even answers to "How am I doing?": `status_good` (1 buzz), `status_talking` (2), `status_ask` (3).
 - From the feature list: `metrics` adds `baseline_wpm`, `volume_db`, `volume_state`, `hand_energy`; new events `signal` (nerves / checked out), `status.reply`, `nudge.snoozed`; `bookmark` gains `source` and `text`; `session.started` gains `mode` and `policy`; `nudge` gains `budget_left`.
 - `Debrief` adds `strength`, `if_then`, `notes`, `bookmarks`, `timeline`, `better_version`. `CoachSpec` adds `kind` and `nudge_policy`.
+- `nudge.quiet`: a rule fired without buzzing (not the focus habit, or the budget is spent); the laptop shows it as a quiet mark.
+- Judge scores are 1-based on the wire (`score` 1..`max`); the Decisions API returns 0-based, the backend adds 1. Rules may also test a choice answer: `judge.tone.probabilities.nervous >= 0.7`.
+- `volume_db` is dBFS. The tolerance band applies only to pace against the wearer's baseline; fixed limits are used as written.
+- Demo policy (`DEMO_POLICY=1`): every enabled rule may buzz, 10 s apart, budget 8.
 - REST types for history and growth: `HabitProfile`, `SessionSummary`, `DailyMission`, `Streak`, `Person`, `WeeklyReport`.
 
 `.env.example` adds `VEXO_BAND_NUMBER` and `BAND_TRANSPORT` and drops `USE_MOCK_BAND`.

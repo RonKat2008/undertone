@@ -1,0 +1,63 @@
+{
+  "headline_fact": "Your framework answer ran 49 seconds and ended on \"it could possibly be costs, like, basically both\": you said \"I think maybe\" three times and \"I'm not totally sure\" twice. The goal was a direct answer with no hedges.",
+  "strength": "When the interviewer said \"Pick one branch\", you answered in two words, \"Revenue first\", then asked how the client defines success. That was a clear choice followed by the right clarifying question.",
+  "one_fix": "In the framework answer you listed every possible branch and then went back on your own choice. You said \"I'd start with revenue\" and then \"it could possibly be costs\" in the same sentence.",
+  "if_then": "When you finish listing branches, pick one and give one reason in a single sentence, then stop and wait.",
+  "numbers": {
+    "talk_ratio": 0.68,
+    "interruptions": 2,
+    "questions": 1,
+    "fillers_per_min": 7.5,
+    "wpm": 171
+  },
+  "best_moment_quote": "Revenue first. How does the client define success for this turnaround?",
+  "vs_last_time": "Fillers dropped from 9.1 to 7.5 per minute compared with your last case practice. Interruptions stayed the same, 2 both times.",
+  "notes": [
+    "Case: a regional coffee chain with about eighty stores; profits fell twenty percent over two years.",
+    "Most stores are down evenly, so it is not a few bad locations.",
+    "You split profit into revenue (traffic, ticket size) and costs (bean prices, labour), and raised competition and newer stores as possible causes.",
+    "The client's goal: margins back to where they were within eighteen months, with no store closures.",
+    "You promised to send the full framework deck tonight."
+  ],
+  "bookmarks": [
+    {
+      "ts": 46.0,
+      "source": "phone",
+      "snippet": "Then on costs, like, bean prices have kind of gone up a lot, and labor too, and basically margins are getting squeezed.",
+      "what_happened": "You bookmarked the middle of your framework answer. This is where costs came in without a number; \"gone up a lot\" could have been an estimate, such as beans up 15%.",
+      "follow_up": null
+    },
+    {
+      "ts": 86.0,
+      "source": "promise",
+      "snippet": "Um, got it, that helps. I'll send you the deck tonight with the full framework.",
+      "what_happened": "You promised the interviewer a deck with the full framework, due tonight.",
+      "follow_up": "Send the interviewer the framework deck tonight, and lead with the revenue branch and the 18-month margin goal."
+    }
+  ],
+  "timeline": [
+    { "t": 0, "wpm": 0, "volume_db": -60.0, "hand_energy": 0.62 },
+    { "t": 5, "wpm": 0, "volume_db": -60.0, "hand_energy": 0.66 },
+    { "t": 10, "wpm": 0, "volume_db": -60.0, "hand_energy": 0.68 },
+    { "t": 15, "wpm": 152, "volume_db": -23.5, "hand_energy": 0.49 },
+    { "t": 20, "wpm": 158, "volume_db": -22.8, "hand_energy": 0.12 },
+    { "t": 25, "wpm": 176, "volume_db": -21.9, "hand_energy": 0.51 },
+    { "t": 30, "wpm": 181, "volume_db": -21.4, "hand_energy": 0.55 },
+    { "t": 35, "wpm": 184, "volume_db": -21.2, "hand_energy": 0.58 },
+    { "t": 40, "wpm": 186, "volume_db": -21.0, "hand_energy": 0.61 },
+    { "t": 45, "wpm": 183, "volume_db": -21.6, "hand_energy": 0.57 },
+    { "t": 50, "wpm": 179, "volume_db": -22.1, "hand_energy": 0.54 },
+    { "t": 55, "wpm": 177, "volume_db": -22.4, "hand_energy": 0.50 },
+    { "t": 60, "wpm": 174, "volume_db": -22.9, "hand_energy": 0.46 },
+    { "t": 65, "wpm": 172, "volume_db": -23.3, "hand_energy": 0.44 },
+    { "t": 70, "wpm": 172, "volume_db": -23.3, "hand_energy": 0.31 },
+    { "t": 75, "wpm": 154, "volume_db": -22.0, "hand_energy": 0.42 },
+    { "t": 80, "wpm": 165, "volume_db": -22.6, "hand_energy": 0.18 },
+    { "t": 85, "wpm": 167, "volume_db": -23.1, "hand_energy": 0.40 }
+  ],
+  "better_version": {
+    "original": "Yeah, so, um, I think maybe I'd split profit into revenue and costs. On revenue, you know, it could possibly be fewer customers or, um, sort of smaller tickets per visit, I'm not totally sure but I'd want traffic by store. Then on costs, like, bean prices have kind of gone up a lot, and labor too, and basically margins are getting squeezed. I think maybe I'd start with revenue, but I'm not totally sure, it could possibly be costs, like, basically both.",
+    "rewritten": "I'd split profit into revenue and costs. On revenue: fewer customers, or smaller tickets per visit, so I'd want traffic and ticket size by store. On costs: bean prices and labour have both gone up. Since most stores are down evenly, I'll start with revenue. Can you share traffic by store over the two years?",
+    "audio_url": null
+  }
+}

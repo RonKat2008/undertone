@@ -259,6 +259,17 @@ class NudgeEvent(Model):
     ts: float
 
 
+class NudgeQuietEvent(Model):
+    """A rule fired but did not buzz (not the focus habit, or the budget is spent)."""
+
+    type: Literal["nudge.quiet"] = "nudge.quiet"
+    rule_id: str
+    haptic: HapticPattern
+    message: str
+    reason: str
+    ts: float
+
+
 class NudgeSnoozedEvent(Model):
     type: Literal["nudge.snoozed"] = "nudge.snoozed"
     rule_id: str
@@ -306,7 +317,7 @@ BusEvent = Annotated[
     Union[
         BandStatusEvent, DeviceStatusEvent, SessionStartedEvent, CalibrationEvent,
         TranscriptPartialEvent, TurnFinalEvent, MotionEvent, JudgeEvent, MetricsEvent,
-        SignalEvent, NudgeEvent, NudgeSnoozedEvent, StatusReplyEvent, BookmarkEvent,
+        SignalEvent, NudgeEvent, NudgeQuietEvent, NudgeSnoozedEvent, StatusReplyEvent, BookmarkEvent,
         SessionEndedEvent, DebriefEvent, CoachActivatedEvent, AppRequestEvent,
     ],
     Field(discriminator="type"),

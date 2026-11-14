@@ -1,0 +1,136 @@
+{
+  "id": "listener",
+  "name": "Listener",
+  "goal": "Be the better listener: talk less than 40% of the time, let the other person finish, acknowledge what they said before responding, ask open questions, and keep the conversation on their topic instead of steering it back to yourself.",
+  "kind": "prebuilt",
+  "confidence_threshold": 0.8,
+  "keyterms": [
+    "mm-hm",
+    "go on",
+    "tell me more",
+    "what was that like",
+    "how did that feel",
+    "sounds like",
+    "that makes sense"
+  ],
+  "filler_words": [
+    "um",
+    "uh",
+    "like",
+    "you know",
+    "kind of",
+    "sort of",
+    "basically",
+    "I mean",
+    "anyway"
+  ],
+  "questions": {
+    "self_redirect": {
+      "type": "noul",
+      "instructions": "Answer YES if the other person's previous turn was about their own experience, problem, news, or opinion, and the wearer's turn shifts the focus to the wearer's own experience, story, achievement, or opinion (for example 'That reminds me, when I...', 'Same thing happened to me...') without first asking about or responding to the other person's point. A brief 'me too' followed straight away by a question back to the other person is NO. Answer NO if there is no previous turn or the other person asked the wearer about themselves."
+    },
+    "built_on_detail": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer's turn picks up a specific detail from the other person's previous turn (a name, place, event, feeling, or claim they mentioned) and responds to or asks about it. Generic replies that would fit any previous turn ('Cool', 'Nice', 'Interesting', 'Tell me more') are NO. Answer NO if there is no previous turn."
+    },
+    "unsolicited_advice": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer tells the other person what they should do, or offers a fix or solution ('You should...', 'Have you tried...', 'Just do X'), when the other person's previous turn did not ask for advice, ideas, or an opinion. Answer NO if the other person asked for advice, or if the wearer offers no advice."
+    },
+    "paraphrased": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer restates the other person's point or feeling in the wearer's own words ('So the deadline moved and nobody told you', 'Sounds like you felt left out') before adding anything new. Repeating a single word, or a bare 'I hear you', is NO."
+    },
+    "minimized_feeling": {
+      "type": "noul",
+      "instructions": "Answer YES if the other person expressed a worry, frustration, sadness, or other feeling, and the wearer's turn dismisses or shrinks it ('At least...', 'It's not that bad', 'Don't worry about it', 'You'll be fine', 'Everyone goes through that'). Answer NO if no feeling was expressed or the wearer takes the feeling seriously."
+    },
+    "listening_depth": {
+      "type": "score",
+      "instructions": "Rate how well the wearer's turn shows that they listened to the other person's previous turn. Judge only what is said, not tone. If there is no previous turn by the other person, choose level 3.",
+      "criteria": [
+        "Ignores what the other person said, or changes the subject",
+        "A generic response ('cool', 'nice', 'oh wow') that refers to nothing specific they said",
+        "Refers to something specific the other person said",
+        "Reflects their point or feeling in the wearer's own words and invites them to say more"
+      ]
+    }
+  },
+  "nudge_rules": [
+    {
+      "id": "interrupt",
+      "when": "judge.interrupted.p >= 0.8",
+      "haptic": "interrupt",
+      "message": "Let them finish",
+      "cooldown_s": 60,
+      "enabled": true
+    },
+    {
+      "id": "talk_share",
+      "when": "metrics.talk_ratio > 0.4",
+      "haptic": "wrap_up",
+      "message": "Ask them a question",
+      "cooldown_s": 120,
+      "enabled": true
+    },
+    {
+      "id": "long_turn",
+      "when": "metrics.monologue_s > 45",
+      "haptic": "wrap_up",
+      "message": "Hand it back",
+      "cooldown_s": 90,
+      "enabled": true
+    },
+    {
+      "id": "self_redirect",
+      "when": "judge.self_redirect.p >= 0.8",
+      "haptic": "tap",
+      "message": "Back to their story",
+      "cooldown_s": 90,
+      "enabled": true
+    },
+    {
+      "id": "no_acknowledgement",
+      "when": "judge.listening_depth.score <= 1",
+      "haptic": "tap",
+      "message": "Reflect back first",
+      "cooldown_s": 90,
+      "enabled": true
+    },
+    {
+      "id": "unsolicited_advice",
+      "when": "judge.unsolicited_advice.p >= 0.8",
+      "haptic": "tap",
+      "message": "Ask before advising",
+      "cooldown_s": 90,
+      "enabled": true
+    }
+  ],
+  "motion_rules": [
+    {
+      "id": "fidget_listening",
+      "when": "motion.fidget_while_listening_s > 8",
+      "haptic": "still",
+      "message": "Hands calm",
+      "cooldown_s": 90,
+      "enabled": true
+    }
+  ],
+  "nudge_policy": {
+    "focus_rule_id": "interrupt",
+    "budget_per_session": 5,
+    "min_gap_s": 60,
+    "tolerance": 0.3,
+    "silent": false
+  },
+  "debrief_rubric": "This is a listening coach. Focus habit: letting the other person finish (interruptions). Headline fact: compare one measurable thing with the goal (talk ratio under 40%, zero interruptions, open questions), for example 'You talked 58% of the time; the goal was under 40%' or 'You cut Sam off twice, both while he was describing his trip.' Strength: quote one real moment of good listening, such as an open question about a detail they mentioned, a paraphrase, or a pause that let them keep going. One fix: the single listening behaviour that cost the most, described as what the wearer did ('you started your story about your cousin before Sam finished'), never as a trait ('you are self-centred'). If-then: one plan starting with 'When' or 'If' and tied to a cue, for example 'When they pause mid-story, count to two before you speak' or 'If you notice yourself saying \"that reminds me\", ask them a question instead.' Compare only with the wearer's own past sessions. For better_version, rewrite the weakest wearer turn as an acknowledgement plus one open question about the other person's topic, keeping their facts and inventing none.",
+  "drill": {
+    "partner_persona": "Sam, a warm friend who just got back from a two-week trip to Japan and has a mixed week at work. He tells stories in long runs with natural pauses, opens up more when asked open questions, and goes quiet when the conversation turns to the listener.",
+    "prompts": [
+      "So I just got back from Japan. Honestly the trip was amazing, but the last few days were kind of a mess.",
+      "Work's been weird since I got back. My manager moved my project to another team while I was away and nobody told me.",
+      "I'm thinking about maybe taking a pottery class, which I know sounds random.",
+      "My sister's moving to Denver next month and I'm not sure how I feel about it yet."
+    ]
+  }
+}

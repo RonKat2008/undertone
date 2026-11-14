@@ -1,0 +1,166 @@
+{
+  "id": "interview",
+  "name": "Interview",
+  "goal": "Give structured, direct answers in job and case interviews: answer the question that was asked, lead with the point, back it with confident numbers, finish with the result, and keep each answer under 2 minutes without hedging.",
+  "kind": "prebuilt",
+  "confidence_threshold": 0.8,
+  "keyterms": [
+    "STAR",
+    "case interview",
+    "market sizing",
+    "profitability",
+    "framework",
+    "revenue",
+    "costs",
+    "margin",
+    "EBITDA",
+    "TAM",
+    "go-to-market",
+    "stakeholder",
+    "behavioral question",
+    "hypothesis",
+    "MECE"
+  ],
+  "filler_words": [
+    "um",
+    "uh",
+    "like",
+    "you know",
+    "kind of",
+    "sort of",
+    "basically",
+    "actually",
+    "literally",
+    "I mean",
+    "so yeah"
+  ],
+  "questions": {
+    "behavioral_prompt": {
+      "type": "noul",
+      "instructions": "Look only at the other person's previous turn. Answer YES if it asks the wearer to describe a specific past experience (for example 'Tell me about a time...', 'Give me an example of...', 'Describe a situation where...', 'Walk me through a project you led'). Answer NO for case questions, factual questions, opinion questions, small talk, or if there is no previous turn."
+    },
+    "missing_result": {
+      "type": "noul",
+      "instructions": "Answer YES only if the wearer's turn tells a story about a specific past situation and what they did, but never states how it turned out (no outcome, result, metric, or consequence such as 'we shipped two weeks early' or 'retention went up 12%'). Answer NO if a concrete result is stated anywhere in the turn, if the turn is not a past-experience story, or if the turn is clearly unfinished because the other person is expected to continue the question."
+    },
+    "vague_quantity": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer describes an amount, size, impact, or change using only vague words ('a lot', 'huge', 'significantly', 'a bunch', 'way more', 'tons of') where a number or estimate would naturally fit, and gives no number for that same quantity in this turn. Answer NO if a number, percentage, range, or explicit estimate is given for it, or if the turn makes no quantitative claim at all."
+    },
+    "undercut_number": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer states a number, percentage, or estimate and then weakens it in the same breath with a hedge such as 'I think', 'maybe', 'roughly I guess', 'don't quote me', 'or something', 'I'm not sure'. A clear assumption stated as an assumption ('I'll assume 5% adoption') is NOT undercutting; answer NO. Answer NO if no number is stated."
+    },
+    "we_not_i": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer describes a past achievement only in terms of 'we' or 'the team' and never says what they personally did ('I', 'my part was'). Answer NO if the wearer names at least one action they took personally, or if the turn is not about a past achievement."
+    },
+    "bottom_line_first": {
+      "type": "score",
+      "instructions": "Judge where the wearer's direct answer to the other person's previous question appears in the wearer's turn. A direct answer is a sentence that commits to a position, a number, a choice, or a summary of the outcome. Ignore greetings and fillers when deciding what comes first. If the previous turn was not a question, choose level 4.",
+      "criteria": [
+        "No direct answer to the question appears anywhere in the turn",
+        "The direct answer only arrives at the very end, after background or a long build-up",
+        "The direct answer arrives in the middle of the turn, after some preamble",
+        "The direct answer is in the first one or two sentences"
+      ]
+    },
+    "asked_clarifying": {
+      "type": "noul",
+      "instructions": "Answer YES if the wearer asks the interviewer a question that clarifies the problem, the scope, the objective, or the data before or while answering (for example 'Is that drop across all stores?', 'How does the client define success?'). Answer NO for rhetorical questions, for 'Does that make sense?' style check-ins, and if the wearer asks no question."
+    }
+  },
+  "nudge_rules": [
+    {
+      "id": "hedging",
+      "when": "judge.hedging.p >= 0.8",
+      "haptic": "filler",
+      "message": "Say it plainly",
+      "cooldown_s": 60,
+      "enabled": true
+    },
+    {
+      "id": "long_answer",
+      "when": "metrics.monologue_s > 90",
+      "haptic": "wrap_up",
+      "message": "Land the result",
+      "cooldown_s": 90,
+      "enabled": true
+    },
+    {
+      "id": "bury_the_answer",
+      "when": "judge.bottom_line_first.score <= 2",
+      "haptic": "tap",
+      "message": "Lead with the answer",
+      "cooldown_s": 90,
+      "enabled": true
+    },
+    {
+      "id": "missing_result",
+      "when": "judge.missing_result.p >= 0.8",
+      "haptic": "tap",
+      "message": "Finish with the result",
+      "cooldown_s": 90,
+      "enabled": true
+    },
+    {
+      "id": "vague_numbers",
+      "when": "judge.vague_quantity.p >= 0.8",
+      "haptic": "tap",
+      "message": "Put a number on it",
+      "cooldown_s": 90,
+      "enabled": true
+    },
+    {
+      "id": "fillers",
+      "when": "metrics.fillers_per_min > 6",
+      "haptic": "filler",
+      "message": "Pause instead",
+      "cooldown_s": 60,
+      "enabled": true
+    },
+    {
+      "id": "pace",
+      "when": "metrics.wpm > 190",
+      "haptic": "slow_down",
+      "message": "Slow down",
+      "cooldown_s": 60,
+      "enabled": true
+    }
+  ],
+  "motion_rules": [
+    {
+      "id": "fidget_listening",
+      "when": "motion.fidget_while_listening_s > 8",
+      "haptic": "still",
+      "message": "Hands calm while they ask",
+      "cooldown_s": 90,
+      "enabled": true
+    },
+    {
+      "id": "big_hands",
+      "when": "metrics.hand_energy > 0.85",
+      "haptic": "still",
+      "message": "Smaller gestures",
+      "cooldown_s": 90,
+      "enabled": true
+    }
+  ],
+  "nudge_policy": {
+    "focus_rule_id": "hedging",
+    "budget_per_session": 5,
+    "min_gap_s": 60,
+    "tolerance": 0.3,
+    "silent": false
+  },
+  "debrief_rubric": "This is an interview practice coach. Focus habit: hedging. Read the wearer's turns that answer an interviewer question. Headline fact: compare one measurable thing with the goal (direct answers, no hedges, under 2 minutes each), for example how many hedges ('I think maybe', 'I'm not totally sure', 'could possibly') appeared in the longest answer, or how long it ran. Strength: quote one specific moment that was genuinely good, such as a clarifying question, a clear structure ('revenue first'), a confident number, or a stated result. One fix: pick the single behaviour that cost the most, described as what the wearer did ('you ended the framework with three possible branches'), never as a trait ('you are indecisive'). If-then: one plan tied to a cue the wearer will notice, starting with 'When' or 'If', for example 'When you finish listing branches, pick one and say why in one sentence.' Compare only with the wearer's own past sessions. For better_version, rewrite the weakest answer as a STAR or answer-first version under 30 seconds that keeps the wearer's own facts and numbers and invents none.",
+  "drill": {
+    "partner_persona": "Maya, a friendly but exacting interviewer at a strategy consulting firm. She asks one question at a time, lets silences sit, gives case data only when asked, and pushes for a decision ('Pick one branch') when an answer stays general. She mixes behavioural questions with a short profitability case.",
+    "prompts": [
+      "Tell me about a time you had to change a team's mind with data. What happened?",
+      "Our client is a regional coffee chain with about eighty stores. Profits fell twenty percent over two years. How would you approach figuring out why?",
+      "Roughly how many electric scooters are sold in Paris each year? Walk me through your estimate.",
+      "What is one project you would do differently if you could start again, and what was the result the first time?"
+    ]
+  }
+}
