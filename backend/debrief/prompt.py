@@ -11,7 +11,7 @@ import re
 from backend.contracts import (
     ChoiceAnswer, JudgeEvent, Metrics, NoulAnswer, ScoreAnswer, SessionSummary, TurnFinalEvent,
 )
-from backend.debrief.local import bookmark_snippet, focus_label
+from backend.debrief.local import bookmark_event_snippet, focus_label
 from backend.state import SessionState
 
 NOTABLE_P = 0.7          # yes/no judge answers at or above this are worth showing
@@ -122,7 +122,7 @@ def _bookmark_block(session: SessionState) -> str:
     lines = []
     for i, b in enumerate(session.bookmarks):
         label = f' "{b.text}"' if b.text else ""
-        snippet = bookmark_snippet(session, b.ts, max_chars=SNIPPET_CHARS)
+        snippet = bookmark_event_snippet(session, b, max_chars=SNIPPET_CHARS)
         lines.append(f"{i}. at {b.ts:.1f}s, source {b.source}{label}. Around it: {snippet}")
     return "\n".join(lines)
 

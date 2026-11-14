@@ -79,6 +79,25 @@ def bookmark_snippet(session: SessionState, ts: float, max_chars: int = 240) -> 
     return _trim(snippet, max_chars)
 
 
+def _promise_turn(session: SessionState, event: BookmarkEvent) -> TurnFinalEvent | None:
+    """The wearer turn a promise bookmark quotes. The bookmark is stamped when the judge answers,
+    after that turn ended, so by time alone it often lands on the other person's reply."""
+    if event.source != "promise" or not event.text:
+        return None
+    wanted = " ".join(event.text.split())
+    matches = [t for t in session.turns if t.speaker == "me" and " ".join(t.text.split()) == wanted
+               and t.start <= event.ts + TURN_SLACK_S]
+    return max(matches, key=lambda t: t.end) if matches else None
+
+
+def bookmark_event_snippet(session: SessionState, event: BookmarkEvent, max_chars: int = 240) -> str:
+    """Snippet for a bookmark: a promise quotes its own turn; anything else goes by time."""
+    turn = _promise_turn(session, event)
+    if turn is not None:
+        return _trim(" ".join(turn.text.split()), max_chars)
+    return bookmark_snippet(session, event.ts, max_chars)
+
+
 # ---------- focus ----------
 def focus_label(session: SessionState) -> str:
     """Readable focus habit: the rule id in words ("long_answer" -> "long answer").
@@ -100,7 +119,7 @@ def _review(event: BookmarkEvent, note: BookmarkNote | None, session: SessionSta
     fallback_follow = event.text if event.source == "promise" else None
     what = (note.what_happened.strip() if note else "") or event.text or DEFAULT_WHAT_HAPPENED
     follow = note.follow_up if note and note.follow_up and note.follow_up.strip() else fallback_follow
-    return BookmarkReview(ts=event.ts, source=event.source, snippet=bookmark_snippet(session, event.ts),
+    return BookmarkReview(ts=event.ts, source=event.source, snippet=bookmark_event_snippet(session, event),
                           what_happened=what, follow_up=follow)
 
 

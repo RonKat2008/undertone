@@ -203,6 +203,29 @@ def test_bookmark_snippet_outside_turns(session: SessionState) -> None:
     assert local.bookmark_snippet(session, -20.0).startswith("Here's the case.")
 
 
+def test_promise_snippet_is_the_promise_turn_not_the_next_one(session: SessionState) -> None:
+    # Live: the promise bookmark is stamped when the judge returns (~0.8 s after t08 ends at 89.4),
+    # which is inside the other person's "Perfect, talk soon." turn (89.9-91.2).
+    promise = BookmarkEvent(source="promise", text=T08, ts=90.238)
+    assert local.bookmark_event_snippet(session, promise) == T08
+    session.bookmarks = [promise]
+    review = local._reviews(session, [])[0]
+    assert review.snippet == T08
+
+
+def test_promise_snippet_unknown_text_falls_back_to_time(session: SessionState) -> None:
+    promise = BookmarkEvent(source="promise", text="never said this", ts=86.0)
+    assert local.bookmark_event_snippet(session, promise) == T08
+
+
+def test_prompt_bookmark_block_uses_promise_turn(session: SessionState) -> None:
+    from backend.debrief.prompt import _bookmark_block
+
+    session.bookmarks = [BookmarkEvent(source="promise", text=T08, ts=90.238)]
+    block = _bookmark_block(session)
+    assert "Around it: Um, got it" in block and "Perfect, talk soon" not in block
+
+
 def test_bookmark_snippet_empty_session() -> None:
     assert local.bookmark_snippet(make_session(with_turns=False), 10.0) == ""
 
