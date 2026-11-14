@@ -53,6 +53,8 @@ def test_nova_turns_by_speaker_gap_and_flush():
     a.tick(5.4)
     assert len(out) == 2
     a.tick(7.0)
+    assert len(out) == 2  # 1.7 s of quiet: within flush_s (3.0 s)
+    a.tick(8.5)
     assert len(out) == 3 and out[2]["text"] == "Long"
     ev = out[0]
     assert set(ev) == {"type", "turn_id", "speaker", "text", "start", "end", "wpm", "fillers"}

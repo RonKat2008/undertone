@@ -85,6 +85,37 @@ def _build_processors(pcm_q: asyncio.Queue, on_nova, on_interim, on_flux_end):
     return QueueAudioSource(), NovaSink(), FluxSink()
 
 
+def split_connect_kwargs(kwargs: dict, accepted: Iterable[str]) -> dict:
+    """Deepgram's SDK `listen.v1.connect()` takes only the parameters it declares and raises
+    TypeError on any other (Pipecat spreads `Settings.extra` straight into it). Move the
+    undeclared ones, e.g. filler_words, into request_options.additional_query_parameters,
+    where the SDK puts them on the WebSocket URL unchanged."""
+    accepted = set(accepted)
+    out = {k: v for k, v in kwargs.items() if k in accepted}
+    extra = {k: v for k, v in kwargs.items() if k not in accepted}
+    if extra:
+        ro = dict(out.get("request_options") or {})
+        ro["additional_query_parameters"] = {**(ro.get("additional_query_parameters") or {}), **extra}
+        out["request_options"] = ro
+    return out
+
+
+def _nova_service_class():
+    """DeepgramSTTService whose connect kwargs survive the SDK's strict signature."""
+    import inspect
+
+    from deepgram.listen.v1.client import AsyncV1Client
+    from pipecat.services.deepgram.stt import DeepgramSTTService
+
+    accepted = [n for n in inspect.signature(AsyncV1Client.connect).parameters if n != "self"]
+
+    class NovaSTTService(DeepgramSTTService):
+        def _build_connect_kwargs(self) -> dict:
+            return split_connect_kwargs(super()._build_connect_kwargs(), accepted)
+
+    return NovaSTTService
+
+
 def _flux_window(*args, **kwargs):
     """Find audio_window_start/end in the TurnInfo dict Flux attaches to its TranscriptionFrame."""
     for obj in list(args) + list(kwargs.values()):
@@ -152,6 +183,8 @@ class Hearing:
 
     def _on_interim(self, result, text: str) -> None:
         _, words = words_from_result(result)
+        if words:
+            self.nova_turns.heard(max(w.end for w in words))
         if text or words:
             self.on_event(partial_event(self.mapper, words, text or " ".join(w.text for w in words)))
 
@@ -181,16 +214,19 @@ class Hearing:
         from pipecat.services.deepgram.stt import DeepgramSTTService
         from pipecat.workers.runner import WorkerRunner
 
+        NovaSTTService = _nova_service_class()
+
         key = os.environ.get("DEEPGRAM_API_KEY")
         if not key:
             raise RuntimeError("DEEPGRAM_API_KEY is not set in .env")
         src, nova_sink, flux_sink = _build_processors(self.pcm_q, self._on_nova, self._on_interim, self._on_flux_end)
-        nova = DeepgramSTTService(api_key=key, sample_rate=SAMPLE_RATE, settings=DeepgramSTTService.Settings(
-            model="nova-3", diarize=True, interim_results=True, smart_format=True,
+        # mip_opt_out: Deepgram keeps no audio for training (the kit's rule, docs/deepgram.md)
+        nova = NovaSTTService(api_key=key, sample_rate=SAMPLE_RATE, mip_opt_out=True, settings=DeepgramSTTService.Settings(
+            model=(os.getenv("NOVA_MODEL") or "nova-3").strip(), diarize=True, interim_results=True, smart_format=True,
             keyterm=self.keyterms, extra={"filler_words": True}))
         if self.use_flux:
             from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
-            flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE,
+            flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE, mip_opt_out=True,
                                           settings=DeepgramFluxSTTService.Settings(
                                               model="flux-general-en", keyterm=self.keyterms))
 

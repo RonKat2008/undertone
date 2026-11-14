@@ -1,0 +1,114 @@
+"""Regression tests for defects found by pushing real audio through the pipeline
+(scripts/eval_audio.py). No network."""
+import inspect
+
+from backend.stt.pipeline import split_connect_kwargs
+
+
+def test_undeclared_deepgram_params_go_to_the_url_not_connect():
+    """filler_words in Settings.extra made the SDK's connect() raise TypeError on every
+    attempt: Deepgram never connected and sessions ran with no speech at all."""
+    kw = {"model": "nova-3", "diarize": "true", "filler_words": "true"}
+    out = split_connect_kwargs(kw, ["model", "diarize", "request_options"])
+    assert out["model"] == "nova-3" and out["diarize"] == "true" and "filler_words" not in out
+    assert out["request_options"]["additional_query_parameters"] == {"filler_words": "true"}
+    assert split_connect_kwargs({"model": "x"}, ["model"]) == {"model": "x"}
+
+
+def test_real_service_connect_kwargs_fit_the_sdk():
+    """The Nova service as Hearing builds it produces kwargs the installed SDK accepts,
+    with filler_words and mip_opt_out still sent."""
+    from deepgram.listen.v1.client import AsyncV1Client
+    from pipecat.services.deepgram.stt import DeepgramSTTService
+
+    from backend.stt.pipeline import _nova_service_class
+
+    svc = _nova_service_class()(api_key="test", sample_rate=16000, mip_opt_out=True,
+                                settings=DeepgramSTTService.Settings(model="nova-3", diarize=True,
+                                                                     extra={"filler_words": True}))
+    kw = svc._build_connect_kwargs()
+    accepted = set(inspect.signature(AsyncV1Client.connect).parameters) - {"self"}
+    assert set(kw) <= accepted
+    assert kw["mip_opt_out"] == "true"
+    assert kw["request_options"]["additional_query_parameters"]["filler_words"] == "true"
+
+
+# ---------- turns stay whole while a final is still on its way ----------
+
+from backend.stt.turns import NovaTurnAssembler, SpeakerMapper, Word  # noqa: E402
+
+
+def W(t, s, e, label=0):
+    return Word(t, s, e, label)
+
+
+def test_turn_not_flushed_while_interim_words_are_pending():
+    """Real Deepgram: the final for "Our client ..." arrived >1.5 s after "Here's the case."
+    ended, so the flush closed the turn mid-speech: 9 scripted turns came out as 30."""
+    out = []
+    a = NovaTurnAssembler(SpeakerMapper(), out.append)
+    a.add([W("Here's", 0.5, 0.8), W("the", 0.8, 0.9), W("case.", 0.9, 1.3)])
+    a.heard(2.4)            # interim: "Our client is a" ... still talking
+    a.tick(4.5)             # 3.2 s after the last final word, but a final is pending
+    assert out == []
+    a.add([W("Our", 1.7, 1.9), W("client", 1.9, 2.3), W("is", 2.3, 2.4), W("fine.", 2.4, 4.9)])
+    a.tick(7.5)
+    assert out == []
+    a.tick(8.0)
+    assert len(out) == 1 and out[0]["text"] == "Here's the case. Our client is fine."
+
+
+def test_pending_final_that_never_comes_does_not_hold_the_turn_forever():
+    out = []
+    a = NovaTurnAssembler(SpeakerMapper(), out.append, pending_max_s=4.0)
+    a.add([W("Hi.", 0.0, 0.4)])
+    a.heard(1.0)            # interim words whose final never arrives
+    a.tick(4.0)
+    assert out == []
+    a.tick(5.1)
+    assert len(out) == 1
+
+
+def test_label_change_still_closes_at_once():
+    out = []
+    a = NovaTurnAssembler(SpeakerMapper(), out.append)
+    a.add([W("Hello", 0.0, 0.4, 0)])
+    a.heard(3.0)
+    a.add([W("Hey", 1.0, 1.3, 1)])
+    assert len(out) == 1 and out[0]["text"] == "Hello"
+
+
+# ---------- loudness check lands before the second speaker's first turn ----------
+
+def test_loudness_swap_after_four_words_each():
+    """With 10 words needed, the swap came at 27 s in a real run: the wearer's first
+    turns were already out as "other"."""
+    m = SpeakerMapper()
+    m.speaker(0)
+    m.speaker(1)
+    for _ in range(4):
+        m.note_loudness(0, -32)  # the person across the table, heard first
+        m.note_loudness(1, -21)  # the wearer
+    assert m.maybe_swap_by_loudness() is True
+    assert m.speaker(1) == "me" and m.speaker(0) == "other"
+
+
+def test_no_swap_verdict_waits_for_ten_words():
+    m = SpeakerMapper()
+    m.speaker(0)
+    m.speaker(1)
+    for _ in range(4):
+        m.note_loudness(0, -25)
+        m.note_loudness(1, -27)
+    assert m.maybe_swap_by_loudness() is False and m.swapped_by_loudness is False  # still open
+    for _ in range(8):
+        m.note_loudness(0, -35)  # more evidence: label 0 is the quiet one after all
+        m.note_loudness(1, -22)
+    assert m.maybe_swap_by_loudness() is True
+    m2 = SpeakerMapper()
+    m2.speaker(0)
+    m2.speaker(1)
+    for _ in range(10):
+        m2.note_loudness(0, -25)
+        m2.note_loudness(1, -26)
+    assert m2.maybe_swap_by_loudness() is False and m2.swapped_by_loudness is True  # settled
