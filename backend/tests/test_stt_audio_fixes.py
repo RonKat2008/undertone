@@ -31,6 +31,10 @@ def test_real_service_connect_kwargs_fit_the_sdk():
     assert set(kw) <= accepted
     assert kw["mip_opt_out"] == "true"
     assert kw["request_options"]["additional_query_parameters"]["filler_words"] == "true"
+    svc2 = _nova_service_class()(api_key="test", sample_rate=16000, settings=DeepgramSTTService.Settings(
+        model="nova-2", diarize=True, extra={"filler_words": True, "diarize_model": "latest"}))
+    kw2 = svc2._build_connect_kwargs()
+    assert set(kw2) <= accepted and kw2.get("diarize_model") == "latest"  # DIARIZE_MODEL reaches the SDK
 
 
 # ---------- turns stay whole while a final is still on its way ----------
@@ -69,12 +73,15 @@ def test_pending_final_that_never_comes_does_not_hold_the_turn_forever():
     assert len(out) == 1
 
 
-def test_label_change_still_closes_at_once():
+def test_handover_still_closes_while_a_final_is_pending():
+    """A pending final holds back only the silence flush, not the hand-over to the other
+    label (merged with main's per-label turns: a 0.3 s "Hey" alone is an interjection, so
+    the other speaker holds the floor for handover_s here)."""
     out = []
     a = NovaTurnAssembler(SpeakerMapper(), out.append)
     a.add([W("Hello", 0.0, 0.4, 0)])
     a.heard(3.0)
-    a.add([W("Hey", 1.0, 1.3, 1)])
+    a.add([W("Hey", 1.0, 1.3, 1), W("there", 1.35, 1.7, 1)])
     assert len(out) == 1 and out[0]["text"] == "Hello"
 
 
@@ -112,6 +119,82 @@ def test_no_swap_verdict_waits_for_ten_words():
         m2.note_loudness(0, -25)
         m2.note_loudness(1, -26)
     assert m2.maybe_swap_by_loudness() is False and m2.swapped_by_loudness is True  # settled
+
+
+def _two_labels(m):
+    m.speaker(0)
+    m.speaker(1)
+
+
+def test_wrong_early_verdict_corrects_itself_on_more_evidence():
+    """Always-on runs one mapper all day: a wrong first verdict used to stay wrong until
+    the server restarted. It is re-checked on the latest words of each label."""
+    m = SpeakerMapper()
+    _two_labels(m)
+    for _ in range(30):
+        m.note_loudness(0, -25)
+        m.note_loudness(1, -26)
+    assert m.maybe_swap_by_loudness() is False and m.settled  # no swap: label 0 stays `me`
+    for _ in range(10):
+        m.note_loudness(0, -36)   # later, clearly: label 0 is the far voice
+        m.note_loudness(1, -22)
+    assert m.maybe_swap_by_loudness() is False  # most of the recent window still says no
+    for _ in range(10):
+        m.note_loudness(0, -36)
+        m.note_loudness(1, -22)
+    assert m.maybe_swap_by_loudness() is True and m.speaker(1) == "me" and m.settled
+
+
+def test_recheck_does_not_flap_on_similar_levels():
+    m = SpeakerMapper()
+    _two_labels(m)
+    for i in range(200):
+        m.note_loudness(0, -25 + (i % 5))
+        m.note_loudness(1, -27 + (i % 3))
+        assert m.maybe_swap_by_loudness() is False
+    assert m.speaker(0) == "me"
+
+
+def test_manual_swap_is_never_overridden_by_loudness():
+    m = SpeakerMapper()
+    _two_labels(m)
+    m.swap()                       # the person says label 1 is them
+    for _ in range(40):
+        m.note_loudness(0, -20)    # label 0 louder: loudness would swap back
+        m.note_loudness(1, -35)
+    assert m.maybe_swap_by_loudness() is False and m.speaker(1) == "me"
+
+
+def test_new_stream_forgets_labels_and_checks_again():
+    """A restarted Deepgram worker numbers speakers from 0 again."""
+    m = SpeakerMapper()
+    _two_labels(m)
+    for _ in range(10):
+        m.note_loudness(0, -35)
+        m.note_loudness(1, -20)
+    assert m.maybe_swap_by_loudness() is True and m.speaker(1) == "me"
+    m.new_stream()
+    assert not m.settled and m.speaker(0) == "me"  # first label of the new stream
+    assert m.speaker(1) == "other"
+
+
+def test_hold_is_only_at_the_start_of_a_long_stream():
+    """Always-on: one assembler across many conversations. Once the mapping settled, the
+    first turn of a later conversation goes out at the normal flush, not after the hold."""
+    out = []
+    m = SpeakerMapper()
+    a = NovaTurnAssembler(m, out.append, hold_s=10.0)
+    _hearing_like(a, m, [(W("a", 0.0, 0.3, 0), -20), (W("b", 0.4, 0.7, 0), -20),
+                         (W("c", 0.8, 1.1, 0), -20), (W("d", 1.2, 1.5, 0), -20)])
+    _hearing_like(a, m, [(W("w", 2.0, 2.3, 1), -32), (W("x", 2.4, 2.7, 1), -32),
+                         (W("y", 2.8, 3.1, 1), -32), (W("z", 3.2, 3.5, 1), -32)])
+    a.tick(7.0)
+    assert out == []   # 4 words each and no swap: "no swap" is not final yet, still held
+    a.tick(11.6)       # hold_s after the first held turn
+    assert [e["speaker"] for e in out] == ["me", "other"]
+    _hearing_like(a, m, [(W("later", 600.0, 600.5, 1), -32)])  # next conversation, 10 min on
+    a.tick(603.6)
+    assert len(out) == 3 and out[2]["speaker"] == "other"
 
 
 # ---------- the opening turn waits for the speaker check ----------
@@ -212,8 +295,30 @@ def test_flux_hand_over_keeps_words_and_numbering():
 
 
 def test_vocabulary_matches_the_model():
-    """keyterm prompting is Nova-3 only; NOVA_MODEL=nova-2 needs keywords instead."""
+    """keyterm prompting is Nova-3 only; nova-2 (the default) needs keywords instead."""
     from backend.stt.pipeline import vocabulary_settings
     assert vocabulary_settings("nova-3", ["MECE", "unit economics"]) == {"keyterm": ["MECE", "unit economics"]}
     assert vocabulary_settings("nova-2", ["MECE", "unit economics"]) == {"keywords": ["MECE", "unit", "economics"]}
     assert vocabulary_settings("nova-3", []) == {}
+
+
+def test_model_default_and_env_names(monkeypatch):
+    """nova-2 by default (it keeps "um"/"uh"); STT_MODEL or NOVA_MODEL, STT_MODEL wins."""
+    from backend.stt.pipeline import stt_model
+    monkeypatch.delenv("STT_MODEL", raising=False)
+    monkeypatch.delenv("NOVA_MODEL", raising=False)
+    assert stt_model() == "nova-2"
+    monkeypatch.setenv("NOVA_MODEL", "nova-3")
+    assert stt_model() == "nova-3"
+    monkeypatch.setenv("STT_MODEL", "nova-2-meeting")
+    assert stt_model() == "nova-2-meeting"
+    monkeypatch.setenv("STT_MODEL", " ")
+    assert stt_model() == "nova-3"
+
+
+def test_diarize_model_is_opt_in(monkeypatch):
+    from backend.stt.pipeline import diarize_extra
+    monkeypatch.delenv("DIARIZE_MODEL", raising=False)
+    assert diarize_extra() == {"filler_words": True}
+    monkeypatch.setenv("DIARIZE_MODEL", "latest")
+    assert diarize_extra() == {"filler_words": True, "diarize_model": "latest"}

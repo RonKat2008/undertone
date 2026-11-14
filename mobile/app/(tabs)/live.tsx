@@ -1,4 +1,3 @@
-import { useKeepAwake } from 'expo-keep-awake';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -6,9 +5,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { addBookmarkFeedback } from '@/haptics/feedback';
 import type { HapticPattern } from '@/bus/contracts';
 import { PATTERNS } from '@/bus/patterns';
+import { listenState } from '@/bus/phone-state';
 import { isLive } from '@/bus/reducer';
 import { useBus, useNow } from '@/bus/use-bus';
 import { Glyph } from '@/ui/Glyph';
+import { LISTEN_LABEL, ListeningIdle, dotColor, useKeepAwakeWhile } from '@/ui/Listening';
 import { Btn, T, clock } from '@/ui/kit';
 import { C, F, TAKEOVER, TONE } from '@/ui/theme';
 
@@ -17,7 +18,6 @@ const STATUS_MS = 5000;
 
 /** The metronome: almost empty on purpose. It lives on the table during a conversation. */
 export default function LiveScreen() {
-  useKeepAwake();
   const { state, send, mode, buzzes } = useBus();
   const router = useRouter();
   const now = useNow(250);
@@ -27,7 +27,14 @@ export default function LiveScreen() {
   const session = state.session;
   const live = isLive(state);
   const practice = session?.mode === 'practice';
-  const elapsed = session ? ((session.endedAt ?? now) - session.startedAt) / 1000 : 0;
+  const alwaysOn = state.alwaysOn;
+  const listen = listenState(state);
+  // Tap-to-start: awake while this tab is open (as before). Always-on: the root layout holds it during a conversation only.
+  useKeepAwakeWhile(!alwaysOn, 'undertone-live-tab');
+  const statusDot = state.status === 'offline' ? TONE.vermilion : live ? C.mic : C.paper3;
+  const statusText = state.status === 'offline' ? 'Laptop unreachable' : live ? 'Listening' : mode === 'mock' ? 'Demo feed' : 'Connected';
+  // always-on idle shows 0:00: the last conversation's length lives in the "Last conversation" line
+  const elapsed = session && (live || !state.alwaysOn) ? ((session.endedAt ?? now) - session.startedAt) / 1000 : 0;
 
   // What owns the centre right now: a nudge, a third-party buzz, or the answer to a single tap.
   const nudge = state.lastNudge && now - state.lastNudge.at < TAKEOVER_MS ? state.lastNudge : null;
@@ -62,8 +69,8 @@ export default function LiveScreen() {
           <View>
             <T v="caps" color={dim}>{state.coach ? (/coach$/i.test(state.coach.name) ? state.coach.name : `${state.coach.name} coach`) : 'No coach yet'}</T>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: take ? fg : state.status === 'offline' ? TONE.vermilion : live ? C.mic : C.paper3 }} />
-              <T v="small" color={dim}>{state.status === 'offline' ? 'Laptop unreachable' : live ? 'Listening' : mode === 'mock' ? 'Demo feed' : 'Connected'}</T>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: take ? fg : alwaysOn ? dotColor(listen) : statusDot }} />
+              <T v="small" color={dim}>{alwaysOn ? LISTEN_LABEL[listen] : statusText}</T>
             </View>
           </View>
           <T v="mono" size={34} color={fg}>{clock(elapsed)}</T>
@@ -117,7 +124,7 @@ export default function LiveScreen() {
               </View>
               <T v="small">{state.practice.previous !== null ? `Last round ${state.practice.previous}.` : 'First round. This sets the number to beat.'}</T>
             </View>
-          ) : state.lastNudge?.pattern ? (
+          ) : state.lastNudge?.pattern && (live || !alwaysOn) ? (
             <View>
               <T v="caps">Last nudge · {clock(state.lastNudge.ts)}</T>
               <View style={{ marginVertical: 16 }}><Glyph pattern={state.lastNudge.pattern} size={72} maxWidth={330} /></View>
@@ -130,6 +137,8 @@ export default function LiveScreen() {
               <T v="serif" size={44} color={C.paper2} style={{ marginTop: 16 }}>Quiet so far.</T>
               <T v="small" style={{ marginTop: 6 }}>Everything else is being written down for the debrief.</T>
             </View>
+          ) : alwaysOn ? (
+            <ListeningIdle state={state} listen={listen} isDemo={mode === 'mock'} onOpenDebrief={() => router.push('/debrief')} />
           ) : (
             <View>
               <T v="serif" size={52}>{session?.endedAt ? (practice ? 'Round finished.' : 'Conversation ended.') : 'Double-tap the band to begin.'}</T>
@@ -163,6 +172,12 @@ export default function LiveScreen() {
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
           {live ? (
             <Btn label="Stop" onPress={() => send({ cmd: 'stop' })} color={fg} style={{ flex: 1 }} />
+          ) : alwaysOn ? (
+            <>
+              {/* conversations open by themselves; starting by hand stays possible, but quieter */}
+              <Btn label="Start now" onPress={() => send({ cmd: 'start', mode: 'regular' })} style={{ flex: 1 }} />
+              <Btn label="Practice" onPress={() => send({ cmd: 'start', mode: 'practice' })} style={{ flex: 1 }} />
+            </>
           ) : (
             <>
               <Btn label="Start" solid onPress={() => send({ cmd: 'start', mode: 'regular' })} style={{ flex: 1.4 }} />

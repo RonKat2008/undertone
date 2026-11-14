@@ -97,6 +97,7 @@ class FakeHearing(Hearing):
 
     async def start(self) -> None:
         results = script_results(load_turns(self.script))
+        self.mapper.me_label = 0  # the script says who the wearer is; do not guess from who spoke first
         self._t0 = time.monotonic()
         self._play = asyncio.create_task(self._run(results))
         self._ticker = asyncio.create_task(self._tick())

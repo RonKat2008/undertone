@@ -24,7 +24,7 @@ from .turns import (FluxTurnAssembler, NovaTurnAssembler, RollingPace, SpeakerMa
 
 log = logging.getLogger("undertone.stt")
 SAMPLE_RATE = 16000
-OPENING_HOLD_S = 15.0  # longest an opening turn waits for the loudness speaker check
+OPENING_HOLD_S = 10.0  # longest an opening turn waits for the loudness speaker check
 
 
 def _build_processors(pcm_q: asyncio.Queue, on_nova, on_interim, on_flux_end):
@@ -101,6 +101,33 @@ def split_connect_kwargs(kwargs: dict, accepted: Iterable[str]) -> dict:
     return out
 
 
+DEFAULT_STT_MODEL = "nova-2"
+
+
+def stt_model() -> str:
+    """The word-stream model: STT_MODEL, else NOVA_MODEL, else nova-2.
+
+    nova-2 is the default because it keeps "um"/"uh": on the two-voice audio fixture Nova-3
+    dropped all 6 scripted "um"s even with filler_words=true, Nova-2 found 5 (and its WER was
+    lower, 1.8 % vs 4-5 %). Nova-3 has keyterm prompting; Nova-2 gets the coach's terms as
+    keywords instead (vocabulary_settings)."""
+    for name in ("STT_MODEL", "NOVA_MODEL"):
+        v = (os.environ.get(name) or "").strip()
+        if v:
+            return v
+    return DEFAULT_STT_MODEL
+
+
+def diarize_extra() -> dict:
+    """Extra Deepgram query params: filler words always; DIARIZE_MODEL (streaming accepts
+    "v1" or "latest", SDK 7.19) picks the diarization model when set."""
+    extra = {"filler_words": True}
+    dm = (os.environ.get("DIARIZE_MODEL") or "").strip()
+    if dm:
+        extra["diarize_model"] = dm
+    return extra
+
+
 def vocabulary_settings(model: str, keyterms: List[str]) -> dict:
     """Coach vocabulary for the word stream: `keyterm` prompting exists only on Nova-3;
     older Nova models take `keywords` (single words)."""
@@ -149,7 +176,9 @@ class Hearing:
     def __init__(self, pcm_q: asyncio.Queue, mapper: SpeakerMapper, on_event: Callable[[dict], None],
                  keyterms: Iterable[str] = (), filler_words: Iterable[str] = DEFAULT_FILLERS,
                  use_flux: Optional[bool] = None, audio_clock: Optional[Callable[[], float]] = None,
-                 loudness=None, on_words: Optional[Callable[[str, List[Word]], None]] = None) -> None:
+                 loudness=None, on_words: Optional[Callable[[str, List[Word]], None]] = None,
+                 end_on_failure: bool = False,
+                 on_live_words: Optional[Callable[[str, List[Word]], None]] = None) -> None:
         self.pcm_q = pcm_q
         self.mapper = mapper
         self.on_event = on_event
@@ -161,7 +190,7 @@ class Hearing:
         self.on_words = on_words
         self.pace = RollingPace()
         self._dedupe = WordDeduper()
-        # With loudness to settle who the wearer is, the opening turns wait (up to 15 s) for
+        # With loudness to settle who the wearer is, the opening turns wait (up to 10 s) for
         # that check: the person who speaks first is often not the wearer.
         self.nova_turns = NovaTurnAssembler(mapper, self._emit, self.filler_words,
                                             hold_s=OPENING_HOLD_S if loudness is not None else 0.0)
@@ -169,6 +198,18 @@ class Hearing:
         self._flux_given_up = False
         self._runner = None
         self._ticker = None
+        self._run_task: Optional[asyncio.Task] = None
+        # always-on: if Deepgram gives up reconnecting, end the worker (so `running` turns False
+        # and the owner restarts it) instead of Pipecat's default of running on without STT
+        self.end_on_failure = end_on_failure
+        # interim AND final words, by speaker, as soon as Deepgram has them (practice mode's
+        # crutch-word buzz needs ~1 s, a turn.final can be 20 s away). Interims get revised:
+        # the consumer dedupes by word and time.
+        self.on_live_words = on_live_words
+
+    @property
+    def running(self) -> bool:
+        return self._run_task is not None and not self._run_task.done()
 
     # ---------- Deepgram callbacks ----------
 
@@ -201,11 +242,27 @@ class Hearing:
         if self.on_words:
             for spk, ws in by_speaker.items():
                 self.on_words(spk, ws)
+        self._live(new)
+
+    def _live(self, words: List[Word]) -> None:
+        if not self.on_live_words or not words:
+            return
+        if self.mapper.me_label is None and not self.mapper.single_speaker:
+            return  # nobody mapped yet: do not guess who the wearer is from an interim
+        by: dict = {}
+        for w in words:
+            by.setdefault(self.mapper.speaker(w.label), []).append(w)
+        for spk, ws in by.items():
+            try:
+                self.on_live_words(spk, ws)
+            except Exception:  # noqa: BLE001
+                log.exception("on_live_words failed")
 
     def _on_interim(self, result, text: str) -> None:
         _, words = words_from_result(result)
         if words:
             self.nova_turns.heard(max(w.end for w in words))
+        self._live(words)
         if text or words:
             self.on_event(partial_event(self.mapper, words, text or " ".join(w.text for w in words)))
 
@@ -252,12 +309,15 @@ class Hearing:
         key = os.environ.get("DEEPGRAM_API_KEY")
         if not key:
             raise RuntimeError("DEEPGRAM_API_KEY is not set in .env")
+        # A new stream numbers speakers from 0 again: in always-on the mapper outlives a
+        # restarted worker, and the old labels would now point at whoever speaks first.
+        self.mapper.new_stream()
         src, nova_sink, flux_sink = _build_processors(self.pcm_q, self._on_nova, self._on_interim, self._on_flux_end)
         # mip_opt_out: Deepgram keeps no audio for training (the kit's rule, docs/deepgram.md)
-        model = (os.getenv("NOVA_MODEL") or "nova-3").strip()
+        model = stt_model()
         nova = NovaSTTService(api_key=key, sample_rate=SAMPLE_RATE, mip_opt_out=True, settings=DeepgramSTTService.Settings(
             model=model, diarize=True, interim_results=True, smart_format=True,
-            **vocabulary_settings(model, self.keyterms), extra={"filler_words": True}))
+            **vocabulary_settings(model, self.keyterms), extra=diarize_extra()))
         if self.use_flux:
             from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
             flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE, mip_opt_out=True,
@@ -267,8 +327,13 @@ class Hearing:
             pipeline = Pipeline([src, ParallelPipeline([flux, flux_sink], [nova, nova_sink])])
         else:
             pipeline = Pipeline([src, nova, nova_sink])  # Phase 1: Nova-only
+        extra = {}
+        if self.end_on_failure:
+            from pipecat.pipeline.worker import ProcessorUnusablePolicy
+            extra["processor_unusable_policy"] = ProcessorUnusablePolicy.CANCEL
         worker = PipelineWorker(pipeline, params=PipelineParams(audio_in_sample_rate=SAMPLE_RATE),
-                                idle_timeout_secs=None, enable_rtvi=False)  # default 300 s idle would kill it
+                                idle_timeout_secs=None, enable_rtvi=False,  # default 300 s idle would kill it
+                                **extra)
         self._runner = WorkerRunner(handle_sigint=False)  # FastAPI owns signals
         await self._runner.add_workers(worker)
         self._run_task = asyncio.create_task(self._runner.run())

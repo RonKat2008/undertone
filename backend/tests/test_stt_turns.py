@@ -108,3 +108,31 @@ def test_partial_speaker():
     assert partial_event(m, [W("hi", 0, 0.2, 0)], "hi")["speaker"] is None  # nobody mapped yet
     m.speaker(0)
     assert partial_event(m, [W("hi", 0, 0.2, 0)], "hi") == {"type": "transcript.partial", "speaker": "me", "text": "hi"}
+
+
+def test_overlap_gives_two_turns_not_fragments():
+    """The other person is still talking when the wearer cuts in: two overlapping turns."""
+    out = []
+    a = NovaTurnAssembler(SpeakerMapper(), out.append)
+    a.add([W("So", 0.0, 0.3, 0), W("what", 0.4, 0.7, 0), W("is", 0.8, 1.0, 0), W("it", 1.1, 1.3, 0)])
+    ws = []
+    for i in range(6):  # interleaved for 1.5 s
+        ws.append(W("me%d" % i, 1.2 + i * 0.25, 1.3 + i * 0.25, 1))
+        if i < 4:
+            ws.append(W("them%d" % i, 1.3 + i * 0.25, 1.45 + i * 0.25, 0))
+    ws += [W("and", 3.0, 3.2, 1), W("so", 3.3, 3.5, 1), W("on", 3.6, 3.9, 1)]
+    a.add(ws)
+    a.flush()
+    assert len(out) == 2, [(t["speaker"], t["text"]) for t in out]
+    first, second = sorted(out, key=lambda t: t["start"])
+    assert second["start"] < first["end"]  # overlap = an interruption downstream
+
+
+def test_backchannel_does_not_end_turn():
+    out = []
+    a = NovaTurnAssembler(SpeakerMapper(), out.append)
+    a.add([W("I", 0.0, 0.2, 0), W("think", 0.3, 0.6, 0), W("yeah", 0.65, 0.85, 1),
+           W("we", 0.9, 1.1, 0), W("should", 1.2, 1.5, 0)])
+    a.flush()
+    me = [t for t in out if t["speaker"] == "me"]
+    assert len(me) == 1 and me[0]["text"] == "I think we should"

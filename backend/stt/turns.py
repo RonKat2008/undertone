@@ -81,7 +81,8 @@ class SpeakerMapper:
     def __init__(self, single_speaker: bool = False) -> None:
         self.me_label: Optional[int] = None
         self.single_speaker = single_speaker  # demo mode: everything is the wearer
-        self.swapped_by_loudness = False
+        self.swapped_by_loudness = False  # the loudness check has decided (swap or not)
+        self.manual = False  # the person swapped by hand: loudness no longer overrides
         self._db: Dict[int, List[float]] = {}
         self._other_label: Optional[int] = None
 
@@ -100,35 +101,62 @@ class SpeakerMapper:
         return self.single_speaker or self.swapped_by_loudness
 
     def swap(self) -> None:
-        """Manual override. With two labels known, they trade places; with one, the next new
-        label becomes the wearer."""
+        """Manual override (dashboard). With two labels known, they trade places; with one,
+        the next new label becomes the wearer. After a manual swap loudness never overrides
+        the person again."""
+        self.manual = True
+        self._flip()
+
+    def _flip(self) -> None:
         if self._other_label is not None and self.me_label is not None:
             self.me_label, self._other_label = self._other_label, self.me_label
         else:
             self._other_label, self.me_label = self.me_label, None
 
+    def new_stream(self) -> None:
+        """A new Deepgram stream numbers its speakers afresh: forget the labels and their
+        loudness, and check again (always-on keeps one mapper across worker restarts)."""
+        self.me_label = None
+        self._other_label = None
+        self._db = {}
+        self.swapped_by_loudness = False
+        self.manual = False
+
     def note_loudness(self, label: int, db: Optional[float]) -> None:
         if db is not None:
-            self._db.setdefault(label, []).append(db)
+            vals = self._db.setdefault(label, [])
+            vals.append(db)
+            if len(vals) > self.KEEP_DB:
+                del vals[: len(vals) - self.KEEP_DB]
+
+    KEEP_DB = 64         # loudness samples kept per label (always-on runs all day)
+    RECHECK_WORDS = 30   # after the first verdict: recent words per label for a re-check
 
     def maybe_swap_by_loudness(self, min_words: int = 4, confirm_words: int = 10, margin_db: float = 6.0) -> bool:
-        """Early, at most one swap: if the label we call `other` is clearly louder than `me`, swap.
+        """If the label we call `other` is clearly louder than `me`, swap.
 
-        Checked as soon as both labels have `min_words` words, so the swap lands before the
-        second speaker's first turn is emitted (with 10 words it came a turn or two late, and
-        those turns went out with the wrong speaker). A "no swap" verdict stays open until
-        both have `confirm_words`; after that, or after a swap, it never changes again."""
-        if self.swapped_by_loudness or self.single_speaker or self.me_label is None or self._other_label is None:
+        First check as soon as both labels have `min_words` words, so the swap lands before
+        the second speaker's first turn is emitted (with 10 words it came a turn or two late,
+        and those turns went out with the wrong speaker). A "no swap" verdict stays open until
+        both have `confirm_words`; then the mapping counts as settled.
+
+        After that it is re-checked on the latest RECHECK_WORDS words of each label, so a
+        wrong early verdict (an always-on stream runs all day on one mapper) corrects itself
+        once there is clearly more evidence, instead of staying wrong until a restart. A
+        manual swap turns the re-check off."""
+        if self.single_speaker or self.manual or self.me_label is None or self._other_label is None:
             return False
         me, ot = self._db.get(self.me_label, []), self._db.get(self._other_label, [])
+        if self.swapped_by_loudness:
+            me, ot, min_words = me[-self.RECHECK_WORDS:], ot[-self.RECHECK_WORDS:], self.RECHECK_WORDS
         if len(me) < min_words or len(ot) < min_words:
             return False
         if statistics.median(ot) - statistics.median(me) >= margin_db:
-            self.swap()
+            self._flip()
             self.swapped_by_loudness = True
             return True
         if len(me) >= confirm_words and len(ot) >= confirm_words:
-            self.swapped_by_loudness = True  # checked; do not keep second-guessing
+            self.swapped_by_loudness = True  # checked: the mapping is settled
         return False
 
 
@@ -150,46 +178,66 @@ def make_turn_event(n: int, speaker: str, words: Sequence[Word], filler_list: It
 
 
 class NovaTurnAssembler:
-    """Turns from final Nova words.
+    """Turns from final Nova words, one open turn per speaker label, so talking over each
+    other gives two overlapping turns (an interruption) instead of a pile of one-word turns.
+
+    A label's turn closes when that label goes quiet for more than `gap_s`, when someone else
+    has held the floor for `handover_s` since its last word, or on `tick` after `flush_s` of
+    silence. A short interjection ("yeah") does not end the other person's turn.
 
     Deepgram finalises a stretch of speech only at its next endpoint, often 1-3 s after the
     words were spoken, while interim results keep arriving as people talk. So "no final
-    word for flush_s" does not mean "quiet": the speaker may be mid-sentence with the final
+    word for flush_s" does not mean "quiet": someone may be mid-sentence with the final
     still on its way. `heard(end)` takes the end of the latest interim word; while interim
-    words lie beyond the last final word (a final is pending), the turn stays open, up to
+    words lie beyond the last final word (a final is pending), `tick` closes nothing, up to
     `pending_max_s` past the last interim in case that final never comes.
 
     gap_s is 2.0 s and flush_s 3.0 s (were 1.2 / 1.5): a thinking pause of 1.5 s
     ("Um, ... got it") is still the same turn, and after such a pause the first interim of
     the next words arrives ~0.7-1 s later, so the flush has to wait gap_s plus that. A turn
-    followed by the other person still closes as soon as their first final word arrives
-    (label change); flush_s only sets the latency of a turn followed by silence.
+    followed by the other person still closes once they have held the floor `handover_s`;
+    flush_s only sets the latency of a turn followed by silence.
+
+    hold_s > 0 (Hearing with loudness): opening turns are held until the mapper has settled
+    who the wearer is, at most hold_s; after the first release nothing is held again.
     """
 
     def __init__(self, mapper: SpeakerMapper, on_turn: Callable[[dict], None],
                  filler_list: Iterable[str] = DEFAULT_FILLERS, gap_s: float = 2.0, flush_s: float = 3.0,
-                 pending_max_s: float = 4.0, hold_s: float = 0.0) -> None:
+                 handover_s: float = 0.6, pending_max_s: float = 4.0, hold_s: float = 0.0) -> None:
         self.mapper = mapper
         self.on_turn = on_turn
         self.filler_list = list(filler_list)
         self.gap_s = gap_s
         self.flush_s = flush_s
+        self.handover_s = handover_s
         self.pending_max_s = pending_max_s
         self.hold_s = hold_s  # > 0: hold opening turns until the speaker mapping is settled
         self._held: List[List[Word]] = []
         self._hold_over = False
-        self._cur: List[Word] = []
+        self._open: Dict[int, List[Word]] = {}
+        self._foreign_since: Dict[int, Optional[float]] = {}
         self._n = 0
         self._final_until = 0.0  # end of the latest final word, any speaker
         self._heard_until = 0.0  # end of the latest interim word
 
     def add(self, words: Iterable[Word]) -> None:
         self._maybe_release()
-        for w in words:
-            if self._cur and (w.label != self._cur[-1].label or w.start - self._cur[-1].end > self.gap_s):
-                self._close()
-            self._cur.append(w)
+        for w in sorted(words, key=lambda x: x.start):
+            self.mapper.speaker(w.label)  # the first label *heard* is the wearer, not the first turn closed
             self._final_until = max(self._final_until, w.end)
+            own = self._open.get(w.label)
+            if own and w.start - own[-1].end > self.gap_s:
+                self._close(w.label)
+            self._open.setdefault(w.label, []).append(w)
+            self._foreign_since[w.label] = None
+            for label in [l for l in self._open if l != w.label]:
+                turn = self._open[label]
+                if self._foreign_since.get(label) is None:
+                    self._foreign_since[label] = w.start
+                if (w.end - self._foreign_since[label] >= self.handover_s
+                        or w.start - turn[-1].end > self.gap_s):
+                    self._close(label)
 
     def continue_after(self, n: int) -> None:
         """Number the next turn n + 1 (taking over from the Flux assembler: no duplicate ids)."""
@@ -205,23 +253,25 @@ class NovaTurnAssembler:
         return self._heard_until > self._final_until + 0.3
 
     def tick(self, now: float) -> None:
-        """Call often with the audio clock; closes a turn once its speaker has gone quiet
-        and no final is still on its way."""
+        """Call often with the audio clock; closes turns whose speaker has gone quiet and
+        for which no final is still on its way."""
         self._maybe_release(now)
-        if not self._cur or now - self._cur[-1].end <= self.flush_s:
-            return
         if self.pending and now - self._heard_until <= self.pending_max_s:
             return
-        self._close()
+        for label in [l for l, t in self._open.items() if now - t[-1].end > self.flush_s]:
+            self._close(label)
 
     def flush(self) -> None:
-        if self._cur:
-            self._close()
+        for label in sorted(self._open, key=lambda l: self._open[l][0].start):
+            self._close(label)
         self._hold_over = True
         self._release()
 
-    def _close(self) -> None:
-        words, self._cur = self._cur, []
+    def _close(self, label: int) -> None:
+        words = self._open.pop(label, None)
+        self._foreign_since.pop(label, None)
+        if not words:
+            return
         if self.hold_s > 0 and not self._hold_over and not self.mapper.settled:
             self._held.append(words)  # who is `me` is still a guess: wait for the loudness check
             return

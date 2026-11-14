@@ -170,3 +170,165 @@ def test_scripted_speech_runs_the_real_path(tmp_path, monkeypatch):
     assert any(e.type == "transcript.partial" for e in seen)
     debrief = next(e for e in seen if e.type == "debrief")
     assert debrief.data.numbers.talk_ratio > 0.3
+
+
+def test_demo_script_fires_the_interrupt_nudge(tmp_path, monkeypatch):
+    """fixtures/demo_script.jsonl: the wearer cuts in, the Brain buzzes `interrupt`, the debrief names it."""
+    _stub_fastapi_if_missing()
+    monkeypatch.setenv("BAND_TRANSPORT", "sim")
+    monkeypatch.setenv("STT", "fake")
+    monkeypatch.setenv("STT_FAKE_SPEED", "10")
+    monkeypatch.setenv("STT_FAKE_SCRIPT", "fixtures/demo_script.jsonl")
+    monkeypatch.setenv("KEYBOARD_TAPS", "0")
+    import backend.motion.classifier as cl
+    monkeypatch.setattr(cl, "CAL_DIR", tmp_path)
+
+    from backend import studio
+    from backend.brain import Brain
+    from backend.bus import Bus
+    from backend.config import settings
+    from backend.db import DB
+    from backend.session import attach_band
+    from backend.state import AppState
+
+    async def run():
+        db = DB(str(tmp_path / "d.db"))
+        state = AppState(bus=Bus(), db=db, active_coach=studio.default_coach())
+        brain = Brain(state, settings)
+        seen = []
+
+        async def grab(ev):
+            seen.append(ev)
+
+        state.bus.on("*", grab)
+        band = await attach_band(state, brain)
+        band.band.tap("double")
+        await asyncio.sleep(8.5)
+        band.band.tap("double")
+        for _ in range(40):
+            await asyncio.sleep(0.25)
+            if any(e.type == "debrief" for e in seen):
+                break
+        await state.bus.drain()
+        await band.shutdown()
+        db.close()
+        return seen
+
+    seen = asyncio.run(run())
+    me = [e for e in seen if e.type == "turn.final" and e.speaker == "me"]
+    assert len(me) == 3  # the overlap is one long turn, not fragments
+    assert any(e.type == "nudge" and e.haptic == "interrupt" for e in seen)
+    debrief = next(e for e in seen if e.type == "debrief")
+    assert debrief.data.numbers.interruptions >= 1
+
+
+def test_practice_round_buzzes_every_crutch_word(tmp_path, monkeypatch):
+    """Practice mode: each 'um' / 'basically' of the wearer is a filler buzz within ~1 s,
+    published as the nudge the dashboard's practice panel counts."""
+    _stub_fastapi_if_missing()
+    monkeypatch.setenv("BAND_TRANSPORT", "sim")
+    monkeypatch.setenv("STT", "fake")
+    monkeypatch.setenv("STT_FAKE_SPEED", "10")
+    monkeypatch.setenv("STT_FAKE_SCRIPT", "fixtures/demo_script.jsonl")
+    monkeypatch.setenv("KEYBOARD_TAPS", "0")
+    import backend.motion.classifier as cl
+    monkeypatch.setattr(cl, "CAL_DIR", tmp_path)
+
+    from backend import haptics_port, studio
+    from backend.brain import Brain
+    from backend.bus import Bus
+    from backend.config import settings
+    from backend.db import DB
+    from backend.session import attach_band
+    from backend.state import AppState
+
+    buzzes = []
+
+    async def sender(cmd):
+        buzzes.append(cmd.pattern)
+
+    async def run():
+        haptics_port.register_sender(sender)
+        db = DB(str(tmp_path / "p.db"))
+        state = AppState(bus=Bus(), db=db, active_coach=studio.default_coach())
+        brain = Brain(state, settings)
+        seen = []
+
+        async def grab(ev):
+            seen.append(ev)
+
+        state.bus.on("*", grab)
+        band = await attach_band(state, brain)
+        await brain.start_session(mode="practice")
+        await asyncio.sleep(8.5)
+        coach_words = list(state.session.coach.filler_words)
+        await brain.end_session()
+        await asyncio.sleep(0.5)
+        await state.bus.drain()
+        await band.shutdown()
+        haptics_port.reset_sender()
+        db.close()
+        return seen, coach_words
+
+    seen, coach_words = asyncio.run(run())
+    crutch = [e for e in seen if e.type == "nudge" and e.rule_id == "crutch"]
+    from backend.stt.fillers import find_fillers
+    said = []
+    for e in seen:
+        if e.type == "turn.final" and e.speaker == "me":
+            said += find_fillers(e.text.split(), coach_words)
+    assert said, "the demo script has crutch words"
+    assert len(crutch) == len(said), ([c.reason for c in crutch], said)
+    assert all(c.haptic == "filler" and c.reason.startswith("You said “") for c in crutch)
+    assert all(c.latency_ms < 1500 for c in crutch)
+    assert buzzes.count("filler") >= len(crutch)
+
+
+def test_pace_nudge_fires_mid_answer(tmp_path, monkeypatch):
+    """A fast answer buzzes slow_down while it is still going, from live Deepgram-word pace."""
+    _stub_fastapi_if_missing()
+    monkeypatch.setenv("BAND_TRANSPORT", "sim")
+    monkeypatch.setenv("STT", "fake")
+    monkeypatch.setenv("STT_FAKE_SPEED", "1")
+    monkeypatch.setenv("STT_FAKE_SCRIPT", "fixtures/fast_answer.jsonl")
+    monkeypatch.setenv("KEYBOARD_TAPS", "0")
+    import backend.motion.classifier as cl
+    monkeypatch.setattr(cl, "CAL_DIR", tmp_path)
+
+    from backend import studio
+    from backend.brain import Brain
+    from backend.bus import Bus
+    from backend.config import settings
+    from backend.db import DB
+    from backend.session import attach_band
+    from backend.state import AppState
+
+    async def run():
+        db = DB(str(tmp_path / "pace.db"))
+        state = AppState(bus=Bus(), db=db, active_coach=studio.default_coach())
+        brain = Brain(state, settings)
+        seen = []
+
+        async def grab(ev):
+            seen.append((time.monotonic(), ev))
+
+        state.bus.on("*", grab)
+        band = await attach_band(state, brain)
+        await brain.start_session()
+        await asyncio.sleep(7.5)
+        await brain.end_session()
+        for _ in range(40):
+            await asyncio.sleep(0.25)
+            if any(e.type == "debrief" for _, e in seen):
+                break
+        await state.bus.drain()
+        await band.shutdown()
+        db.close()
+        return seen
+
+    import time
+    seen = asyncio.run(run())
+    pace = [t for t, e in seen if e.type == "nudge" and e.rule_id == "pace"]
+    turn = [t for t, e in seen if e.type == "turn.final"]
+    assert pace, [e.type for _, e in seen]
+    assert not turn or pace[0] < turn[0]  # buzzed before the answer was over

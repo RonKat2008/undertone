@@ -130,7 +130,7 @@ def main() -> int:
     p.add_argument("--snr", type=float, default=None, help="mix in background noise at this SNR (dB)")
     p.add_argument("--opus", action="store_true", help="run every 20 ms frame through the band's Opus codec")
     p.add_argument("--flux", action="store_true", help="USE_FLUX=true (Flux turn boundaries + Nova words)")
-    p.add_argument("--model", default=None, help="NOVA_MODEL for the word stream (default nova-3)")
+    p.add_argument("--model", default=None, help="STT_MODEL for the word stream (default nova-2)")
     p.add_argument("--tail", type=float, default=4.0, help="seconds of silence after the file")
     p.add_argument("--json", default=None, help="write events + scorecard here")
     p.add_argument("--rescore", default=None, help="score a saved --json run again, no network")
@@ -160,8 +160,9 @@ def main() -> int:
             if a.flux:
                 title += ", Flux"
             if a.model:
-                os.environ["NOVA_MODEL"] = a.model
-            title += ", " + (os.environ.get("NOVA_MODEL") or "nova-3")
+                os.environ["STT_MODEL"] = a.model
+            from backend.stt.pipeline import stt_model
+            title += ", " + stt_model()
             try:
                 from loguru import logger as _lg
                 _lg.remove()

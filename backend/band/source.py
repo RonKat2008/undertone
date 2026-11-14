@@ -23,6 +23,11 @@ from the laptop microphone (plan.md section 10: the fallback when venue Bluetoot
 The band's mic stays off, so its LED is set solid blue by hand while a session runs.
 
 Handlers stay short: they only push to queues (plan.md section 3.1).
+
+band.status is sent on every change and also every BAND_STATUS_EVERY_S seconds (default 5),
+so a dashboard or phone that connects late still learns the band's state.
+MIC_DEVICE picks the laptop microphone (a number or part of its name); list them with
+    uv run python -c "import sounddevice; print(sounddevice.query_devices())"
 """
 from __future__ import annotations
 
@@ -98,6 +103,9 @@ class BandSource:
         self._t0 = time.time()
         self._tasks: list = []
         self._mic_stream = None
+        self.status_every_s = float(os.getenv("BAND_STATUS_EVERY_S") or 5)
+        mic = (os.getenv("MIC_DEVICE") or "").strip()
+        self.mic_device = int(mic) if mic.isdigit() else (mic or None)
 
     @classmethod
     def from_env(cls, emit: Optional[Emit] = None) -> "BandSource":
@@ -119,6 +127,10 @@ class BandSource:
         while not self.pcm_q.empty():
             self.pcm_q.get_nowait()
 
+    def reset_wall_clock(self, seconds_ago: float = 0.0) -> None:
+        """Always-on: restart motion time only (audio keeps streaming). now() == seconds_ago."""
+        self._t0 = time.time() - seconds_ago
+
     def now(self) -> float:
         return time.time() - self._t0
 
@@ -138,6 +150,16 @@ class BandSource:
             threading.Thread(target=self._keyboard_thread, daemon=True).start()
             log.info("keyboard taps on: type d + Enter = double-tap, s + Enter = single tap")
         await self._status()
+        if self.status_every_s > 0:
+            self._tasks.append(asyncio.create_task(self._heartbeat()))
+
+    async def _heartbeat(self) -> None:
+        while True:
+            await asyncio.sleep(self.status_every_s)
+            try:
+                await self._status()
+            except Exception as e:  # noqa: BLE001
+                log.debug("band.status heartbeat: %s", e)
 
     async def stop(self) -> None:
         await self.mic(False)
@@ -318,7 +340,9 @@ class BandSource:
                 loop.call_soon_threadsafe(self._push_pcm, bytes(indata))
 
             self._mic_stream = sd.RawInputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16",
-                                                 blocksize=CHUNK_BYTES // 2, callback=cb)
+                                                 blocksize=CHUNK_BYTES // 2, callback=cb,
+                                                 device=self.mic_device)
+            log.info("laptop mic: %s", sd.query_devices(self.mic_device, "input")["name"])
             self._mic_stream.start()
             return
         except ImportError:
@@ -332,7 +356,8 @@ class BandSource:
             return (None, pyaudio.paContinue)
 
         s = pa.open(format=pyaudio.paInt16, channels=1, rate=SAMPLE_RATE, input=True,
-                    frames_per_buffer=CHUNK_BYTES // 2, stream_callback=pa_cb)
+                    frames_per_buffer=CHUNK_BYTES // 2, stream_callback=pa_cb,
+                    input_device_index=self.mic_device if isinstance(self.mic_device, int) else None)
 
         class _Wrap:  # same stop/close shape as sounddevice
             def stop(self_inner):
