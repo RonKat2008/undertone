@@ -112,7 +112,10 @@ class Brain:
             log.exception("fading policy failed for coach %s; using the coach's policy", coach.id)
             return policy
 
-    async def end_session(self) -> DebriefEvent | None:
+    async def end_session(self, quiet: bool = False) -> DebriefEvent | None:
+        """quiet=True (always-on, a too-short capture): session.ended is published and the
+        session row is closed with its metrics; turns are already saved. No debrief, no audio,
+        no profile/mission update. Returns None."""
         session = self.app.session
         if session is None or self.metrics is None:
             return None
@@ -122,6 +125,11 @@ class Brain:
             self._ticker.cancel()
         await self.app.bus.publish(SessionEndedEvent(session_id=session.session_id))
         metrics = self.metrics.snapshot(session.now_s())
+        if quiet:
+            self.app.db.end_session(session.session_id, datetime.now(timezone.utc).isoformat(),
+                                    session.duration_s, metrics, None)
+            log.info("session %s ended quietly (%d turns, no debrief)", session.session_id, len(session.turns))
+            return None
         timeline = self.metrics.timeline()
         last = self._last_summary()
         try:

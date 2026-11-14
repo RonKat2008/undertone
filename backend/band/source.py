@@ -115,6 +115,10 @@ class BandSource:
         while not self.pcm_q.empty():
             self.pcm_q.get_nowait()
 
+    def reset_wall_clock(self, seconds_ago: float = 0.0) -> None:
+        """Always-on: restart motion time only (audio keeps streaming). now() == seconds_ago."""
+        self._t0 = time.time() - seconds_ago
+
     def now(self) -> float:
         return time.time() - self._t0
 

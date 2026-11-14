@@ -31,6 +31,18 @@ def _flag(name: str, default: bool = False) -> bool:
     return raw.strip().split("#")[0].strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _number(name: str, default: float, minimum: float) -> float:
+    """A number from the env; unset, unreadable or below `minimum` gives `default`."""
+    raw = _str(name)
+    if raw is None:
+        return default
+    try:
+        val = float(raw)
+    except ValueError:
+        return default
+    return val if val >= minimum else default
+
+
 def _str(name: str) -> str | None:
     raw = os.environ.get(name)
     if raw is None:
@@ -48,6 +60,11 @@ class Settings:
     demo_policy: bool
     dev: bool
     db_path: Path
+    # ALWAYS_ON=1: mic and Deepgram run from band connect; conversations open on the first
+    # final turn and close after ALWAYS_ON_SILENCE_S of silence (backend/always_on.py).
+    always_on: bool = False
+    always_on_silence_s: float = 60.0
+    always_on_min_turns: int = 4
 
     @property
     def has_gemini(self) -> bool:
@@ -79,6 +96,9 @@ def load_settings() -> Settings:
         demo_policy=_flag("DEMO_POLICY"),
         dev=_flag("DEV"),
         db_path=Path(db),
+        always_on=_flag("ALWAYS_ON"),
+        always_on_silence_s=_number("ALWAYS_ON_SILENCE_S", 60.0, minimum=1.0),
+        always_on_min_turns=int(_number("ALWAYS_ON_MIN_TURNS", 4, minimum=0)),
     )
 
 

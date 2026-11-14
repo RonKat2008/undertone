@@ -102,7 +102,8 @@ class Hearing:
     def __init__(self, pcm_q: asyncio.Queue, mapper: SpeakerMapper, on_event: Callable[[dict], None],
                  keyterms: Iterable[str] = (), filler_words: Iterable[str] = DEFAULT_FILLERS,
                  use_flux: Optional[bool] = None, audio_clock: Optional[Callable[[], float]] = None,
-                 loudness=None, on_words: Optional[Callable[[str, List[Word]], None]] = None) -> None:
+                 loudness=None, on_words: Optional[Callable[[str, List[Word]], None]] = None,
+                 end_on_failure: bool = False) -> None:
         self.pcm_q = pcm_q
         self.mapper = mapper
         self.on_event = on_event
@@ -118,6 +119,14 @@ class Hearing:
         self.flux_turns = FluxTurnAssembler(mapper, self._emit, self.filler_words)
         self._runner = None
         self._ticker = None
+        self._run_task: Optional[asyncio.Task] = None
+        # always-on: if Deepgram gives up reconnecting, end the worker (so `running` turns False
+        # and the owner restarts it) instead of Pipecat's default of running on without STT
+        self.end_on_failure = end_on_failure
+
+    @property
+    def running(self) -> bool:
+        return self._run_task is not None and not self._run_task.done()
 
     # ---------- Deepgram callbacks ----------
 
@@ -197,8 +206,13 @@ class Hearing:
             pipeline = Pipeline([src, ParallelPipeline([flux, flux_sink], [nova, nova_sink])])
         else:
             pipeline = Pipeline([src, nova, nova_sink])  # Phase 1: Nova-only
+        extra = {}
+        if self.end_on_failure:
+            from pipecat.pipeline.worker import ProcessorUnusablePolicy
+            extra["processor_unusable_policy"] = ProcessorUnusablePolicy.CANCEL
         worker = PipelineWorker(pipeline, params=PipelineParams(audio_in_sample_rate=SAMPLE_RATE),
-                                idle_timeout_secs=None, enable_rtvi=False)  # default 300 s idle would kill it
+                                idle_timeout_secs=None, enable_rtvi=False,  # default 300 s idle would kill it
+                                **extra)
         self._runner = WorkerRunner(handle_sigint=False)  # FastAPI owns signals
         await self._runner.add_workers(worker)
         self._run_task = asyncio.create_task(self._runner.run())
