@@ -1,36 +1,33 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
-import { IBM_Plex_Mono, Newsreader } from 'next/font/google';
-import localFont from 'next/font/local';
+import { Inter, Newsreader } from 'next/font/google';
 import './globals.css';
 import { Shell } from '@/components/shell';
+import { THEME_SCRIPT } from '@/components/ui/theme-script';
 
-/** Display: headings, the debrief sentence, the nudge message, the tempo marking. Tabular figures by default. */
-const display = Newsreader({ subsets: ['latin'], axes: ['opsz'], style: ['normal', 'italic'], variable: '--font-display', display: 'swap' });
+/** Everything that is not the coach's voice: facts, controls, numbers (tabular), navigation. Weights 400 and 500. */
+const inter = Inter({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-inter', display: 'swap' });
 
-/** Text: UI, transcript, margin notes, real small caps for labels. Self-hosted, SIL OFL 1.1 (app/fonts/OFL.txt). */
-const text = localFont({
-  variable: '--font-text',
-  display: 'swap',
-  src: [
-    { path: './fonts/Ronzino-Regular.woff2', weight: '400', style: 'normal' },
-    { path: './fonts/Ronzino-Oblique.woff2', weight: '400', style: 'italic' },
-    { path: './fonts/Ronzino-Medium.woff2', weight: '500', style: 'normal' },
-    { path: './fonts/Ronzino-MediumOblique.woff2', weight: '500', style: 'italic' },
-  ],
-});
-
-/** Numbers: every changing number, timings, confidence, line numbers. */
-const mono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500'], style: ['normal', 'italic'], variable: '--font-plex-mono', display: 'swap' });
+/** The coach's voice only: debrief, recap, the home sentence, the one thing to try. Weight 400. */
+const newsreader = Newsreader({ subsets: ['latin'], weight: ['400'], style: ['normal'], variable: '--font-newsreader', display: 'swap' });
 
 export const metadata: Metadata = {
   title: 'Undertone',
   description: 'A speech coach you wear in real conversations.',
 };
 
+export const viewport: Viewport = {
+  themeColor: [{ color: '#1a120c' }],
+  colorScheme: 'dark light',
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${text.variable} ${mono.variable}`}>
+    <html lang="en" data-theme="dark" className={`${inter.variable} ${newsreader.variable}`} suppressHydrationWarning>
+      <head>
+        {/* Applies the saved theme before first paint, so light never flashes dark. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
         <Shell>{children}</Shell>
       </body>
