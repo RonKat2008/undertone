@@ -139,33 +139,56 @@ def make_turn_event(n: int, speaker: str, words: Sequence[Word], filler_list: It
 
 
 class NovaTurnAssembler:
+    """One open turn per speaker label, so talking over each other gives two overlapping
+    turns (an interruption) instead of a pile of one-word turns.
+
+    A label's turn closes when that label goes quiet for more than `gap_s`, when someone else
+    has held the floor for `handover_s` since its last word, or on `tick` after `flush_s` of
+    silence. A short interjection ("yeah") does not end the other person's turn."""
+
     def __init__(self, mapper: SpeakerMapper, on_turn: Callable[[dict], None],
-                 filler_list: Iterable[str] = DEFAULT_FILLERS, gap_s: float = 1.2, flush_s: float = 1.5) -> None:
+                 filler_list: Iterable[str] = DEFAULT_FILLERS, gap_s: float = 1.2, flush_s: float = 1.5,
+                 handover_s: float = 0.6) -> None:
         self.mapper = mapper
         self.on_turn = on_turn
         self.filler_list = list(filler_list)
         self.gap_s = gap_s
         self.flush_s = flush_s
-        self._cur: List[Word] = []
+        self.handover_s = handover_s
+        self._open: Dict[int, List[Word]] = {}
+        self._foreign_since: Dict[int, Optional[float]] = {}
         self._n = 0
 
     def add(self, words: Iterable[Word]) -> None:
-        for w in words:
-            if self._cur and (w.label != self._cur[-1].label or w.start - self._cur[-1].end > self.gap_s):
-                self._close()
-            self._cur.append(w)
+        for w in sorted(words, key=lambda x: x.start):
+            self.mapper.speaker(w.label)  # the first label *heard* is the wearer, not the first turn closed
+            own = self._open.get(w.label)
+            if own and w.start - own[-1].end > self.gap_s:
+                self._close(w.label)
+            self._open.setdefault(w.label, []).append(w)
+            self._foreign_since[w.label] = None
+            for label in [l for l in self._open if l != w.label]:
+                turn = self._open[label]
+                if self._foreign_since.get(label) is None:
+                    self._foreign_since[label] = w.start
+                if (w.end - self._foreign_since[label] >= self.handover_s
+                        or w.start - turn[-1].end > self.gap_s):
+                    self._close(label)
 
     def tick(self, now: float) -> None:
-        """Call often with the audio clock; closes a turn once its speaker has gone quiet."""
-        if self._cur and now - self._cur[-1].end > self.flush_s:
-            self._close()
+        """Call often with the audio clock; closes turns whose speaker has gone quiet."""
+        for label in [l for l, t in self._open.items() if now - t[-1].end > self.flush_s]:
+            self._close(label)
 
     def flush(self) -> None:
-        if self._cur:
-            self._close()
+        for label in sorted(self._open, key=lambda l: self._open[l][0].start):
+            self._close(label)
 
-    def _close(self) -> None:
-        words, self._cur = self._cur, []
+    def _close(self, label: int) -> None:
+        words = self._open.pop(label, None)
+        self._foreign_since.pop(label, None)
+        if not words:
+            return
         self._n += 1
         self.on_turn(make_turn_event(self._n, self.mapper.speaker(words[0].label), words, self.filler_list))
 

@@ -170,3 +170,53 @@ def test_scripted_speech_runs_the_real_path(tmp_path, monkeypatch):
     assert any(e.type == "transcript.partial" for e in seen)
     debrief = next(e for e in seen if e.type == "debrief")
     assert debrief.data.numbers.talk_ratio > 0.3
+
+
+def test_demo_script_fires_the_interrupt_nudge(tmp_path, monkeypatch):
+    """fixtures/demo_script.jsonl: the wearer cuts in, the Brain buzzes `interrupt`, the debrief names it."""
+    _stub_fastapi_if_missing()
+    monkeypatch.setenv("BAND_TRANSPORT", "sim")
+    monkeypatch.setenv("STT", "fake")
+    monkeypatch.setenv("STT_FAKE_SPEED", "10")
+    monkeypatch.setenv("STT_FAKE_SCRIPT", "fixtures/demo_script.jsonl")
+    monkeypatch.setenv("KEYBOARD_TAPS", "0")
+    import backend.motion.classifier as cl
+    monkeypatch.setattr(cl, "CAL_DIR", tmp_path)
+
+    from backend import studio
+    from backend.brain import Brain
+    from backend.bus import Bus
+    from backend.config import settings
+    from backend.db import DB
+    from backend.session import attach_band
+    from backend.state import AppState
+
+    async def run():
+        db = DB(str(tmp_path / "d.db"))
+        state = AppState(bus=Bus(), db=db, active_coach=studio.default_coach())
+        brain = Brain(state, settings)
+        seen = []
+
+        async def grab(ev):
+            seen.append(ev)
+
+        state.bus.on("*", grab)
+        band = await attach_band(state, brain)
+        band.band.tap("double")
+        await asyncio.sleep(8.5)
+        band.band.tap("double")
+        for _ in range(40):
+            await asyncio.sleep(0.25)
+            if any(e.type == "debrief" for e in seen):
+                break
+        await state.bus.drain()
+        await band.shutdown()
+        db.close()
+        return seen
+
+    seen = asyncio.run(run())
+    me = [e for e in seen if e.type == "turn.final" and e.speaker == "me"]
+    assert len(me) == 3  # the overlap is one long turn, not fragments
+    assert any(e.type == "nudge" and e.haptic == "interrupt" for e in seen)
+    debrief = next(e for e in seen if e.type == "debrief")
+    assert debrief.data.numbers.interruptions >= 1
