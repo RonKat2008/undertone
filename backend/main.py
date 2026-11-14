@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend import debrief, graph, growth, studio
+from backend import relationships
 from backend.brain import Brain
 from backend.capture import routes as capture_routes
 from backend.bus import Bus, to_wire
@@ -106,6 +107,7 @@ app.include_router(debrief.router)
 app.include_router(haptics.router)
 app.include_router(graph.router)
 app.include_router(capture_routes.router)
+app.include_router(relationships.router)
 
 
 # ---------- error envelope: {"ok": false, "error": {"code", "message", "details"?}} ----------
