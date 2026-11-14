@@ -73,15 +73,20 @@ def _build_processors(pcm_q: asyncio.Queue, on_nova, on_interim, on_flux_end):
             await self.push_frame(frame, direction)
 
     class FluxSink(FrameProcessor):
+        """Flux pushes one TranscriptionFrame per EndOfTurn with result = the raw TurnInfo dict,
+        which carries audio_window_start / audio_window_end (pipecat flux/stt_base.py)."""
+
         async def process_frame(self, frame, direction: FrameDirection):
             await super().process_frame(frame, direction)
+            if isinstance(frame, TranscriptionFrame):
+                on_flux_end(getattr(frame, "result", None))
             await self.push_frame(frame, direction)
 
     return QueueAudioSource(), NovaSink(), FluxSink()
 
 
 def _flux_window(*args, **kwargs):
-    """Find audio_window_start/end in whatever Flux's on_end_of_turn hands us."""
+    """Find audio_window_start/end in the TurnInfo dict Flux attaches to its TranscriptionFrame."""
     for obj in list(args) + list(kwargs.values()):
         for cand in (obj, getattr(obj, "result", None), obj.get("result") if isinstance(obj, dict) else None):
             if cand is None:
@@ -188,10 +193,6 @@ class Hearing:
             flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE,
                                           settings=DeepgramFluxSTTService.Settings(
                                               model="flux-general-en", keyterm=self.keyterms))
-
-            @flux.event_handler("on_end_of_turn")
-            async def _eot(*args, **kwargs):
-                self._on_flux_end(*args, **kwargs)
 
             pipeline = Pipeline([src, ParallelPipeline([flux, flux_sink], [nova, nova_sink])])
         else:
