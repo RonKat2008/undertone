@@ -60,8 +60,9 @@ def enrol_wearer(db: DB, samples: np.ndarray, embedder: Embedder, cfg: VoiceConf
     secs = len(speech) / SAMPLE_RATE
     if secs < MIN_ENROL_S:
         raise EnrolError(f"only {secs:.1f} s of speech heard; need {MIN_ENROL_S:.0f} s")
-    exemplars = tuple(Exemplar(ENROL_SESSION, normalize(embedder.embed(w)), len(w) / SAMPLE_RATE)
-                      for w in windows(speech))[: cfg.exemplar_cap]
+    parts = windows(speech)[: cfg.exemplar_cap]
+    share = secs / max(1, len(parts))  # windows overlap: each holds its share of the speech
+    exemplars = tuple(Exemplar(ENROL_SESSION, normalize(embedder.embed(w)), share) for w in parts)
     centroid = robust_centroid([e.embedding for e in exemplars], [e.seconds for e in exemplars], cfg.outlier_sim)
     now = store.now_iso()
     row = VoiceRow(WEARER_ID, None, None, None, True, "enrolled", embedder.name, 1, secs, now, now,
