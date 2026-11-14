@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { chooseMission, getMissionToday, getStreak, listPeople, type Sampled } from '@/api/client';
 import type { DailyMission, Person, Streak } from '@/bus/contracts';
+import { listenState } from '@/bus/phone-state';
 import { isLive } from '@/bus/reducer';
-import { useBus } from '@/bus/use-bus';
+import { useBus, useListVersion } from '@/bus/use-bus';
 import { Btn, Rule, SampleTag, Screen, T } from '@/ui/kit';
 import { C, TONE } from '@/ui/theme';
 
@@ -17,13 +18,14 @@ function lastSeven(): string[] {
 }
 
 export default function TodayScreen() {
-  const { state, mode } = useBus();
+  const { state } = useBus();
   const router = useRouter();
   const [mission, setMission] = useState<Sampled<DailyMission> | null>(null);
   const [streak, setStreak] = useState<Sampled<Streak> | null>(null);
   const [people, setPeople] = useState<Sampled<Person[]> | null>(null);
   const [choosing, setChoosing] = useState(false);
-  const debriefAt = state.debrief?.at;
+  const version = useListVersion(); // a session ended, its debrief arrived, or the phone reconnected
+  const listening = state.alwaysOn && listenState(state) === 'listening';
 
   useEffect(() => {
     let on = true;
@@ -31,7 +33,7 @@ export default function TodayScreen() {
     getStreak().then((s) => on && setStreak(s));
     listPeople().then((p) => on && setPeople(p));
     return () => { on = false; };
-  }, [mode, debriefAt]);
+  }, [version]);
 
   const m = mission?.data;
   const s = streak?.data;
@@ -44,7 +46,11 @@ export default function TodayScreen() {
         <T v="caps">{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</T>
         {isLive(state) ? (
           <Pressable onPress={() => router.replace('/live')} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.mic }} /><T v="caps" color={C.paper}>Listening now</T>
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.mic }} /><T v="caps" color={C.paper}>{state.alwaysOn ? 'In a conversation' : 'Listening now'}</T>
+          </Pressable>
+        ) : listening ? (
+          <Pressable onPress={() => router.replace('/live')} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 4, borderWidth: 1, borderColor: C.mic }} /><T v="caps">Listening</T>
           </Pressable>
         ) : null}
       </View>

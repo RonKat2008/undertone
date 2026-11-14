@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { getWeeklyReport, listPeople, listSessions, type Sampled } from '@/api/client';
 import type { Person, SessionSummary, WeeklyReport } from '@/bus/contracts';
-import { useBus } from '@/bus/use-bus';
+import { useListVersion } from '@/bus/use-bus';
 import { Rule, SampleTag, Screen, T, clock } from '@/ui/kit';
 import { C, TONE } from '@/ui/theme';
 
@@ -17,11 +17,10 @@ const METRIC: Record<string, { label: string; fmt: (v: number) => string; lowerI
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const { mode, state } = useBus();
   const [sessions, setSessions] = useState<Sampled<SessionSummary[]> | null>(null);
   const [report, setReport] = useState<Sampled<WeeklyReport> | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
-  const debriefAt = state.debrief?.at;
+  const version = useListVersion(); // a session ended, its debrief arrived, or the phone reconnected
 
   useEffect(() => {
     let on = true;
@@ -29,7 +28,7 @@ export default function HistoryScreen() {
     getWeeklyReport().then((r) => on && setReport(r));
     listPeople().then((p) => on && setPeople(p.data));
     return () => { on = false; };
-  }, [mode, debriefAt]);
+  }, [version]);
 
   const name = (id: string | null) => people.find((p) => p.person_id === id)?.name ?? null;
   const r = report?.data;

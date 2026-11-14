@@ -51,7 +51,15 @@ export function mediaUrl(path: string | null): string | null {
 export const getMissionToday = () => sampled<DailyMission>('/mission/today', SAMPLE_MISSION, (v) => Boolean(v?.text));
 export const getStreak = () => sampled<Streak>('/streak', SAMPLE_STREAK, (v) => Array.isArray(v?.week) && v.week.length === 7);
 export const listPeople = () => sampled<Person[]>('/people', SAMPLE_PEOPLE, (v) => Array.isArray(v) && v.length > 0);
-export const listSessions = () => sampled<SessionSummary[]>('/sessions', SAMPLE_SESSIONS, (v) => Array.isArray(v) && v.length > 0);
+// The always-on demo adds each finished demo conversation here, so it appears in History by itself.
+// Still canned data: it comes back with `sample: true`, labelled like the rest.
+let mockSessions: SessionSummary[] = [];
+export function addMockSession(summary: SessionSummary): void {
+  mockSessions = [summary, ...mockSessions.filter((s) => s.session_id !== summary.session_id)].slice(0, 20);
+}
+export function clearMockSessions(): void { mockSessions = []; }
+
+export const listSessions = () => sampled<SessionSummary[]>('/sessions', [...mockSessions, ...SAMPLE_SESSIONS], (v) => Array.isArray(v) && v.length > 0);
 export const getWeeklyReport = () => sampled<WeeklyReport>('/report/weekly', SAMPLE_WEEKLY, (v) => Array.isArray(v?.trend) && v.trend.length > 0);
 export const getDebrief = (id: string) => sampled<DebriefPayload>(`/sessions/${encodeURIComponent(id)}/debrief`, { session_id: 's-sample', data: SAMPLE_DEBRIEF, audio_url: null }, (v) => Boolean(v?.data));
 
