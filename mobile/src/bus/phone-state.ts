@@ -39,10 +39,16 @@ export const initialPhoneState: PhoneState = {
   notice: null,
 };
 
-/** `always_on` is a proposed optional field on `band.status` (and GET /band/status). Absent = false. */
+/**
+ * `always_on` rides on GET /band/status (the backend adds it there only); it is optional on the
+ * `band.status` bus event too. Returns null when the field is absent: the backend's band.status
+ * heartbeat does not carry it, so absence must not switch always-on off. Until any reply says
+ * true, the phone treats always-on as false (today's behaviour).
+ */
 export function readAlwaysOn(event: BusEvent): boolean | null {
   if (event.type !== 'band.status') return null;
-  return (event as { always_on?: unknown }).always_on === true;
+  const value = (event as { always_on?: unknown }).always_on;
+  return typeof value === 'boolean' ? value : null;
 }
 
 export function reducePhone(state: PhoneState, action: PhoneAction): PhoneState {

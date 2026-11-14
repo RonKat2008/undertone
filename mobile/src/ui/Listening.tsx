@@ -97,7 +97,7 @@ export function ListeningIdle({ state, listen, isDemo, onOpenDebrief }: Props) {
           style={({ pressed }) => ({ marginTop: 18, borderLeftWidth: 2, borderLeftColor: C.paper, paddingLeft: 12, opacity: pressed ? 0.55 : 1 })}>
           <T v="caps">Last conversation · {clock(((last.endedAt ?? last.startedAt) - last.startedAt) / 1000)}</T>
           <T v="body" style={{ marginTop: 2, fontFamily: F.sansMedium, textDecorationLine: ready ? 'underline' : 'none' }}>
-            {ready ? 'Read the debrief' : 'The debrief is being written…'}
+            {ready ? 'Read the debrief' : 'Debrief on its way. Very short ones close quietly, without one.'}
           </T>
         </Pressable>
       ) : null}
