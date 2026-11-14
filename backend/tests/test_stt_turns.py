@@ -53,6 +53,8 @@ def test_nova_turns_by_speaker_gap_and_flush():
     a.tick(5.4)
     assert len(out) == 2
     a.tick(7.0)
+    assert len(out) == 2  # 1.7 s of quiet: within flush_s (3.0 s)
+    a.tick(8.5)
     assert len(out) == 3 and out[2]["text"] == "Long"
     ev = out[0]
     assert set(ev) == {"type", "turn_id", "speaker", "text", "start", "end", "wpm", "fillers"}
@@ -62,17 +64,21 @@ def test_nova_turns_by_speaker_gap_and_flush():
 def test_flux_windows_majority_and_alignment():
     out = []
     f = FluxTurnAssembler(SpeakerMapper(), out.append)
-    f.add([W("a", 0.0, 0.4, 0), W("b", 0.5, 0.9, 0), W("c", 1.0, 1.1, 1)])
+    f.add([W("a", 0.0, 0.4, 0), W("b", 0.5, 0.9, 0), W("c", 0.95, 1.1, 1)])
     f.end_of_turn(0.0, 1.0)  # c ends at 1.1 inside slack, label 0 dominates
+    assert out == []         # not settled yet: Nova's last finals may still be on the way
+    f.tick(3.6)              # settle_s after the window
     assert len(out) == 1 and out[0]["speaker"] == "me" and out[0]["text"] == "a b c"
     for i in range(5):
-        f.add([W("x", 10 + i, 10.5 + i, 1)])
-        f.end_of_turn(10 + i, 10.5 + i)
-    assert not f.misaligned
+        f.add([W("x", 10 + 2 * i, 10.2 + 2 * i, 1)])
+        f.end_of_turn(10 + 2 * i, 10.6 + 2 * i)  # real Flux: the window ends in the silence after
+    f.tick(30)
+    assert len(out) == 6 and not f.misaligned
     g = FluxTurnAssembler(SpeakerMapper(), lambda e: None)
     for i in range(5):
-        g.add([W("x", 10 + i, 10.2 + i, 0)])
-        g.end_of_turn(10 + i, 10.6 + i)  # Flux ends 0.4 s after the last word
+        g.add([W("x", 10 + 2 * i, 10.9 + 2 * i, 0)])
+        g.end_of_turn(10 + 2 * i, 10.4 + 2 * i)  # Nova's word runs 0.5 s past Flux's end
+    g.tick(30)
     assert g.misaligned
 
 
@@ -80,9 +86,9 @@ def test_flux_leftovers():
     out = []
     f = FluxTurnAssembler(SpeakerMapper(), out.append)
     f.add([W("lost", 0.0, 0.5, 0), W("words", 0.6, 1.0, 0)])
-    f.tick(3.0)
-    assert out == []
     f.tick(6.0)
+    assert out == []  # Flux may still close a long turn: no early expiry
+    f.tick(21.5)      # orphan_s without any window
     assert len(out) == 1 and out[0]["text"] == "lost words"
 
 
