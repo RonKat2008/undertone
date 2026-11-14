@@ -50,6 +50,7 @@ export default function LiveScreen() {
   const policy = session?.policy;
   const budgetTotal = Math.min(policy?.budget_per_session ?? 3, 8);
   const budgetLeft = Math.min(state.budgetLeft ?? budgetTotal, budgetTotal);
+  const focus = state.coach?.nudge_rules.find((r) => r.id === policy?.focus_rule_id)?.haptic ?? 'slow_down';
   const words = state.coach?.filler_words.slice(0, 3) ?? [];
   const prompt = state.coach?.drill.prompts[0] ?? 'Tell me about yourself.';
 
@@ -59,7 +60,7 @@ export default function LiveScreen() {
         {/* top: coach, connection, clock */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingTop: 6 }}>
           <View>
-            <T v="caps" color={dim}>{state.coach ? `${state.coach.name} coach` : 'No coach yet'}</T>
+            <T v="caps" color={dim}>{state.coach ? (/coach$/i.test(state.coach.name) ? state.coach.name : `${state.coach.name} coach`) : 'No coach yet'}</T>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4 }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: take ? fg : state.status === 'offline' ? TONE.vermilion : live ? C.mic : C.paper3 }} />
               <T v="small" color={dim}>{state.status === 'offline' ? 'Laptop unreachable' : live ? 'Listening' : mode === 'mock' ? 'Demo feed' : 'Connected'}</T>
@@ -80,13 +81,13 @@ export default function LiveScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <View style={{ flex: 1 }}>
                 <T v="caps" color={dim}>Regular</T>
-                <T v="body" size={17} color={fg} style={{ marginTop: 2 }}>Only buzzes when you speed up</T>
+                <T v="body" size={17} color={fg} style={{ marginTop: 2 }}>{focus === 'slow_down' ? 'Only buzzes when you speed up' : `Buzzes for: ${PATTERNS[focus].action.toLowerCase()}`}</T>
               </View>
               <View accessibilityLabel={`${budgetLeft} of ${budgetTotal} buzzes left`} style={{ flexDirection: 'row', gap: 6 }}>
-                {Array.from({ length: budgetTotal }, (_, i) => {
+                {Array.from({ length: budgetTotal }, (_, i) => { // one mark per buzz left
                   const spent = i < budgetTotal - budgetLeft;
-                  const mark = take ? fg : TONE.blue;
-                  return <View key={i} style={{ width: 9, height: 30, borderWidth: 1, borderColor: mark, backgroundColor: spent ? 'transparent' : mark, opacity: spent ? 0.45 : 1 }} />;
+                  const mark = take ? fg : TONE[PATTERNS[focus].tone];
+                  return <View key={i} style={{ width: budgetTotal > 4 ? 6 : 9, height: 30, borderWidth: 1, borderColor: mark, backgroundColor: spent ? 'transparent' : mark, opacity: spent ? 0.45 : 1 }} />;
                 })}
               </View>
             </View>

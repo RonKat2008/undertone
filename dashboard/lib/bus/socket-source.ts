@@ -6,8 +6,8 @@
  * - On connect it reads /health, /coaches and /devices once so the masthead is right
  *   before the first event arrives.
  * - Director commands become REST calls. Start/stop/bookmark/tap use the real session routes.
- *   Test nudges go to the phone through /haptics/test; with DEV=1 on the backend they are also
- *   published on the bus (/dev/publish) so the takeover shows.
+ *   Test nudges are published on the bus when the backend runs with DEV=1 (takeover + phone);
+ *   otherwise they go straight to the phone through /haptics/test.
  */
 import type { BusEvent, CoachSpec } from './contracts';
 import { PATTERNS } from './patterns';
@@ -116,11 +116,12 @@ export function createSocketSource(baseUrl: string): BusSource {
         return;
       case 'nudge': {
         const spec = PATTERNS[command.pattern];
-        void post('/haptics/test', { pattern: command.pattern, label: spec.action });
+        // With DEV=1 the nudge goes on the bus: the takeover shows and the hub forwards it to the
+        // phone. Without DEV there is no /dev/publish, so buzz the phone directly instead.
         void post('/dev/publish', {
           type: 'nudge', rule_id: 'test', haptic: command.pattern, message: spec.action,
           reason: 'Test from the dashboard', confidence: null, latency_ms: 0, budget_left: 0, ts: ts(),
-        });
+        }).then((ok) => (ok ? null : post('/haptics/test', { pattern: command.pattern, label: spec.action })));
         return;
       }
       case 'signal':

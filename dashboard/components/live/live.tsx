@@ -74,17 +74,19 @@ function Spine({ state }: { state: BusState }) {
 
 // ---------- the timeline: the whole session on one line ----------
 function Timeline({ state, elapsed }: { state: BusState; elapsed: number }) {
-  const span = Math.max(60, elapsed * 1.04);
+  // session time can run ahead of the wall clock (fixture replay at speed), so measure both
+  const latest = Math.max(elapsed, state.turns.at(-1)?.end ?? 0, state.marks.at(-1)?.ts ?? 0);
+  const span = Math.max(60, latest * 1.04);
   const left = (t: number) => `${Math.min(100, (t / span) * 100)}%`;
   return (
-    <section aria-label="Session timeline" className="relative mt-3 h-[46px] border-b border-rule">
+    <section aria-label="Session timeline" className="relative mt-3 h-[46px] border-b border-rule [clip-path:inset(-4px_0_-24px_0)]">
       {state.turns.map((t) => (
         <div key={t.turn_id} title={`${t.speaker === 'me' ? 'You' : 'Them'} ${clock(t.start)}`}
           className={`absolute h-2 ${t.speaker === 'me' ? 'top-[26px] bg-ink' : 'top-[36px] bg-them'}`}
           style={{ left: left(t.start), width: `${Math.max(0.3, ((t.end - t.start) / span) * 100)}%` }} />
       ))}
       {state.marks.map((m) => <TimelineMark key={m.id} mark={m} left={left(m.ts)} />)}
-      <div className="absolute bottom-0 top-0 w-px bg-ink/40" style={{ left: left(elapsed) }} />
+      <div className="absolute bottom-0 top-0 w-px bg-ink/40" style={{ left: left(latest) }} />
       <span className="num absolute -bottom-5 left-0 text-[10px] text-ink-3">0:00</span>
       <span className="num absolute -bottom-5 right-0 text-[10px] text-ink-3">{clock(span)}</span>
     </section>
@@ -128,7 +130,7 @@ function Script({ state }: { state: BusState }) {
         return <TurnRow key={t.turn_id} turn={t} marks={marks} fillers={fillers} />;
       })}
       {state.partial && (
-        <div className="grid grid-cols-[minmax(0,1fr)_210px] gap-x-6 py-2">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-2 2xl:grid-cols-[minmax(0,1fr)_210px] min-[1360px]:grid-cols-[minmax(0,1fr)_210px] py-2">
           <p className={`caret text-[19px] leading-snug ${state.partial.speaker === 'other' ? 'pl-12 text-ink-2' : 'text-ink'}`}>{state.partial.text}</p>
         </div>
       )}
@@ -149,12 +151,12 @@ function underlineFillers(text: string, words: string[]) {
 function TurnRow({ turn, marks, fillers }: { turn: TurnView; marks: Mark[]; fillers: string[] }) {
   const me = turn.speaker === 'me';
   return (
-    <div className="anim-rise grid grid-cols-[minmax(0,1fr)_210px] gap-x-6 border-t border-rule py-3 first:border-t-0">
+    <div className="anim-rise grid grid-cols-1 gap-x-6 gap-y-2 2xl:grid-cols-[minmax(0,1fr)_210px] min-[1360px]:grid-cols-[minmax(0,1fr)_210px] border-t border-rule py-3 first:border-t-0">
       <div className={me ? '' : 'pl-12'}>
         <div className="caps mb-1 flex gap-3"><span className={me ? '!text-ink' : ''}>{me ? 'You' : 'Them'}</span><span className="num tracking-normal">{clock(turn.start)}</span>{me && <span className="num tracking-normal">{Math.round(turn.wpm)} wpm</span>}</div>
         <p className={`text-[19px] leading-snug ${me ? 'text-ink' : 'text-ink-2'}`}>{me ? underlineFillers(turn.text, [...turn.fillers, ...fillers]) : turn.text}</p>
       </div>
-      <aside className="space-y-1 border-l border-rule pl-4 pt-1 text-[12px]" aria-label="Margin notes">
+      <aside className="max-w-[320px] space-y-1 border-l border-rule pl-4 pt-1 text-[12px] empty:hidden" aria-label="Margin notes">
         {turn.judge && <Verdicts results={turn.judge.results} />}
         {marks.map((m) => <MarginMark key={m.id} mark={m} />)}
         {turn.judge && <div className="num pt-0.5 text-[10.5px] tracking-normal text-ink-3">{turn.judge.source} · {Math.round(turn.judge.latency_ms)} ms</div>}
@@ -209,11 +211,12 @@ function MarginMark({ mark }: { mark: Mark }) {
 }
 
 // ---------- left column: mode, budget, log ----------
-function Budget({ total, left }: { total: number; left: number }) {
+function Budget({ total, left, tone }: { total: number; left: number; tone: string }) {
   return (
-    <div className="flex gap-1.5" role="img" aria-label={`${left} of ${total} buzzes left`}>
+    <div className={`tone-${tone} flex shrink-0 gap-1.5`} role="img" aria-label={`${left} of ${total} buzzes left`}>
       {Array.from({ length: total }, (_, i) => (
-        <span key={i} className={`h-7 w-2.5 border border-blue ${i < total - left ? 'bg-transparent opacity-40' : 'bg-blue'}`} />
+        <span key={i} className={`h-7 border ${total > 4 ? 'w-1.5' : 'w-2.5'} ${i < total - left ? 'opacity-40' : ''}`}
+          style={{ borderColor: 'var(--tone)', background: i < total - left ? 'transparent' : 'var(--tone)' }} />
       ))}
     </div>
   );
@@ -236,8 +239,8 @@ function RegularPanel({ state }: { state: BusState }) {
       <div className="border-t border-ink pt-3">
         <div className="caps mb-2">The one live nudge</div>
         <div className="flex items-end justify-between gap-3">
-          <div className="flex items-end gap-3"><Glyph pattern={focus?.haptic ?? 'slow_down'} size={30} /><span className="serif text-[26px] leading-none">{focus?.message ?? 'Slow down'}</span></div>
-          <Budget total={total} left={left} />
+          <div className="flex min-w-0 items-end gap-3"><Glyph pattern={focus?.haptic ?? 'slow_down'} size={total > 4 ? 22 : 30} /><span className="serif text-[24px] leading-none">{focus?.message ?? 'Slow down'}</span></div>
+          <Budget total={total} left={left} tone={PATTERNS[focus?.haptic ?? 'slow_down'].tone} />
         </div>
         <div className="num mt-2 text-[11px] tracking-normal text-ink-2">{left} of {total} left · {policy?.min_gap_s ?? 120} s apart · +{Math.round((policy?.tolerance ?? 0.25) * 100)}% over your pace</div>
       </div>
@@ -259,7 +262,7 @@ function Log({ title, marks, empty, faint }: { title: string; marks: Mark[]; emp
             <span className={faint ? 'text-ink-2' : ''}>
               <span className="mr-1.5 inline-block align-[-1px]">{m.pattern && <Glyph pattern={m.pattern} size={11} />}</span>
               {m.title}
-              {m.latency_ms !== null && m.latency_ms > 0 && <span className="num ml-1.5 tracking-normal text-ink-3">{(m.latency_ms / 1000).toFixed(1)} s</span>}
+              {m.latency_ms !== null && m.latency_ms >= 50 && <span className="num ml-1.5 tracking-normal text-ink-3">{(m.latency_ms / 1000).toFixed(1)} s</span>}
             </span>
           </li>
         ))}
@@ -418,7 +421,7 @@ function Idle({ state }: { state: BusState }) {
       </div>
       <div>
         <div className="flex items-baseline justify-between border-b border-ink pb-2">
-          <span className="serif text-[28px] leading-none">{coach ? `${coach.name} coach` : 'No coach yet'}</span>
+          <span className="serif text-[28px] leading-none">{coach ? (/coach$/i.test(coach.name) ? coach.name : `${coach.name} coach`) : 'No coach yet'}</span>
           <Link href="/studio" className="caps underline-offset-4 hover:text-ink hover:underline">Change in Studio</Link>
         </div>
         {coach && <p className="mt-3 max-w-[60ch] text-[13px] text-ink-2">{coach.goal}</p>}

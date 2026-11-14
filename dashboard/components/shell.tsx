@@ -125,7 +125,7 @@ function NudgeTakeover() {
 
   if (!visible || !m) return null;
   const leaving = age >= TAKEOVER_MS;
-  const facts = [m.detail, m.confidence !== null ? `confidence ${m.confidence.toFixed(2)}` : null, m.latency_ms !== null && m.latency_ms > 0 ? `slip → tap ${(m.latency_ms / 1000).toFixed(1)} s` : null].filter(Boolean);
+  const facts = [m.detail, m.confidence !== null ? `confidence ${m.confidence.toFixed(2)}` : null, m.latency_ms !== null && m.latency_ms >= 50 ? `slip → tap ${(m.latency_ms / 1000).toFixed(1)} s` : null].filter(Boolean);
   return (
     <div
       key={m.id}
@@ -200,7 +200,7 @@ function Director() {
         </Row>
       </div>
       <p className="mt-3 text-[11px] text-ink-2">
-        {state.status === 'live' ? 'Test nudges buzz the paired phone; they show here only when the backend runs with DEV=1.' : 'Everything here is scripted. Nothing leaves this browser.'}
+        {state.status === 'live' ? 'Test nudges buzz the paired phone. They also show on this screen when the backend runs with DEV=1.' : 'Everything here is scripted. Nothing leaves this browser.'}
       </p>
     </aside>
   );
