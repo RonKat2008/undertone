@@ -220,3 +220,65 @@ def test_demo_script_fires_the_interrupt_nudge(tmp_path, monkeypatch):
     assert any(e.type == "nudge" and e.haptic == "interrupt" for e in seen)
     debrief = next(e for e in seen if e.type == "debrief")
     assert debrief.data.numbers.interruptions >= 1
+
+
+def test_practice_round_buzzes_every_crutch_word(tmp_path, monkeypatch):
+    """Practice mode: each 'um' / 'basically' of the wearer is a filler buzz within ~1 s,
+    published as the nudge the dashboard's practice panel counts."""
+    _stub_fastapi_if_missing()
+    monkeypatch.setenv("BAND_TRANSPORT", "sim")
+    monkeypatch.setenv("STT", "fake")
+    monkeypatch.setenv("STT_FAKE_SPEED", "10")
+    monkeypatch.setenv("STT_FAKE_SCRIPT", "fixtures/demo_script.jsonl")
+    monkeypatch.setenv("KEYBOARD_TAPS", "0")
+    import backend.motion.classifier as cl
+    monkeypatch.setattr(cl, "CAL_DIR", tmp_path)
+
+    from backend import haptics_port, studio
+    from backend.brain import Brain
+    from backend.bus import Bus
+    from backend.config import settings
+    from backend.db import DB
+    from backend.session import attach_band
+    from backend.state import AppState
+
+    buzzes = []
+
+    async def sender(cmd):
+        buzzes.append(cmd.pattern)
+
+    async def run():
+        haptics_port.register_sender(sender)
+        db = DB(str(tmp_path / "p.db"))
+        state = AppState(bus=Bus(), db=db, active_coach=studio.default_coach())
+        brain = Brain(state, settings)
+        seen = []
+
+        async def grab(ev):
+            seen.append(ev)
+
+        state.bus.on("*", grab)
+        band = await attach_band(state, brain)
+        await brain.start_session(mode="practice")
+        await asyncio.sleep(8.5)
+        coach_words = list(state.session.coach.filler_words)
+        await brain.end_session()
+        await asyncio.sleep(0.5)
+        await state.bus.drain()
+        await band.shutdown()
+        haptics_port.reset_sender()
+        db.close()
+        return seen, coach_words
+
+    seen, coach_words = asyncio.run(run())
+    crutch = [e for e in seen if e.type == "nudge" and e.rule_id == "crutch"]
+    from backend.stt.fillers import find_fillers
+    said = []
+    for e in seen:
+        if e.type == "turn.final" and e.speaker == "me":
+            said += find_fillers(e.text.split(), coach_words)
+    assert said, "the demo script has crutch words"
+    assert len(crutch) == len(said), ([c.reason for c in crutch], said)
+    assert all(c.haptic == "filler" and c.reason.startswith("You said “") for c in crutch)
+    assert all(c.latency_ms < 1500 for c in crutch)
+    assert buzzes.count("filler") >= len(crutch)

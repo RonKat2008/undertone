@@ -197,7 +197,7 @@ class SessionController:
                        filler_words=coach.get("filler_words") or DEFAULT_FILLERS,
                        audio_clock=lambda: self.band.audio_seconds,
                        loudness=self.band.loudness, on_words=self._on_words,
-                       end_on_failure=end_on_failure)
+                       end_on_failure=end_on_failure, on_live_words=self._on_live_words)
 
     async def _stop_listening(self) -> None:
         await self.band.mic(False)
@@ -314,6 +314,17 @@ class SessionController:
         elif ev["type"] == "transcript.partial" and ev.get("speaker"):
             self._last_speaker = ev["speaker"]
         self._emit_sync(ev)
+
+    def _on_live_words(self, speaker: str, words) -> None:
+        """Interim + final words, rebased to session time, for practice mode (backend/practice.py)."""
+        hook = getattr(self, "on_live_words", None)
+        if hook is None or not self.running:
+            return
+        off = self._audio_offset
+        if off:
+            from .stt.turns import Word
+            words = [Word(w.text, w.start - off, w.end - off, w.label) for w in words]
+        hook(speaker, words, self.hearing.audio_clock() - off if self.hearing else None)
 
     def _on_words(self, speaker: str, words) -> None:
         self._last_speaker = speaker
@@ -484,6 +495,8 @@ async def attach_band(app_state, brain, band: Optional[BandSource] = None,
 
     bus.on("session.started", on_started)
     bus.on("session.ended", on_ended)
+    from .practice import attach_practice
+    ctl.practice = attach_practice(ctl, app_state)  # practice mode: buzz on every crutch word
     if getattr(getattr(brain, "settings", None), "always_on", False):
         _attach_always_on(ctl, app_state, brain, join, clock)
     await ctl.start()

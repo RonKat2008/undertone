@@ -103,7 +103,8 @@ class Hearing:
                  keyterms: Iterable[str] = (), filler_words: Iterable[str] = DEFAULT_FILLERS,
                  use_flux: Optional[bool] = None, audio_clock: Optional[Callable[[], float]] = None,
                  loudness=None, on_words: Optional[Callable[[str, List[Word]], None]] = None,
-                 end_on_failure: bool = False) -> None:
+                 end_on_failure: bool = False,
+                 on_live_words: Optional[Callable[[str, List[Word]], None]] = None) -> None:
         self.pcm_q = pcm_q
         self.mapper = mapper
         self.on_event = on_event
@@ -123,6 +124,10 @@ class Hearing:
         # always-on: if Deepgram gives up reconnecting, end the worker (so `running` turns False
         # and the owner restarts it) instead of Pipecat's default of running on without STT
         self.end_on_failure = end_on_failure
+        # interim AND final words, by speaker, as soon as Deepgram has them (practice mode's
+        # crutch-word buzz needs ~1 s, a turn.final can be 20 s away). Interims get revised:
+        # the consumer dedupes by word and time.
+        self.on_live_words = on_live_words
 
     @property
     def running(self) -> bool:
@@ -158,9 +163,25 @@ class Hearing:
         if self.on_words:
             for spk, ws in by_speaker.items():
                 self.on_words(spk, ws)
+        self._live(new)
+
+    def _live(self, words: List[Word]) -> None:
+        if not self.on_live_words or not words:
+            return
+        if self.mapper.me_label is None and not self.mapper.single_speaker:
+            return  # nobody mapped yet: do not guess who the wearer is from an interim
+        by: dict = {}
+        for w in words:
+            by.setdefault(self.mapper.speaker(w.label), []).append(w)
+        for spk, ws in by.items():
+            try:
+                self.on_live_words(spk, ws)
+            except Exception:  # noqa: BLE001
+                log.exception("on_live_words failed")
 
     def _on_interim(self, result, text: str) -> None:
         _, words = words_from_result(result)
+        self._live(words)
         if text or words:
             self.on_event(partial_event(self.mapper, words, text or " ".join(w.text for w in words)))
 
