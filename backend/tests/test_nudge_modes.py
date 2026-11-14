@@ -1,19 +1,10 @@
 """Per-mode buzz rules (plan.md 4.5): regular = pace only, practice = drill rules, no filler."""
-from backend.contracts import Metrics, MotionSnapshot
-from backend.nudge import NudgeEngine
-from backend.nudge import modes
-from backend.studio import default_coach
+from backend.tests.test_band_bridge import _stub_fastapi_if_missing
 
+_stub_fastapi_if_missing()  # backend.studio imports its routes; a no-op where fastapi is installed
 
-def _snap(**kw):
-    base = dict(talk_ratio=0.5, interruptions=0, questions=0, fillers_per_min=0.0, wpm=150.0, baseline_wpm=None,
-                monologue_s=0.0, volume_db=-30.0, volume_state="ok", hand_energy=0.5)
-    base.update(kw)
-    return Metrics(**base)
-
-
-def _tick(engine, now, **kw):
-    return engine.on_tick(_snap(**kw), MotionSnapshot(), now) if hasattr(engine, "on_tick") else None
+from backend.nudge import modes  # noqa: E402
+from backend.studio import default_coach  # noqa: E402
 
 
 def test_regular_policy_is_pace_only_with_budget_and_gap():
