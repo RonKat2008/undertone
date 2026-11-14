@@ -1,6 +1,6 @@
 """Read stored sessions into one immutable shape that every growth module computes over.
 
-Only finished sessions (ended_at set) count for growth maths. All queries are parameterised.
+Only finished sessions (ended_at set) that are worth keeping (kept NULL or 1) count for growth maths. All queries are parameterised.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from backend.contracts import Debrief, DebriefNumbers, Metrics, SessionSummary, TurnFinalEvent
-from backend.db import DB
+from backend.db import DB, KEPT_SQL
 
 log = logging.getLogger(__name__)
 
@@ -155,9 +155,9 @@ def _from_row(db: DB, row: dict[str, Any]) -> StoredSession:
 
 
 def load_sessions(db: DB, limit: int = MAX_SESSIONS) -> list[StoredSession]:
-    """Finished sessions, newest first."""
-    rows = db.query("SELECT * FROM sessions WHERE ended_at IS NOT NULL ORDER BY started_at DESC LIMIT ?",
-                    (limit,))
+    """Finished sessions worth keeping (no verdict yet counts as kept), newest first."""
+    rows = db.query(f"SELECT * FROM sessions WHERE ended_at IS NOT NULL AND {KEPT_SQL} "
+                    "ORDER BY started_at DESC LIMIT ?", (limit,))
     return [_from_row(db, dict(r)) for r in rows]
 
 

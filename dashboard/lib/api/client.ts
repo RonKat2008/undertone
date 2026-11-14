@@ -13,6 +13,10 @@ import {
   SAMPLE_PROFILE, SAMPLE_SESSIONS, SAMPLE_STREAK, SAMPLE_WEEKLY,
 } from '@/lib/bus/sample';
 import { apiBase } from '@/lib/config';
+import { parseLibrary, parseTranscript } from '@/lib/conversations/model';
+import { SAMPLE_AUDIO_PREFIX, SAMPLE_LIBRARY, sampleAlias, sampleTranscript } from '@/lib/conversations/sample';
+import { synthWav } from '@/lib/conversations/sample-audio';
+import type { LibrarySession, SessionTranscript } from '@/lib/conversations/types';
 import { isKnowledgeGraph, isNodeDetail } from '@/lib/graph/model';
 import { sampleGraph, sampleNodeDetail } from '@/lib/graph/sample';
 import type { GraphNodeDetail, KnowledgeGraph } from '@/lib/graph/types';
@@ -308,4 +312,102 @@ export async function tagPerson(session_id: string, name: string, person_id?: st
   if (!isMock()) return post<Person>(`/sessions/${encodeURIComponent(session_id)}/person`, { name, person_id });
   await wait(150);
   return SAMPLE_PEOPLE.find((p) => p.name === name) ?? { person_id: `p-${name.toLowerCase()}`, name, sessions: 1, pattern: 'One conversation so far. A pattern needs three.', brief: 'Nothing to brief yet.' };
+}
+
+// ---------- conversations library ----------
+/**
+ * Where a library on screen came from. 'mock' is the built-in sample (labelled "sample");
+ * 'unreachable' and 'invalid' carry no data and say why.
+ */
+export type LibrarySource = 'live' | 'mock' | 'unreachable' | 'invalid';
+
+export interface LibraryResult {
+  data: LibrarySession[];
+  sample: boolean;
+  source: LibrarySource;
+  error: string | null;
+}
+
+/** Overrides the wearer made in mock mode, so Keep/Hide stick for the tab. */
+let mockKept: Record<string, boolean> = {};
+
+function mockLibrary(): LibrarySession[] {
+  return SAMPLE_LIBRARY.map((s) => {
+    if (!(s.session_id in mockKept)) return s;
+    const kept = mockKept[s.session_id];
+    return { ...s, kept, kept_reason: kept ? 'keep' : s.kept ? null : s.kept_reason };
+  });
+}
+
+export async function listConversations(includeAll: boolean): Promise<LibraryResult> {
+  if (isMock()) {
+    await wait(200);
+    const all = mockLibrary();
+    return { data: includeAll ? all : all.filter((s) => s.kept), sample: true, source: 'mock', error: null };
+  }
+  try {
+    const body = await http<unknown>(includeAll ? '/sessions?include=all' : '/sessions');
+    const data = parseLibrary(body);
+    if (!data) return { data: [], sample: false, source: 'invalid', error: 'The backend answered /sessions with something that is not a list of conversations.' };
+    return { data, sample: false, source: 'live', error: null };
+  } catch (e) {
+    return { data: [], sample: false, source: 'unreachable', error: e instanceof Error ? e.message : 'Cannot reach the backend.' };
+  }
+}
+
+/** POST /sessions/{id}/keep: the wearer overrides the automatic keep decision. Throws on failure. */
+export async function setKept(session_id: string, kept: boolean): Promise<void> {
+  if (isMock()) {
+    await wait(260);
+    mockKept = { ...mockKept, [session_id]: kept };
+    return;
+  }
+  await post(`/sessions/${encodeURIComponent(session_id)}/keep`, { kept });
+}
+
+export type TranscriptResult =
+  | { kind: 'ok'; data: SessionTranscript; sample: boolean }
+  | { kind: 'not_found' }
+  | { kind: 'error'; message: string };
+
+export async function getTranscript(session_id: string): Promise<TranscriptResult> {
+  if (isMock()) {
+    await wait(220);
+    const t = sampleTranscript(session_id);
+    return t ? { kind: 'ok', data: t, sample: true } : { kind: 'not_found' };
+  }
+  try {
+    const body = await http<unknown>(`/sessions/${encodeURIComponent(session_id)}/transcript`);
+    const data = parseTranscript(body);
+    return data ? { kind: 'ok', data, sample: false } : { kind: 'error', message: 'The backend sent a transcript this screen could not read.' };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return { kind: 'not_found' };
+    return { kind: 'error', message: e instanceof Error ? e.message : 'Cannot reach the backend.' };
+  }
+}
+
+/** One conversation's summary (for the header): the library entry, from the full list. Null when absent. */
+export async function findConversation(session_id: string): Promise<LibrarySession | null> {
+  const r = await listConversations(true);
+  const id = isMock() ? sampleAlias(session_id) : session_id;
+  return r.data.find((s) => s.session_id === id) ?? null;
+}
+
+const sampleAudioUrls = new Map<string, string>();
+
+/**
+ * A playable URL for a transcript's recording: the backend path made absolute, or for the
+ * sample a synthesised WAV (blob URL, made once per session). Null when there is no recording.
+ */
+export function recordingUrl(t: SessionTranscript): string | null {
+  if (!t.audio_url) return null;
+  if (!t.audio_url.startsWith(SAMPLE_AUDIO_PREFIX)) return mediaUrl(t.audio_url);
+  if (typeof window === 'undefined') return null;
+  const cached = sampleAudioUrls.get(t.session_id);
+  if (cached) return cached;
+  const total = t.turns.reduce((m, x) => Math.max(m, x.end), t.duration_s ?? 0) + t.audio_offset_s;
+  const wav = synthWav(t.turns, total, t.audio_offset_s);
+  const url = URL.createObjectURL(new Blob([wav.buffer as ArrayBuffer], { type: 'audio/wav' }));
+  sampleAudioUrls.set(t.session_id, url);
+  return url;
 }

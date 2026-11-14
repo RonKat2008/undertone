@@ -168,6 +168,30 @@ export interface SessionSummary {
   person_id: string | null;
   headline_fact: string;
   numbers: Debrief['numbers'];
+  kept?: boolean; // worth keeping (GET /sessions lists only kept ones unless ?include=all)
+  kept_reason?: string | null; // 'keep' | 'trivial' | 'noise' | 'sensitive'; null = not classified yet
+  audio_url?: string | null; // '/sessions/{id}/audio' when a recording exists
+}
+
+// ---------- REST payloads: transcript (GET /sessions/{id}/transcript) ----------
+
+export interface TranscriptTurn {
+  turn_id: string;
+  speaker: 'me' | 'other';
+  text: string;
+  start: number; // seconds from the start of the conversation
+  end: number;
+  wpm: number;
+  fillers: string[];
+}
+
+export interface SessionTranscript {
+  session_id: string;
+  started_at: string; // ISO
+  duration_s: number | null; // null while the conversation is still open
+  audio_url: string | null; // GET it with Range requests (audio/wav); null when there is no recording
+  audio_offset_s: number; // add to a turn's start to get its position in the audio file
+  turns: TranscriptTurn[]; // oldest first
 }
 
 export interface DailyMission {

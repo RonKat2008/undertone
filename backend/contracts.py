@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import (
+    BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, TypeAdapter, model_serializer,
+)
 
 # ---------- literals ----------
 Speaker = Literal["me", "other"]
@@ -371,6 +373,37 @@ class SessionSummary(Model):
     person_id: str | None = None
     headline_fact: str
     numbers: DebriefNumbers
+    # optional on the wire (`kept?`, `kept_reason?`, `audio_url?`): left out when None
+    kept: bool | None = None
+    kept_reason: str | None = None
+    audio_url: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_optionals(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        return {k: v for k, v in data.items() if not (k in SUMMARY_OPTIONAL_KEYS and v is None)}
+
+
+SUMMARY_OPTIONAL_KEYS: frozenset[str] = frozenset({"kept", "kept_reason", "audio_url"})
+
+
+class TranscriptTurn(Model):
+    turn_id: str
+    speaker: Speaker
+    text: str
+    start: float  # seconds from the start of the conversation
+    end: float
+    wpm: float
+    fillers: list[str] = Field(default_factory=list)
+
+
+class SessionTranscript(Model):
+    session_id: str
+    started_at: str
+    duration_s: float | None = None
+    audio_url: str | None = None
+    audio_offset_s: float = 0.0  # add to a turn's start to get its position in the audio file
+    turns: list[TranscriptTurn] = Field(default_factory=list)
 
 
 class MissionSuggestion(Model):
