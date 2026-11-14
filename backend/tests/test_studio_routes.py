@@ -2,29 +2,17 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
-# Settings are read at import time; mirror test_e2e.py so either file can import backend first.
-_TMP = Path(tempfile.mkdtemp(prefix="undertone-studio-"))
-os.environ["DEV"] = "1"
-os.environ["DEMO_POLICY"] = "1"
-os.environ["USE_RULE_JUDGE_ONLY"] = "1"
-os.environ["UNDERTONE_DB"] = str(_TMP / "studio.db")
-os.environ["UNDERTONE_ENV_FILE"] = str(_TMP / "does-not-exist.env")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from backend import studio  # noqa: E402
-from backend.config import settings  # noqa: E402
-from backend.contracts import CoachSpec  # noqa: E402
-from backend.main import app  # noqa: E402
-from backend.studio import BuildResult, default_coach, validate_coach  # noqa: E402
+from backend import studio
+from backend.config import settings
+from backend.contracts import CoachSpec
+from backend.main import app
+from backend.studio import BuildResult, default_coach, validate_coach
 
 
 @pytest.fixture

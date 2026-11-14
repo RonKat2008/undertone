@@ -4,23 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import tempfile
-from pathlib import Path
 from typing import Any
 
-# Settings are read at import time, so the environment must be set before importing backend.
-_TMP = Path(tempfile.mkdtemp(prefix="undertone-e2e-"))
-os.environ["DEV"] = "1"
-os.environ["DEMO_POLICY"] = "1"
-os.environ["USE_RULE_JUDGE_ONLY"] = "1"
-os.environ["UNDERTONE_DB"] = str(_TMP / "e2e.db")
-os.environ["UNDERTONE_ENV_FILE"] = str(_TMP / "does-not-exist.env")
+import httpx
 
-import httpx  # noqa: E402
-
-from backend.config import FIXTURES_DIR, settings  # noqa: E402
-from backend.main import app  # noqa: E402
+from backend.config import FIXTURES_DIR, settings
+from backend.main import app
 
 CORE_KEYS = {
     "interrupted", "asked_question", "question_type", "answered_the_question", "hedging",
