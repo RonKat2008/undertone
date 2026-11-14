@@ -26,7 +26,8 @@
           "cameraPermission": "Scan the pairing QR code shown on the Undertone dashboard."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ],
     "scheme": "undertone",
     "backgroundColor": "#15120F"
