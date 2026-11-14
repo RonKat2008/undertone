@@ -521,10 +521,27 @@ async def attach_band(app_state, brain, band: Optional[BandSource] = None,
     bus.on("session.ended", on_ended)
     from .practice import attach_practice
     ctl.practice = attach_practice(ctl, app_state)  # practice mode: buzz on every crutch word
+    ctl._tasks.append(asyncio.ensure_future(_feed_live_pace(ctl, app_state, brain)))
     if getattr(getattr(brain, "settings", None), "always_on", False):
         _attach_always_on(ctl, app_state, brain, join, clock)
     await ctl.start()
     return ctl
+
+
+async def _feed_live_pace(ctl: SessionController, app_state, brain, every_s: float = 1.0) -> None:
+    """Once a second, the wearer's live pace (final Deepgram words, last 15 s) into the
+    Brain's metrics, so the pace nudge can fire mid-answer instead of when the answer ends."""
+    while True:
+        await asyncio.sleep(every_s)
+        try:
+            session, metrics = getattr(app_state, "session", None), getattr(brain, "metrics", None)
+            if session is None or metrics is None or not ctl.running or not hasattr(metrics, "add_live_pace"):
+                continue
+            wpm = ctl.pace_wpm()
+            if wpm:
+                metrics.add_live_pace(wpm, session.now_s())
+        except Exception:  # noqa: BLE001
+            log.exception("live pace feed failed")
 
 
 def _attach_always_on(ctl: SessionController, app_state, brain, join: Callable[[str], Awaitable[None]],

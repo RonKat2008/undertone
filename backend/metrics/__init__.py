@@ -9,6 +9,7 @@ FINAL PUBLIC INTERFACE (do not change signatures; add private modules inside bac
         def add_partial(self, partial: TranscriptPartialEvent, now: float) -> None
         def add_motion(self, motion_event: MotionEvent) -> None
         def add_volume(self, db: float, ts: float) -> None        # wearer loudness samples
+        def add_live_pace(self, wpm: float, ts: float) -> None    # live pace from Deepgram words (Person A)
         def note_judge(self, judge_event: JudgeEvent) -> None     # counts judged interruptions/questions
         def snapshot(self, now: float) -> Metrics                 # now = seconds since session start
         def timeline(self) -> list[TimelinePoint]                 # every 5 s, for the debrief
@@ -45,6 +46,7 @@ from backend.metrics.timeline import TIMELINE_STEP_S, build_timeline
 __all__ = ["MetricsEngine", "find_fillers", "TIMELINE_STEP_S"]
 
 log = logging.getLogger("undertone.metrics")
+LIVE_PACE_FRESH_S = 3.0  # live pace older than this falls back to the turn-based pace
 
 
 def _finite(*values: float) -> bool:
@@ -69,8 +71,23 @@ class MetricsEngine:
         self._last = Metrics(baseline_wpm=baseline_wpm)
         self._latest_now = 0.0
         self.peak_monologue_s = 0.0
+        self._live_pace: tuple[float, float] | None = None  # (ts, wpm) from Deepgram's final words
 
     # ---------- inputs ----------
+    def add_live_pace(self, wpm: float, ts: float) -> None:
+        """Wearer pace from Deepgram's final words, about once a second while they talk.
+
+        Turn-based pace only moves when a turn ends, so a fast stretch inside a long answer
+        would buzz only after the answer. While this is fresh it is used instead."""
+        if _finite(wpm, ts) and wpm > 0:
+            self._live_pace = (float(ts), float(wpm))
+
+    def _wpm(self, now: float) -> float:
+        live = self._live_pace
+        if live is not None and 0 <= now - live[0] <= LIVE_PACE_FRESH_S:
+            return round(live[1], 1)
+        return speech.rolling_wpm(self._turns, now)
+
     def add_turn(self, turn: TurnFinalEvent) -> None:
         if not _finite(turn.start, turn.end):
             return
@@ -137,7 +154,7 @@ class MetricsEngine:
             interruptions=self._tally.interruptions,
             questions=self._tally.questions,
             fillers_per_min=speech.fillers_per_min(self._turns, self.filler_words, now),
-            wpm=speech.rolling_wpm(self._turns, now),
+            wpm=self._wpm(now),
             baseline_wpm=self._effective_baseline_wpm(),
             monologue_s=self._me_run.value(now),
             volume_db=db if db is not None else self._default_db(),
