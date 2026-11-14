@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+/* ---------- tokens: "paper" ---------- */
+:root {
+  --paper: oklch(0.972 0.012 85);
+  --well: oklch(0.945 0.014 85);
+  --ink: oklch(0.2 0.012 60);
+  --ink-2: oklch(0.44 0.012 60);
+  --ink-3: oklch(0.6 0.012 70);
+  --rule: oklch(0.85 0.012 80);
+  --them: oklch(0.74 0.016 75);
+
+  /* one colour per haptic pattern; never decoration */
+  --vermilion: oklch(0.6 0.2 32);
+  --amber: oklch(0.76 0.15 72);
+  --ochre: oklch(0.7 0.13 90);
+  --blue: oklch(0.5 0.16 255);
+  --violet: oklch(0.5 0.15 305);
+  --green: oklch(0.56 0.13 150);
+  /* darker versions of the light hues, for text on paper */
+  --amber-ink: oklch(0.5 0.12 62);
+  --ochre-ink: oklch(0.47 0.1 88);
+  --mic: oklch(0.58 0.2 255);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-well: var(--well);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-them: var(--them);
+  --color-vermilion: var(--vermilion);
+  --color-amber: var(--amber);
+  --color-ochre: var(--ochre);
+  --color-blue: var(--blue);
+  --color-violet: var(--violet);
+  --color-green: var(--green);
+  --color-amber-ink: var(--amber-ink);
+  --color-ochre-ink: var(--ochre-ink);
+  --color-mic: var(--mic);
+  --font-sans: var(--font-geist-sans), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, Menlo, monospace;
+  --font-serif: "Instrument Serif", "Iowan Old Style", Palatino, Georgia, serif;
+}
+
+html { background: var(--paper); }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  /* faint paper grain */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .2 0 0 0 0 .18 0 0 0 0 .14 0 0 0 .055 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- type helpers ---------- */
+.caps { font-size: 10.5px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-2); font-weight: 500; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.serif { font-family: var(--font-serif); font-weight: 400; letter-spacing: -0.01em; }
+.hair { border-color: var(--rule); }
+
+/* tone classes: set --tone, components read it */
+.tone-ink { --tone: var(--ink); --tone-text: var(--ink); --tone-on: var(--paper); }
+.tone-vermilion { --tone: var(--vermilion); --tone-text: var(--vermilion); --tone-on: var(--paper); }
+.tone-amber { --tone: var(--amber); --tone-text: var(--amber-ink); --tone-on: var(--ink); }
+.tone-ochre { --tone: var(--ochre); --tone-text: var(--ochre-ink); --tone-on: var(--ink); }
+.tone-blue { --tone: var(--blue); --tone-text: var(--blue); --tone-on: var(--paper); }
+.tone-violet { --tone: var(--violet); --tone-text: var(--violet); --tone-on: var(--paper); }
+.tone-green { --tone: var(--green); --tone-text: var(--green); --tone-on: var(--paper); }
+
+/* ---------- controls ---------- */
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px;
+  border: 1px solid var(--ink); border-radius: 2px; background: transparent; color: var(--ink);
+  font-size: 13px; font-weight: 500; transition: background-color 120ms, transform 80ms;
+}
+.btn:hover:not(:disabled) { background: var(--well); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn-solid { background: var(--ink); color: var(--paper); }
+.btn-solid:hover:not(:disabled) { background: oklch(0.32 0.012 60); }
+.btn-quiet { border-color: var(--rule); color: var(--ink-2); }
+.btn-quiet:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
+.btn-sm { height: 26px; padding: 0 9px; font-size: 12px; }
+.field { background: transparent; border: 0; border-bottom: 1px solid var(--rule); padding: 4px 0; width: 100%; color: var(--ink); }
+.field:hover { border-bottom-color: var(--ink-3); }
+.field:focus { outline: none; border-bottom-color: var(--ink); }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 1px solid var(--rule); border-radius: 2px; font-size: 12px; }
+.sample-tag { display: inline-block; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); border: 1px dashed var(--ink-3); padding: 1px 5px; border-radius: 2px; vertical-align: middle; }
+
+/* ---------- motion: transform, opacity, clip-path only ---------- */
+@keyframes glyph-bar { 0% { opacity: 0.22; transform: scaleY(0.55); } 12% { opacity: 1; transform: scaleY(1.12); } 100% { opacity: 1; transform: scaleY(1); } }
+@keyframes glyph-ramp { 0% { clip-path: inset(0 100% 0 0); opacity: 1; } 100% { clip-path: inset(0 0 0 0); opacity: 1; } }
+@keyframes drop-in { 0% { transform: translateY(-100%); } 100% { transform: translateY(0); } }
+@keyframes fold-out { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-100%); opacity: 0.6; } }
+@keyframes rise { 0% { opacity: 0; transform: translateY(6px); } 100% { opacity: 1; transform: translateY(0); } }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.anim-rise { animation: rise 260ms ease-out both; }
+.live-dot { animation: blink 1.6s ease-in-out infinite; }
+.caret::after { content: ""; display: inline-block; width: 0.5em; height: 1em; margin-left: 2px; vertical-align: -0.12em; background: currentColor; opacity: 0.5; animation: blink 1s steps(2) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+input[type="range"] { accent-color: var(--ink); }
