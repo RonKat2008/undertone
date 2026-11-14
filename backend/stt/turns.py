@@ -191,6 +191,10 @@ class NovaTurnAssembler:
             self._cur.append(w)
             self._final_until = max(self._final_until, w.end)
 
+    def continue_after(self, n: int) -> None:
+        """Number the next turn n + 1 (taking over from the Flux assembler: no duplicate ids)."""
+        self._n = max(self._n, n)
+
     def heard(self, interim_end: float) -> None:
         """An interim result reached `interim_end` (audio seconds): someone is still talking."""
         self._heard_until = max(self._heard_until, interim_end)
@@ -244,52 +248,104 @@ class NovaTurnAssembler:
 
 
 class FluxTurnAssembler:
-    """Turns from Flux end-of-turn windows, words and speakers from Nova."""
+    """Turns from Flux end-of-turn windows, words and speakers from Nova.
+
+    Measured on real audio (scripts/eval_audio.py):
+    - Flux windows tile the stream: [0.0, 10.56], [10.56, 14.8], ... A window ends in
+      the silence after the turn (0.4 s after the last word here), so "last word ends
+      near window_end" is not the alignment test; a Nova word ending *after* the window
+      (beyond slack) is.
+    - Nova's final words for the end of a window can arrive after Flux's EndOfTurn. A
+      window is therefore settled only once a Nova word starts after it, or `settle_s`
+      of audio has passed its end.
+    - A Flux turn can be long (10 s and more): words are never expired while Flux may
+      still claim them. Words a settled window passed over, or older than `orphan_s`,
+      become Nova-style turns (label change or a gap of `gap_s`), whole runs only.
+    """
 
     def __init__(self, mapper: SpeakerMapper, on_turn: Callable[[dict], None],
                  filler_list: Iterable[str] = DEFAULT_FILLERS, slack_s: float = 0.3,
-                 leftover_s: float = 4.0, max_offset_s: float = 0.3) -> None:
+                 settle_s: float = 2.5, orphan_s: float = 20.0, gap_s: float = 2.0,
+                 max_offset_s: float = 0.3) -> None:
         self.mapper = mapper
         self.on_turn = on_turn
         self.filler_list = list(filler_list)
         self.slack_s = slack_s
-        self.leftover_s = leftover_s
+        self.settle_s = settle_s
+        self.orphan_s = orphan_s
+        self.gap_s = gap_s
         self.max_offset_s = max_offset_s
         self._buf: List[Word] = []
+        self._windows: List[Tuple[float, float]] = []
+        self._passed_until = 0.0  # end of the last settled window
         self._n = 0
         self.offsets: List[float] = []
 
     @property
     def misaligned(self) -> bool:
-        """True once 5+ windows show the two clocks more than max_offset_s apart."""
+        """True once 5+ windows show Nova words running more than max_offset_s past Flux's end."""
         return len(self.offsets) >= 5 and statistics.median(self.offsets) > self.max_offset_s
 
     def add(self, words: Iterable[Word]) -> None:
         self._buf.extend(words)
         self._buf.sort(key=lambda w: w.start)
+        self._settle(None)
 
     def end_of_turn(self, window_start: float, window_end: float) -> None:
-        lo, hi = window_start - self.slack_s, window_end + self.slack_s
-        inside = [w for w in self._buf if w.start >= lo and w.end <= hi]
-        if not inside:
-            return
-        self.offsets.append(abs(inside[-1].end - window_end))
-        self._buf = [w for w in self._buf if w not in inside]
-        self._emit(inside)
+        self._windows.append((window_start, window_end))
+        self._settle(None)
 
     def tick(self, now: float) -> None:
-        """Words no Flux window claimed (Flux missed a turn): group them Nova-style."""
-        old = [w for w in self._buf if now - w.end > self.leftover_s]
-        if not old:
+        self._settle(now)
+        self._leftovers(now)
+
+    def flush(self) -> None:
+        """Session end: settle every window, then everything left as Nova-style turns."""
+        self._settle(float("inf"))
+        self._leftovers(float("inf"))
+
+    def hand_over(self) -> List[Word]:
+        """Words not yet in a turn, for the Nova assembler when Flux is given up."""
+        words, self._buf, self._windows = self._buf, [], []
+        return words
+
+    def _settle(self, now: Optional[float]) -> None:
+        while self._windows:
+            ws, we = self._windows[0]
+            later = any(w.start >= we for w in self._buf)
+            if not later and not (now is not None and now - we >= self.settle_s):
+                return
+            self._windows.pop(0)
+            self._claim(ws, we)
+
+    def _claim(self, window_start: float, window_end: float) -> None:
+        lo, hi = window_start - self.slack_s, window_end + self.slack_s
+        inside = [w for w in self._buf if w.start >= lo and w.start < window_end and w.end <= hi]
+        straddle = [w for w in self._buf if lo <= w.start < window_end and w.end > hi]
+        self._passed_until = max(self._passed_until, window_end)
+        if not inside and not straddle:
             return
-        self._buf = [w for w in self._buf if w not in old]
-        run: List[Word] = []
-        for w in old:
-            if run and w.label != run[-1].label:
-                self._emit(run)
-                run = []
-            run.append(w)
-        if run:
+        last_end = max(w.end for w in inside + straddle)
+        self.offsets.append(max(0.0, last_end - window_end))
+        if inside:
+            keep = set(id(w) for w in inside)
+            self._buf = [w for w in self._buf if id(w) not in keep]
+            self._emit(inside)
+
+    def _leftovers(self, now: float) -> None:
+        """Whole Nova-style runs of words no window will claim."""
+        while self._buf:
+            run = [self._buf[0]]
+            for w in self._buf[1:]:
+                if w.label != run[-1].label or w.start - run[-1].end > self.gap_s:
+                    break
+                run.append(w)
+            quiet = now - run[-1].end
+            complete = len(run) < len(self._buf) or quiet > self.gap_s  # next word breaks it, or none came
+            passed = run[-1].end <= self._passed_until  # a settled window went past without it
+            if not (quiet > self.orphan_s or (passed and complete)):
+                return
+            self._buf = self._buf[len(run):]
             self._emit(run)
 
     def _emit(self, words: List[Word]) -> None:

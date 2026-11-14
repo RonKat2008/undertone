@@ -166,6 +166,7 @@ class Hearing:
         self.nova_turns = NovaTurnAssembler(mapper, self._emit, self.filler_words,
                                             hold_s=OPENING_HOLD_S if loudness is not None else 0.0)
         self.flux_turns = FluxTurnAssembler(mapper, self._emit, self.filler_words)
+        self._flux_given_up = False
         self._runner = None
         self._ticker = None
 
@@ -186,8 +187,9 @@ class Hearing:
                 log.info("speaker labels swapped by loudness check")
                 self.on_event({"type": "calibration", "kind": "speaker", "step": "auto-swapped by loudness",
                                "done": True})
-        if self.use_flux and not self.flux_turns.misaligned:
+        if self._flux_on():
             self.flux_turns.add(new)
+            self._flux_on()  # adding can settle a window and show the clocks disagree
         else:
             self.nova_turns.add(new)
         by_speaker: dict = {}
@@ -212,14 +214,26 @@ class Hearing:
         if win is None:
             return
         self.flux_turns.end_of_turn(*win)
-        if self.flux_turns.misaligned:
-            log.warning("Flux and Nova clocks disagree by >300 ms: staying Nova-only for turns")
+        self._flux_on()
+
+    def _flux_on(self) -> bool:
+        """Flux turns in use. The first time the clocks are found to disagree, the words Flux
+        still holds go to the Nova assembler, which carries on the turn numbering."""
+        if not self.use_flux or self._flux_given_up:
+            return False
+        if not self.flux_turns.misaligned:
+            return True
+        log.warning("Flux and Nova clocks disagree by >300 ms: staying Nova-only for turns")
+        self._flux_given_up = True
+        self.nova_turns.continue_after(self.flux_turns._n)
+        self.nova_turns.add(self.flux_turns.hand_over())
+        return False
 
     async def _tick(self) -> None:
         while True:
             await asyncio.sleep(0.25)
             now = self.audio_clock()
-            if self.use_flux and not self.flux_turns.misaligned:
+            if self._flux_on():
                 self.flux_turns.tick(now)
             else:
                 self.nova_turns.tick(now)
@@ -278,6 +292,6 @@ class Hearing:
                     except Exception as e:  # noqa: BLE001
                         log.debug("runner.%s: %s", name, e)
                     break
-        if self.use_flux and not self.flux_turns.misaligned:
-            self.flux_turns.tick(float("inf"))
+        if self._flux_on():
+            self.flux_turns.flush()
         self.nova_turns.flush()

@@ -165,6 +165,52 @@ def test_no_hold_by_default_or_in_demo_mode():
     assert len(out) == 1
 
 
+# ---------- Flux (USE_FLUX=true) ----------
+
+from backend.stt.turns import FluxTurnAssembler  # noqa: E402
+
+
+def test_flux_long_turn_is_one_turn_not_one_per_word():
+    """Real run: Flux's EndOfTurn for a 10 s opening turn came after the old 4 s leftover
+    expiry, which emitted every word on its own as it aged: 145 turns for 9."""
+    out = []
+    f = FluxTurnAssembler(SpeakerMapper(), out.append)
+    t = 0.5
+    for i in range(20):  # 20 words over ~10 s, finals arriving as speech goes on
+        f.add([W("w%d" % i, t, t + 0.3)])
+        f.tick(t + 1.0)
+        t += 0.5
+    assert out == []
+    f.end_of_turn(0.0, 10.56)
+    f.add([W("Okay.", 11.13, 11.53, 1)])  # the next speaker: the window is settled
+    assert len(out) == 1 and len(out[0]["text"].split()) == 20
+
+
+def test_flux_waits_for_a_late_nova_final():
+    out = []
+    f = FluxTurnAssembler(SpeakerMapper(), out.append)
+    f.add([W("Here's", 0.5, 0.8), W("the", 0.8, 0.9)])
+    f.end_of_turn(0.0, 1.8)
+    f.tick(2.5)
+    f.add([W("case.", 0.9, 1.3)])  # Nova's last final for the window arrives after EndOfTurn
+    f.tick(4.5)
+    assert len(out) == 1 and out[0]["text"] == "Here's the case."
+
+
+def test_flux_hand_over_keeps_words_and_numbering():
+    """Giving up on Flux used to drop the words it still held and restart ids at t1."""
+    from backend.stt.pipeline import Hearing
+    import asyncio
+    events = []
+    h = Hearing(asyncio.Queue(), SpeakerMapper(), events.append, use_flux=True)
+    h.flux_turns.offsets = [1.0] * 5  # clocks disagree
+    h.flux_turns._n = 3
+    h.flux_turns._buf = [W("still", 50.0, 50.4), W("here", 50.5, 50.9)]
+    assert h._flux_on() is False
+    h.nova_turns.flush()
+    assert events and events[-1]["text"] == "still here" and events[-1]["turn_id"] == "t4"
+
+
 def test_vocabulary_matches_the_model():
     """keyterm prompting is Nova-3 only; NOVA_MODEL=nova-2 needs keywords instead."""
     from backend.stt.pipeline import vocabulary_settings
