@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from backend.capture.media import recordings_dir
+from backend.capture.store import session_audio_url
 from backend.contracts import (
     DailyMission, DebriefNumbers, HabitProfile, Person, SessionSummary, Streak, WeeklyReport,
 )
@@ -72,6 +76,19 @@ def tag_person(session_id: str, body: TagPerson, st: AppState = Depends(get_app_
         raise HTTPException(422, str(exc)) from exc
 
 
+def _verdict_fields(row: dict[str, object], media: Path) -> dict[str, object]:
+    """kept (no verdict yet counts as kept), kept_reason (None = not classified) and audio_url."""
+    kept = row.get("kept")
+    return {"kept": True if kept is None else bool(kept), "kept_reason": row.get("kept_reason"),
+            "audio_url": session_audio_url(row, media)}
+
+
+def summary_for_row(row: dict[str, object], media: Path) -> SessionSummary | None:
+    """One sessions-table row as a SessionSummary, with its keep verdict and recording URL."""
+    base = _summary(row)
+    return None if base is None else base.model_copy(update=_verdict_fields(row, media))
+
+
 def _summary(row: dict[str, object]) -> SessionSummary | None:
     raw = row.get("summary_json")
     if isinstance(raw, str) and raw:
@@ -93,7 +110,10 @@ def _summary(row: dict[str, object]) -> SessionSummary | None:
 
 @router.get("/sessions", response_model=list[SessionSummary])
 def sessions(limit: int = Query(50, ge=1, le=500),
+             include: Literal["kept", "all"] = Query("kept"),
              st: AppState = Depends(get_app_state)) -> list[SessionSummary]:
-    """Newest first."""
-    out = (_summary(row) for row in st.db.list_sessions(limit=limit))
+    """Newest first. Only sessions worth keeping unless ?include=all."""
+    media = recordings_dir(Path(st.db.path))
+    rows = st.db.list_sessions(limit=limit, kept_only=include != "all")
+    out = (summary_for_row(row, media) for row in rows)
     return [s for s in out if s is not None]
