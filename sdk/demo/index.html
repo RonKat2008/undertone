@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slide timer</title>
+<style>
+  :root { color-scheme: dark; --bg: #0e1116; --panel: #171b22; --line: #2a303a; --text: #e8ebf0; --dim: #8b94a3; --accent: #5b8cff; --warn: #f2b84b; --over: #ff6b5e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; padding: 24px; }
+  main { width: min(560px, 100%); }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 0 20px; }
+  .clock { font: 600 clamp(72px, 22vw, 148px)/1 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; letter-spacing: -.04em; margin: 0; }
+  .clock.warn { color: var(--warn); } .clock.over { color: var(--over); }
+  .bar { height: 4px; background: var(--line); border-radius: 2px; margin: 18px 0 28px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  label { color: var(--dim); font-size: 13px; }
+  input { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 11px; font: inherit; min-width: 0; }
+  input[type=number] { width: 84px; } input[type=url] { flex: 1; }
+  button { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 16px; font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #08101f; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .panel { border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 28px; }
+  #status { font-size: 14px; color: var(--dim); margin: 6px 0 0; min-height: 1.5em; }
+  #status.ok { color: #6fd08c; } #status.wait { color: var(--warn); } #status.bad { color: var(--over); }
+  ol { margin: 14px 0 0; padding-left: 20px; color: var(--dim); font-size: 14px; }
+  ol li.done { color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Slide timer</h1>
+  <p class="clock" id="clock" aria-live="off">05:00</p>
+  <div class="bar"><i id="fill"></i></div>
+  <div class="row">
+    <label for="mins">Minutes</label>
+    <input id="mins" type="number" min="0.2" max="90" step="0.1" value="5">
+    <button class="primary" id="start">Start</button>
+    <button id="reset">Reset</button>
+  </div>
+  <ol id="cues">
+    <li data-at="half">Halfway: one light tick</li>
+    <li data-at="min">One minute left: three rising taps</li>
+    <li data-at="zero">Time is up: two sharp taps</li>
+  </ol>
+
+  <div class="panel">
+    <div class="row">
+      <input id="server" type="url" placeholder="http://laptop-ip:8000" aria-label="Undertone server address">
+      <button id="connect">Connect</button>
+      <button id="test" disabled>Test buzz</button>
+    </div>
+    <p id="status">Not connected. This page buzzes your iPhone through Undertone.</p>
+  </div>
+</main>
+
+<script src="../undertone-haptics.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var clock = $('clock'), fill = $('fill'), status = $('status');
+  var ut = null, timer = null, total = 300, endsAt = 0, fired = {};
+
+  var guess = location.protocol.indexOf('http') === 0 ? location.origin : 'http://localhost:8000';
+  $('server').value = localStorage.getItem('slide-timer:server') || guess;
+
+  function say(text, cls) { status.textContent = text; status.className = cls || ''; }
+
+  function report(r) {
+    if (r.ok && r.delivered > 0) say('Buzzed your phone.', 'ok');
+    else if (r.ok) say('Sent, but no phone is connected. Open the Undertone app.', 'wait');
+    else if (r.reason === 'pending') say('Waiting for approval. Open Connected apps on your phone and allow "Slide timer".', 'wait');
+    else if (r.reason === 'unauthorized') say('This page was removed on the phone. Press Connect to ask again.', 'bad');
+    else if (r.reason === 'unreachable') say('Cannot reach the Undertone server.', 'bad');
+    else say('The buzz was not accepted (' + r.reason + ').', 'bad');
+    return r;
+  }
+
+  function buzz(pattern, label) {
+    if (!ut) return Promise.resolve();
+    return ut.buzz(pattern, { label: label }).then(report);
+  }
+
+  $('connect').onclick = function () {
+    var server = $('server').value.trim();
+    say('Connecting...');
+    Undertone.connect({ server: server, appName: 'Slide timer' }).then(function (c) {
+      ut = c;
+      localStorage.setItem('slide-timer:server', server);
+      $('test').disabled = false;
+      say('Connected. Approve "Slide timer" on your phone, then press Test buzz.', 'wait');
+    }).catch(function () { say('Cannot reach the Undertone server at that address.', 'bad'); });
+  };
+
+  $('test').onclick = function () { buzz('tap', 'Test from the slide timer'); };
+
+  function fmt(s) {
+    var neg = s < 0; s = Math.abs(Math.ceil(s));
+    var m = Math.floor(s / 60), r = s % 60;
+    return (neg ? '+' : '') + (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r;
+  }
+
+  function cue(name, pattern, label) {
+    if (fired[name]) return;
+    fired[name] = true;
+    var li = document.querySelector('[data-at="' + name + '"]');
+    if (li) li.className = 'done';
+    buzz(pattern, label);
+  }
+
+  function tick() {
+    var left = (endsAt - Date.now()) / 1000;
+    clock.textContent = fmt(left);
+    clock.className = 'clock' + (left <= 0 ? ' over' : left <= 60 ? ' warn' : '');
+    fill.style.width = Math.max(0, Math.min(100, (1 - left / total) * 100)) + '%';
+    if (left <= total / 2 && total > 120) cue('half', 'tap', 'Halfway');
+    if (left <= 60 && total > 60) cue('min', 'wrap_up', 'One minute left');
+    if (left <= 0) cue('zero', 'interrupt', 'Time is up');
+  }
+
+  function reset() {
+    clearInterval(timer); timer = null; fired = {};
+    total = Math.max(12, Math.round(parseFloat($('mins').value || '5') * 60));
+    clock.textContent = fmt(total); clock.className = 'clock'; fill.style.width = '0';
+    $('start').textContent = 'Start';
+    [].forEach.call(document.querySelectorAll('#cues li'), function (li) { li.className = ''; });
+  }
+
+  $('start').onclick = function () {
+    if (timer) { reset(); return; }
+    reset();
+    endsAt = Date.now() + total * 1000;
+    $('start').textContent = 'Stop';
+    timer = setInterval(tick, 250);
+    tick();
+  };
+  $('reset').onclick = reset;
+  $('mins').onchange = function () { if (!timer) reset(); };
+  reset();
+})();
+</script>
+</body>
+</html>
