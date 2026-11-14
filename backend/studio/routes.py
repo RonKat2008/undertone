@@ -16,11 +16,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from backend.contracts import CoachSpec, HabitProfile
 from backend.deps import get_app_state, get_brain
+from backend.studio.clear_across import FirstLanguageFamily, with_first_language
 from backend.state import AppState
 
 if TYPE_CHECKING:
@@ -71,11 +72,14 @@ def list_coaches(st: AppState = Depends(get_app_state)) -> list[CoachSpec]:
 
 
 @router.get("/coaches/{coach_id}.json", response_model=CoachSpec)
-def get_coach(coach_id: str, brain: "Brain" = Depends(get_brain)) -> CoachSpec:
+def get_coach(coach_id: str, brain: "Brain" = Depends(get_brain),
+             first_language_family: FirstLanguageFamily | None = Query(None)) -> CoachSpec:
+    """Optional `first_language_family` (chosen by the wearer, never inferred) returns a copy with
+    extra judge examples (studio/clear_across.py); PUT it back to keep it as the saved coach."""
     coach = brain.find_coach(coach_id)
     if coach is None:
         raise HTTPException(404, f"coach {coach_id!r} not found")
-    return coach
+    return with_first_language(coach, first_language_family)
 
 
 @router.put("/coaches/{coach_id}", response_model=CoachSpec)

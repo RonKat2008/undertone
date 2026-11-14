@@ -2,7 +2,8 @@
 
     rule_judge(ctx, coach) -> dict[str, JudgeAnswer]
 
-Coach-specific (non-core) questions get neutral, low-confidence answers.
+Coach-specific (non-core) questions get neutral, low-confidence answers, except the few with
+simple patterns in judge/_coach_rules.py (matched by question id and type).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from backend.contracts import (
     TurnContext,
 )
 from backend.judge import _rule_patterns as rx
+from backend.judge._coach_rules import COACH_RULES, STRATEGIES
 from backend.judge.core_questions import CORE_QUESTION_IDS
 
 __all__ = ["rule_judge"]
@@ -215,7 +217,17 @@ def _commitment(text: str) -> float:
     return best
 
 
-# ---------- neutral coach answers ----------
+# ---------- coach answers ----------
+def _coach_answer(key: str, q: CoachQuestion, ctx: TurnContext) -> JudgeAnswer:
+    known = COACH_RULES.get(key)
+    if known is None or known[0] != q.type:
+        return _neutral(q)
+    if isinstance(q, ChoiceQuestion) and set(q.criteria) != set(STRATEGIES):
+        return _neutral(q)
+    return known[1](ctx)
+
+
+
 def _neutral(q: CoachQuestion) -> JudgeAnswer:
     if isinstance(q, ChoiceQuestion):
         keys = tuple(q.criteria) or ("none",)
@@ -246,5 +258,5 @@ def rule_judge(ctx: TurnContext, coach: CoachSpec) -> dict[str, JudgeAnswer]:
     }
     for key, q in coach.questions.items():
         if key not in CORE_QUESTION_IDS:
-            results[key] = _neutral(q)
+            results[key] = _coach_answer(key, q, ctx)
     return results

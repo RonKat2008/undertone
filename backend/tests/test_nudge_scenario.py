@@ -15,7 +15,7 @@ def _no_demo(monkeypatch: pytest.MonkeyPatch) -> None:
     set_demo(monkeypatch, False)
 
 
-@pytest.mark.parametrize("name", ["interview", "listener"])
+@pytest.mark.parametrize("name", ["interview", "listener", "clear_across"])
 def test_prebuilt_coach_rules_all_parse_and_compile(name: str) -> None:
     c = load_prebuilt(name)
     for r in [*c.nudge_rules, *c.motion_rules]:

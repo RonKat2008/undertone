@@ -13,7 +13,7 @@ from backend.studio.default import default_coach
 from backend.studio.validate import MAX_MESSAGE_CHARS
 
 PREBUILT_DIR = Path(__file__).parent / "prebuilt"
-PREBUILT_NAMES = ("interview", "listener")
+PREBUILT_NAMES = ("interview", "listener", "clear_across")
 MAX_WORDS = 6
 MAX_ISSUES = 4
 MAX_COOLDOWN_S = 30.0
@@ -62,7 +62,7 @@ def _prebuilt_coaches() -> list[CoachSpec]:
 
 def _rule_library(base: CoachSpec) -> tuple[dict[str, NudgeRule], dict[str, CoachQuestion]]:
     """Known rules by id plus the questions they need. First definition wins
-    (default coach, then interview, then listener); "filler" is built separately."""
+    (default coach, then interview, listener, clear_across); "filler" is built separately."""
     rules: dict[str, NudgeRule] = {}
     questions: dict[str, CoachQuestion] = {}
     for coach in [base, *_prebuilt_coaches()]:
