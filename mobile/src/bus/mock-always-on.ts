@@ -28,7 +28,7 @@ function band(mic_on: boolean, battery_pct: number): BusEvent {
   return { type: 'band.status', connected: true, transport: 'ble', battery_pct, mic_on, always_on: true } as BusEvent;
 }
 
-const LINES: { speaker: Speaker; start: number; end: number; wpm: number; fillers: string[]; text: string }[] = [
+export const AO_LINES: { speaker: Speaker; start: number; end: number; wpm: number; fillers: string[]; text: string }[] = [
   { speaker: 'other', start: 1, end: 4.5, wpm: 150, fillers: [], text: 'Hey, have you got a minute about the launch slides?' },
   { speaker: 'me', start: 5, end: 13.5, wpm: 205, fillers: ['basically'], text: 'Sure, so basically the deck is done but I want to move the pricing slide up and cut the two competitor pages because nobody reads them.' },
   { speaker: 'other', start: 14, end: 16.5, wpm: 148, fillers: [], text: 'Makes sense. Can I see it before four?' },
@@ -48,7 +48,7 @@ function conversation(n: number): Scripted[] {
   const out: Scripted[] = [
     { at: t0, event: { type: 'session.started', session_id: id, coach_id: INTERVIEW_COACH.id, mode: 'regular', policy: REGULAR_POLICY, ts: 0 } },
   ];
-  LINES.forEach((line, i) => {
+  AO_LINES.forEach((line, i) => {
     const words = line.text.split(' ');
     const steps = Math.max(2, Math.floor((line.end - line.start) / 0.6));
     for (let k = 1; k < steps; k++) {
@@ -58,7 +58,7 @@ function conversation(n: number): Scripted[] {
     out.push({ at: t0 + line.end, event: { type: 'turn.final', turn_id: `${id}-t${i + 1}`, speaker: line.speaker, text: line.text, start: line.start, end: line.end, wpm: line.wpm, fillers: line.fillers } });
   });
   for (let s = 1; s <= AO_CLOSE_AT - t0 - 1; s++) {
-    const mine = LINES.find((l) => l.speaker === 'me' && s >= l.start && s <= l.end);
+    const mine = AO_LINES.find((l) => l.speaker === 'me' && s >= l.start && s <= l.end);
     out.push({ at: t0 + s, event: {
       type: 'metrics', talk_ratio: s < 5 ? 0 : 0.64, interruptions: 0, questions: 0, fillers_per_min: s < 6 ? 0 : 2.9,
       wpm: mine ? mine.wpm : s < 5 ? 0 : 184, baseline_wpm: BASELINE, monologue_s: mine ? s - mine.start : 0,

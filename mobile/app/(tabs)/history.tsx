@@ -1,8 +1,8 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { getWeeklyReport, listPeople, listSessions, type Sampled } from '@/api/client';
-import type { Person, SessionSummary, WeeklyReport } from '@/bus/contracts';
+import { getWeeklyReport, listPeople, listSessions, type Sampled, type SessionListItem } from '@/api/client';
+import type { Person, WeeklyReport } from '@/bus/contracts';
 import { useListVersion } from '@/bus/use-bus';
 import { Rule, SampleTag, Screen, T, clock } from '@/ui/kit';
 import { C, TONE } from '@/ui/theme';
@@ -17,7 +17,7 @@ const METRIC: Record<string, { label: string; fmt: (v: number) => string; lowerI
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const [sessions, setSessions] = useState<Sampled<SessionSummary[]> | null>(null);
+  const [sessions, setSessions] = useState<Sampled<SessionListItem[]> | null>(null);
   const [report, setReport] = useState<Sampled<WeeklyReport> | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const version = useListVersion(); // a session ended, its debrief arrived, or the phone reconnected
@@ -61,25 +61,45 @@ export default function HistoryScreen() {
         const d = new Date(s.started_at);
         const who = name(s.person_id);
         return (
-          <Pressable key={s.session_id} onPress={() => router.push({ pathname: '/debrief', params: { id: s.session_id } })} accessibilityRole="button"
-            style={({ pressed }) => ({ borderBottomWidth: 1, borderBottomColor: C.rule, paddingVertical: 16, opacity: pressed ? 0.55 : 1 })}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <T v="caps">{d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · {clock(s.duration_s)}</T>
-              <T v="caps">{s.mode === 'practice' ? 'practice' : s.coach_name}{who ? ` · with ${who}` : ''}</T>
-            </View>
-            <T v="serif" size={24} style={{ marginTop: 6 }}>{s.headline_fact}</T>
-            <View style={{ flexDirection: 'row', gap: 18, marginTop: 10 }}>
-              <Stat v={`${Math.round(s.numbers.talk_ratio * 100)}%`} l="talk" />
-              <Stat v={String(s.numbers.interruptions)} l="interr." />
-              <Stat v={String(s.numbers.questions)} l="quest." />
-              <Stat v={s.numbers.fillers_per_min.toFixed(1)} l="fill/min" />
-              <Stat v={String(Math.round(s.numbers.wpm))} l="wpm" />
-            </View>
-          </Pressable>
+          <View key={s.session_id} style={{ borderBottomWidth: 1, borderBottomColor: C.rule, paddingVertical: 16 }}>
+            <Pressable onPress={() => router.push({ pathname: '/debrief', params: { id: s.session_id } })} accessibilityRole="button"
+              style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', columnGap: 10, rowGap: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <T v="caps">{d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · {clock(s.duration_s)}</T>
+                  {s.audio_url ? <RecMark /> : null}
+                </View>
+                <T v="caps">{s.mode === 'practice' ? 'practice' : s.coach_name}{who ? ` · with ${who}` : ''}</T>
+              </View>
+              <T v="serif" size={24} style={{ marginTop: 6 }}>{s.headline_fact}</T>
+              <View style={{ flexDirection: 'row', gap: 18, marginTop: 10 }}>
+                <Stat v={`${Math.round(s.numbers.talk_ratio * 100)}%`} l="talk" />
+                <Stat v={String(s.numbers.interruptions)} l="interr." />
+                <Stat v={String(s.numbers.questions)} l="quest." />
+                <Stat v={s.numbers.fillers_per_min.toFixed(1)} l="fill/min" />
+                <Stat v={String(Math.round(s.numbers.wpm))} l="wpm" />
+              </View>
+            </Pressable>
+            <Pressable onPress={() => router.push({ pathname: '/transcript', params: { id: s.session_id, headline: s.headline_fact } })} accessibilityRole="button"
+              accessibilityLabel={s.audio_url ? 'What was said: transcript and recording' : 'What was said: transcript'} hitSlop={8}
+              style={({ pressed }) => ({ alignSelf: 'flex-start', marginTop: 10, paddingVertical: 6, opacity: pressed ? 0.5 : 1 })}>
+              <T v="caps" color={C.paper}>{s.audio_url ? 'What was said · listen  →' : 'What was said  →'}</T>
+            </Pressable>
+          </View>
         );
       })}
       {sessions && sessions.data.length === 0 ? <T v="small" style={{ marginTop: 16 }}>No conversations yet.</T> : null}
     </Screen>
+  );
+}
+
+/** A recording of this conversation was kept. */
+function RecMark() {
+  return (
+    <View accessible accessibilityLabel="Recording kept" style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: C.paper3, borderRadius: 2, paddingHorizontal: 5, paddingVertical: 1 }}>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: TONE.vermilion }} />
+      <T v="caps" size={9.5}>rec</T>
+    </View>
   );
 }
 

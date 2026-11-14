@@ -1,12 +1,13 @@
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import Svg, { Line, Polyline, Rect } from 'react-native-svg';
-import { getDebrief, listPeople, listSessions, mediaUrl, tagPerson, type DebriefPayload, type Sampled } from '@/api/client';
+import { getDebrief, getTranscript, listPeople, listSessions, mediaUrl, tagPerson, type DebriefPayload, type Sampled, type TranscriptResult } from '@/api/client';
+import { usePlayback } from '@/audio/player';
 import type { Debrief, Person, TimelinePoint } from '@/bus/contracts';
 import { useBus } from '@/bus/use-bus';
 import { Header } from '@/ui/Header';
+import { PlayerBar } from '@/ui/PlayerBar';
 import { Rule, SampleTag, Screen, T, clock } from '@/ui/kit';
 import { C, F, TONE } from '@/ui/theme';
 
@@ -33,27 +34,48 @@ export default function DebriefScreen() {
   );
 }
 
+/** The coach's summary, read aloud by a synthetic voice. Not the conversation itself. */
 function Recap({ url }: { url: string }) {
-  const player = useAudioPlayer(url);
-  const status = useAudioPlayerStatus(player);
-  const toggle = () => {
-    if (status.playing) return player.pause();
-    if (status.duration && status.currentTime >= status.duration - 0.2) void player.seekTo(0);
-    player.play();
-  };
-  const frac = status.duration ? Math.min(1, status.currentTime / status.duration) : 0;
+  const pb = usePlayback(url);
   return (
-    <Pressable onPress={toggle} accessibilityRole="button" accessibilityLabel={status.playing ? 'Pause the spoken recap' : 'Play the spoken recap'}
-      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderColor: C.paper, padding: 14, marginTop: 22, opacity: pressed ? 0.6 : 1 })}>
-      <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: C.paper, alignItems: 'center', justifyContent: 'center' }}>
-        <T v="mono" size={18} color={C.ink}>{status.playing ? 'II' : '▶'}</T>
-      </View>
-      <View style={{ flex: 1 }}>
-        <T v="serif" size={24}>Spoken recap</T>
-        <View style={{ height: 2, backgroundColor: C.rule, marginTop: 8 }}><View style={{ height: 2, width: `${frac * 100}%`, backgroundColor: C.paper }} /></View>
-      </View>
-    </Pressable>
+    <View style={{ borderWidth: 1, borderColor: C.paper, padding: 14, marginTop: 22 }}>
+      <PlayerBar pb={pb} title="Spoken recap" subtitle="The coach’s summary, read aloud. Not your conversation." what="the spoken recap" />
+    </View>
   );
+}
+
+/** The real audio of the conversation, and the way into its transcript. */
+function Recording({ sessionId, headline }: { sessionId: string; headline: string }) {
+  const router = useRouter();
+  const [t, setT] = useState<TranscriptResult | null>(null);
+  useEffect(() => { let on = true; getTranscript(sessionId).then((r) => on && setT(r)); return () => { on = false; }; }, [sessionId]);
+  const url = t?.kind === 'ok' ? mediaUrl(t.data.audio_url) : null;
+  const open = () => router.push({ pathname: '/transcript', params: { id: sessionId, headline } });
+  const note = !t ? 'Checking the laptop for a recording…'
+    : t.kind === 'not-found' ? 'The laptop has no record of what was said in this one.'
+      : t.kind === 'unreachable' ? 'Cannot reach the laptop to check for a recording.'
+        : 'No recording was kept for this one.';
+  return (
+    <View style={{ borderWidth: 1, borderColor: C.rule, padding: 14, marginTop: 12 }}>
+      {url ? <RecordingPlayer url={url} /> : (
+        <View>
+          <T v="serif" size={24} color={C.paper2}>Recording</T>
+          <T v="small">{note}</T>
+        </View>
+      )}
+      {t?.kind === 'not-found' ? null : (
+        <Pressable onPress={open} accessibilityRole="button" accessibilityLabel="What was said: open the transcript" hitSlop={8}
+          style={({ pressed }) => ({ marginTop: 12, paddingVertical: 8, alignSelf: 'flex-start', opacity: pressed ? 0.6 : 1 })}>
+          <T v="caps" color={C.paper}>What was said  →</T>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function RecordingPlayer({ url }: { url: string }) {
+  const pb = usePlayback(url);
+  return <PlayerBar pb={pb} title="Recording" subtitle="Your actual conversation, as the band heard it." what="the recording" />;
 }
 
 function Body({ d, audio, sessionId }: { d: Debrief; audio: string | null; sessionId: string }) {
@@ -76,9 +98,10 @@ function Body({ d, audio, sessionId }: { d: Debrief; audio: string | null; sessi
       {audio ? <Recap url={audio} /> : (
         <View style={{ borderWidth: 1, borderColor: C.rule, padding: 14, marginTop: 22 }}>
           <T v="serif" size={22} color={C.paper2}>Spoken recap</T>
-          <T v="small">No recording for this conversation. It plays on the laptop when the voice is switched on.</T>
+          <T v="small">No spoken recap for this one. The laptop reads the coach’s summary aloud when its voice is switched on.</T>
         </View>
       )}
+      <Recording sessionId={sessionId} headline={d.headline_fact} />
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 24, borderTopWidth: 1, borderTopColor: C.paper, paddingTop: 12 }}>
         <Num v={`${Math.round(n.talk_ratio * 100)}%`} l="Talk ratio" big />
