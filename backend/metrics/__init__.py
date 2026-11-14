@@ -7,26 +7,48 @@ FINAL PUBLIC INTERFACE (do not change signatures; add private modules inside bac
                      filler_words: list[str]) -> None
         def add_turn(self, turn: TurnFinalEvent) -> None          # every turn, both speakers
         def add_partial(self, partial: TranscriptPartialEvent, now: float) -> None
-                                                                  # live words: lets monologue_s grow
-                                                                  # before the turn.final arrives
         def add_motion(self, motion_event: MotionEvent) -> None
         def add_volume(self, db: float, ts: float) -> None        # wearer loudness samples
-        def note_judge(self, judge_event: JudgeEvent) -> None     # e.g. count judged interruptions
+        def note_judge(self, judge_event: JudgeEvent) -> None     # counts judged interruptions/questions
         def snapshot(self, now: float) -> Metrics                 # now = seconds since session start
         def timeline(self) -> list[TimelinePoint]                 # every 5 s, for the debrief
 
-STUB: simple but working numbers so the loop and dashboard have data. The worker refines
-(rolling 15 s wpm from words, tolerance bands, volume_state vs baseline, hand energy smoothing).
+ADDITIONS (for brain.py / fusion / debrief):
+        def fillers_for(self, text: str) -> list[str]             # per-turn list for turn.final.fillers
+        def fidget_while_other_s(self, now: float) -> float       # current streak
+        def fidget_while_other_total_s(self) -> float             # whole session
+        def nerves(self, now: float) -> bool
+        def checked_out(self, now: float) -> bool
+        def detect_signals(self, now: float) -> list[SignalEvent] # new signals, cooldown applied
+        peak_monologue_s: float                                   # longest monologue seen in snapshots
+    find_fillers(text, filler_words) -> list[str]                 # module-level helper
+
+Private modules: text (fillers, words), speech (talk ratio, pace, fillers/min), runs (monologue),
+judge_tally, volume, hands, signals, timeline.
 """
 
 from __future__ import annotations
 
-from backend.contracts import (
-    JudgeEvent, Metrics, MotionEvent, TimelinePoint, TranscriptPartialEvent, TurnFinalEvent,
-)
+import logging
+import math
 
-TIMELINE_STEP_S = 5.0
-_INTERRUPT_OVERLAP_S = 0.2
+from backend.contracts import (
+    JudgeEvent, Metrics, MotionEvent, SignalEvent, TimelinePoint, TranscriptPartialEvent,
+    TurnFinalEvent, VolumeState,
+)
+from backend.metrics import hands, signals, speech, volume
+from backend.metrics.judge_tally import JudgeTally
+from backend.metrics.runs import RunTracker
+from backend.metrics.text import find_fillers
+from backend.metrics.timeline import TIMELINE_STEP_S, build_timeline
+
+__all__ = ["MetricsEngine", "find_fillers", "TIMELINE_STEP_S"]
+
+log = logging.getLogger("undertone.metrics")
+
+
+def _finite(*values: float) -> bool:
+    return all(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
 
 
 class MetricsEngine:
@@ -38,76 +60,125 @@ class MetricsEngine:
         self._turns: list[TurnFinalEvent] = []
         self._motion: list[MotionEvent] = []
         self._volume: list[tuple[float, float]] = []
-        self._interruptions = 0
-        self._me_run_start: float | None = None  # start of the wearer's current run
-        self._last_other_end: float = 0.0
+        self._tally = JudgeTally()
+        self._me_run = RunTracker("me")
+        self._other_run = RunTracker("other")
+        self._session_baseline_wpm: float | None = None
+        self._volume_state: VolumeState = "ok"
+        self._gate = signals.SignalGate()
+        self._last = Metrics(baseline_wpm=baseline_wpm)
+        self._latest_now = 0.0
+        self.peak_monologue_s = 0.0
 
+    # ---------- inputs ----------
     def add_turn(self, turn: TurnFinalEvent) -> None:
-        prev = self._turns[-1] if self._turns else None
-        if (turn.speaker == "me" and prev is not None and prev.speaker == "other"
-                and prev.end - turn.start > _INTERRUPT_OVERLAP_S):
-            self._interruptions += 1
-        if turn.speaker == "me":
-            if self._me_run_start is None or (prev is not None and prev.speaker == "other"):
-                self._me_run_start = turn.start
-        else:
-            self._me_run_start = None
-            self._last_other_end = turn.end
-        self._turns = [*self._turns, turn]
+        if not _finite(turn.start, turn.end):
+            return
+        kept = [t for t in self._turns if t.turn_id != turn.turn_id]  # a re-sent turn replaces
+        self._turns = [*kept, turn]
+        self._me_run.on_turn(turn)
+        self._other_run.on_turn(turn)
 
     def add_partial(self, partial: TranscriptPartialEvent, now: float) -> None:
-        if partial.speaker == "me" and self._me_run_start is None:
-            self._me_run_start = max(self._last_other_end, now - 1.0)
-        elif partial.speaker == "other":
-            self._me_run_start = None
+        if partial.speaker is None or not _finite(now):
+            return
+        self._me_run.on_partial(partial.speaker, now)
+        self._other_run.on_partial(partial.speaker, now)
 
     def add_motion(self, motion_event: MotionEvent) -> None:
-        self._motion = [*self._motion, motion_event]
+        if _finite(motion_event.ts, motion_event.hand_energy):
+            self._motion = [*self._motion, motion_event]
 
     def add_volume(self, db: float, ts: float) -> None:
-        self._volume = [*self._volume, (ts, db)]
+        if _finite(db, ts):
+            self._volume = [*self._volume, (float(ts), float(db))]
 
     def note_judge(self, judge_event: JudgeEvent) -> None:
-        return None
+        self._tally.note(judge_event)
 
-    def _me(self) -> list[TurnFinalEvent]:
-        return [t for t in self._turns if t.speaker == "me"]
+    # ---------- helpers ----------
+    def fillers_for(self, text: str) -> list[str]:
+        return find_fillers(text, self.filler_words)
 
+    def _effective_baseline_wpm(self) -> float | None:
+        if self.baseline_wpm is not None:
+            return self.baseline_wpm
+        if self._session_baseline_wpm is None:
+            self._session_baseline_wpm = speech.baseline_from_first(self._turns)
+        return self._session_baseline_wpm
+
+    def _volume_baseline(self) -> float | None:
+        if self.baseline_volume_db is not None:
+            return self.baseline_volume_db
+        return volume.session_baseline_db(self._volume)
+
+    def _default_db(self) -> float:
+        return self.baseline_volume_db if self.baseline_volume_db is not None else volume.SILENT_DB
+
+    # ---------- outputs ----------
     def snapshot(self, now: float) -> Metrics:
-        me = self._me()
-        me_time = sum(max(0.0, t.end - t.start) for t in me)
-        all_time = sum(max(0.0, t.end - t.start) for t in self._turns)
-        fillers = sum(len(t.fillers) for t in me)
-        recent = [t for t in me if t.end >= now - 15] or me[-1:]
-        wpm = sum(t.wpm for t in recent) / len(recent) if recent else 0.0
-        vol = self._volume[-1][1] if self._volume else (self.baseline_volume_db or 0.0)
-        hand = self._motion[-1].hand_energy if self._motion else 0.0
+        try:
+            if not _finite(now):
+                return self._last
+            self._latest_now = max(self._latest_now, now)
+            snap = self._compute(now)
+        except Exception:
+            log.exception("metrics snapshot failed at %s; returning last good snapshot", now)
+            return self._last
+        self._last = snap
+        self.peak_monologue_s = max(self.peak_monologue_s, snap.monologue_s)
+        return snap
+
+    def _compute(self, now: float) -> Metrics:
+        db = volume.rolling_db(self._volume, now)
+        self._volume_state = volume.next_volume_state(self._volume_state, db, self._volume_baseline())
         return Metrics(
-            talk_ratio=round(me_time / all_time, 3) if all_time else 0.0,
-            interruptions=self._interruptions,
-            questions=sum(t.text.count("?") for t in me),
-            fillers_per_min=round(fillers / (me_time / 60), 2) if me_time > 0 else 0.0,
-            wpm=round(wpm, 1),
-            baseline_wpm=self.baseline_wpm,
-            monologue_s=round(max(0.0, now - self._me_run_start), 1) if self._me_run_start is not None else 0.0,
-            volume_db=round(vol, 1),
-            volume_state="ok",
-            hand_energy=round(hand, 3),
+            talk_ratio=speech.talk_ratio(self._turns, until=now),
+            interruptions=self._tally.interruptions,
+            questions=self._tally.questions,
+            fillers_per_min=speech.fillers_per_min(self._turns, self.filler_words, now),
+            wpm=speech.rolling_wpm(self._turns, now),
+            baseline_wpm=self._effective_baseline_wpm(),
+            monologue_s=self._me_run.value(now),
+            volume_db=db if db is not None else self._default_db(),
+            volume_state=self._volume_state,
+            hand_energy=hands.smoothed_energy(self._motion, now),
         )
 
     def timeline(self) -> list[TimelinePoint]:
-        end = max([t.end for t in self._turns] + [m.ts for m in self._motion] + [0.0])
-        points: list[TimelinePoint] = []
-        t = 0.0
-        while t <= end:
-            win_turns = [x for x in self._me() if x.start <= t + TIMELINE_STEP_S and x.end >= t]
-            win_motion = [m for m in self._motion if t <= m.ts < t + TIMELINE_STEP_S]
-            win_vol = [d for ts, d in self._volume if t <= ts < t + TIMELINE_STEP_S]
-            points.append(TimelinePoint(
-                t=t,
-                wpm=round(sum(x.wpm for x in win_turns) / len(win_turns), 1) if win_turns else 0.0,
-                volume_db=round(sum(win_vol) / len(win_vol), 1) if win_vol else 0.0,
-                hand_energy=round(sum(m.hand_energy for m in win_motion) / len(win_motion), 3) if win_motion else 0.0,
-            ))
-            t += TIMELINE_STEP_S
-        return points
+        try:
+            return build_timeline(self._turns, self._motion, self._volume, self._latest_now,
+                                  self._default_db())
+        except Exception:
+            log.exception("metrics timeline failed")
+            return []
+
+    # ---------- fusion ----------
+    def fidget_while_other_s(self, now: float) -> float:
+        return hands.fidget_while_other_s(self._motion, now)
+
+    def fidget_while_other_total_s(self) -> float:
+        return hands.fidget_while_other_total_s(self._motion)
+
+    def nerves(self, now: float) -> bool:
+        return signals.nerves(self._turns, self._motion, self._effective_baseline_wpm(), now)
+
+    def checked_out(self, now: float) -> bool:
+        return signals.checked_out(self._other_run.value(now), self._other_run.run_start,
+                                   self._motion, now)
+
+    def detect_signals(self, now: float) -> list[SignalEvent]:
+        """New nerves / checked_out signals at `now`, each at most once per 30 s. Never raises."""
+        try:
+            found: list[SignalEvent] = []
+            if self.nerves(now) and self._gate.admit("nerves", now):
+                pace = speech.window_wpm(self._turns, now - signals.NERVES_WINDOW_S, now)
+                detail = signals.describe("nerves", pace, self._effective_baseline_wpm(), 0.0)
+                found.append(signals.make_signal("nerves", detail, now))
+            if self.checked_out(now) and self._gate.admit("checked_out", now):
+                detail = signals.describe("checked_out", None, None, self._other_run.value(now))
+                found.append(signals.make_signal("checked_out", detail, now))
+            return found
+        except Exception:
+            log.exception("signal detection failed at %s", now)
+            return []
