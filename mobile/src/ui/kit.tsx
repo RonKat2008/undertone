@@ -2,7 +2,7 @@ import { Children, useEffect, useRef, type ReactNode } from 'react';
 import { Animated, Easing, Pressable, ScrollView, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useReduceMotion } from './motion';
-import { C, DUR, F, R, S, SHOW_SAMPLE_LABELS, STATE } from './theme';
+import { C, DUR, F, R, S, STATE } from './theme';
 
 /**
  * Type roles (DESIGN.md §3.2, phone column).
@@ -112,21 +112,11 @@ export function Link({ label, onPress, style, color = C.fg }: { label: string; o
   );
 }
 
-export function SampleTag({ show = true }: { show?: boolean }) {
-  if (!SHOW_SAMPLE_LABELS || !show) return null;
-  return (
-    <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: C.ruleStrong, paddingHorizontal: 6, paddingBottom: 2 }}>
-      <T v="label" size={13} style={{ lineHeight: 16 }}>sample</T>
-    </View>
-  );
-}
-
-/** A short label (≤ 3 words) with an optional sample tag beside it. */
-export function Label({ children, sample, color, style }: { children: string; sample?: boolean; color?: string; style?: StyleProp<ViewStyle> }) {
+/** A short label (≤ 3 words). */
+export function Label({ children, color, style }: { children: string; color?: string; style?: StyleProp<ViewStyle> }) {
   return (
     <View style={[{ flexDirection: 'row', alignItems: 'center', gap: S[3] }, style]}>
       <T v="label" color={color}>{children}</T>
-      <SampleTag show={sample ?? false} />
     </View>
   );
 }
@@ -165,7 +155,8 @@ export function StateMark({ kind, size = 12, color = C.fg }: { kind: 'listening'
   );
 }
 
-export function clock(seconds: number): string {
+export function clock(seconds: number | null | undefined): string {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '0:00';
   const s = Math.max(0, Math.floor(seconds));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);

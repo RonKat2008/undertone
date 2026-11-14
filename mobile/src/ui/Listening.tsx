@@ -69,17 +69,18 @@ function Line({ label, value, ok }: { label: string; value: string; ok: boolean 
 interface Props {
   state: PhoneState;
   listen: ListenState;
-  isDemo: boolean;
+  /** The last conversation ended long enough ago that its debrief is not coming. */
+  debriefLate: boolean;
   onOpenDebrief: () => void;
 }
 
-export function ListeningIdle({ state, listen, isDemo, onOpenDebrief }: Props) {
+export function ListeningIdle({ state, listen, debriefLate, onOpenDebrief }: Props) {
   const idle = listen === 'in-conversation' ? 'listening' : listen;
   const reachable = listen !== 'offline' && listen !== 'connecting';
   const band = state.band;
   // when the laptop is unreachable, the band and mic values are stale: say so instead of showing them
   const bandValue = !reachable ? 'unknown (laptop unreachable)' : !band ? 'no word from the band yet'
-    : band.connected ? `connected · ${band.transport}${band.battery_pct !== null ? ` · ${band.battery_pct}%` : ''}` : 'not connected';
+    : band.connected ? ['connected', typeof band.transport === 'string' ? band.transport : null, typeof band.battery_pct === 'number' && Number.isFinite(band.battery_pct) ? `${Math.round(band.battery_pct)}%` : null].filter(Boolean).join(' · ') : 'not connected';
   const micValue = !reachable || !band ? 'unknown' : band.mic_on ? 'on, listening' : 'off';
   const last = state.session?.endedAt ? state.session : null;
   const ready = !!last && state.debrief?.session_id === last.id;
@@ -88,21 +89,21 @@ export function ListeningIdle({ state, listen, isDemo, onOpenDebrief }: Props) {
       <T v="displayL" color={idle === 'listening' ? C.fg : C.fg2}>{HEADLINE[idle]}</T>
       <T v="small" style={{ marginTop: S[2] }}>{EXPLAIN[idle]}</T>
       <View style={{ marginTop: S[5] }}>
-        <Line label="Laptop" value={isDemo ? 'demo feed' : listen === 'offline' ? 'unreachable, retrying' : listen === 'connecting' ? 'connecting…' : 'connected'} ok={listen === 'connecting' ? null : listen !== 'offline'} />
+        <Line label="Laptop" value={listen === 'offline' ? 'unreachable, retrying' : listen === 'connecting' ? 'connecting…' : 'connected'} ok={listen === 'connecting' ? null : listen !== 'offline'} />
         <Line label="Band" value={bandValue} ok={!reachable || !band ? null : band.connected} />
         <Line label="Mic" value={micValue} ok={!reachable || !band ? null : band.mic_on} />
         <Rule />
       </View>
       {last ? (
         // no left bar (§4.4): a small-caps label over an underlined link
-        <Pressable onPress={onOpenDebrief} disabled={!ready} accessibilityRole="link" accessibilityLabel={ready ? 'Read the debrief of the last conversation' : 'The last conversation, debrief being written'}
+        <Pressable onPress={onOpenDebrief} disabled={!ready} accessibilityRole="link" accessibilityLabel={ready ? 'Read the debrief of the last conversation' : debriefLate ? 'The last conversation, no debrief' : 'The last conversation, debrief being written'}
           style={({ pressed }) => ({ marginTop: S[5], opacity: pressed ? 0.55 : 1 })}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: S[2] }}>
             <T v="label">Last conversation</T>
             <T v="numS" color={C.fg3}>{clock(((last.endedAt ?? last.startedAt) - last.startedAt) / 1000)}</T>
           </View>
           <T v="body" color={ready ? C.fg : C.fg2} style={{ marginTop: S[1], textDecorationLine: ready ? 'underline' : 'none' }}>
-            {ready ? 'Read the debrief' : 'Debrief on its way. Very short ones close quietly, without one.'}
+            {ready ? 'Read the debrief' : debriefLate ? 'No debrief for this one. Very short ones close quietly, without one.' : 'Debrief on its way. Very short ones close quietly, without one.'}
           </T>
         </Pressable>
       ) : null}

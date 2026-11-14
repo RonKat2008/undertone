@@ -1,5 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, TextInput, View } from 'react-native';
 import { claimCode, parseQr } from '@/bus/socket-source';
@@ -26,6 +27,7 @@ function Corner({ pos }: { pos: 'tl' | 'tr' | 'bl' | 'br' }) {
 
 export default function PairScreen() {
   const { pair } = useBus();
+  const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
   const [manual, setManual] = useState(false);
@@ -70,7 +72,7 @@ export default function PairScreen() {
           ) : (
             <View style={{ flex: 1, justifyContent: 'flex-end', padding: S[5] }}>
               <T v="displayS" color={C.fg2}>{native ? 'The code goes here' : 'Scanning needs the phone'}</T>
-              <T v="small" style={{ marginTop: S[1] }}>{native ? 'The camera is used only to read the pairing code.' : 'In a browser, enter the code or use the demo.'}</T>
+              <T v="small" style={{ marginTop: S[1] }}>{native ? 'The camera is used only to read the pairing code.' : 'In a browser, enter the code instead.'}</T>
             </View>
           )}
           <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
@@ -97,8 +99,8 @@ export default function PairScreen() {
             <Btn label="Enter code instead" solid={!native} onPress={() => { setManual(true); setScanning(false); }} />
           )}
         </View>
-        <Link label="Use demo pairing" onPress={() => void pair('demo')} style={{ marginTop: S[4] }} />
-        <T v="small">The demo plays a scripted conversation. Nothing leaves the phone.</T>
+        <Link label="Not now" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={{ marginTop: S[4] }} />
+        <T v="small">Nothing shows until this phone is paired. You can pair from any tab.</T>
       </KeyboardAvoidingView>
     </Screen>
   );
