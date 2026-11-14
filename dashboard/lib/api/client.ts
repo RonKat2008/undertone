@@ -257,10 +257,12 @@ export interface GraphResult {
   sample: boolean;
   source: GraphSource;
   error: string | null;
+  /** The window this graph was loaded with; node detail must ask for the same one. */
+  days: number;
 }
 
 export async function getGraph(days: number): Promise<GraphResult> {
-  const fallback = (source: GraphSource, error: string | null = null): GraphResult => ({ data: sampleGraph(days), sample: true, source, error });
+  const fallback = (source: GraphSource, error: string | null = null): GraphResult => ({ data: sampleGraph(days), sample: true, source, error, days });
   if (isMock()) {
     await wait(220);
     return fallback('mock');
@@ -269,7 +271,7 @@ export async function getGraph(days: number): Promise<GraphResult> {
     const body = await http<unknown>(`/graph?days=${encodeURIComponent(String(days))}`);
     if (!isKnowledgeGraph(body)) return fallback('invalid', 'The backend answered /graph with something that is not a graph.');
     if (body.sample) return fallback('backend-sample');
-    return { data: body, sample: false, source: 'live', error: null };
+    return { data: body, sample: false, source: 'live', error: null, days };
   } catch (e) {
     return fallback('unreachable', e instanceof Error ? e.message : 'Cannot reach the backend.');
   }
@@ -286,7 +288,7 @@ export async function getGraphNode(id: string, shown: GraphResult): Promise<Samp
     if (!detail) throw new ApiError('That node is not in the sample graph.', 404);
     return { data: detail, sample: true };
   }
-  const body = await http<unknown>(`/graph/node/${encodeURIComponent(id)}`);
+  const body = await http<unknown>(`/graph/node/${encodeURIComponent(id)}?days=${encodeURIComponent(String(shown.days))}`);
   if (!isNodeDetail(body)) throw new ApiError('The backend answered with something that is not a node.', 0);
   return { data: body, sample: false };
 }
