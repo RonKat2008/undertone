@@ -101,7 +101,11 @@ def test_empty_instructions() -> None:
 
 @pytest.mark.parametrize(("when", "needle"), [
     ("talk ratio is high", "cannot parse"),
-    ("judge.tone.choice == 'nervous'", "cannot parse"),
+    ("judge.tone.choice == 'nervous'", "compares with a string"),
+    ("metrics.talk_ratio > 1", "can never be true"),
+    ("judge.clarity.score > 5", "can never be true"),
+    ("judge.hedging.p >= 0", "is always true"),
+    ("judge.clarity.score <= 5", "is always true"),
     ("judge.not_a_question.p >= 0.8", "not a core question"),
     ("judge.clarity.p >= 0.5", "only valid for yes/no"),
     ("judge.interrupted.score >= 2", "only valid for score"),

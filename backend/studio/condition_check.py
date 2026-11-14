@@ -40,15 +40,30 @@ def parse_strict(expr: str) -> ParsedCondition:
     """Syntax only. Raises ValueError with a readable message."""
     m = _RE.match(expr or "")
     if not m:
+        if "'" in (expr or "") or '"' in (expr or ""):
+            raise ValueError(f"condition {expr!r} compares with a string; only numbers are allowed "
+                             "(for a choice use judge.<question>.probabilities.<option> >= 0.7)")
         raise ValueError(f"cannot parse condition {expr!r}; expected '<path> <op> <number>'")
     path, op, raw = m.groups()
     return ParsedCondition(tuple(path.split(".")), op, float(raw))
 
 
-def _check_unit(value: float, what: str) -> str | None:
-    if not 0.0 <= value <= 1.0:
-        return f"{what} is compared with {value:g}, but it lies within 0-1"
+def _check_range(c: ParsedCondition, lo: float, hi: float, what: str) -> str | None:
+    """Reject values outside [lo, hi] and comparisons that can never or always hold."""
+    v, op = c.value, c.op
+    if not lo <= v <= hi:
+        return f"{what} lies within {lo:g}-{hi:g}, but it is compared with {v:g}"
+    never = (op == ">" and v >= hi) or (op == "<" and v <= lo)
+    always = (op == ">=" and v <= lo) or (op == "<=" and v >= hi)
+    if never:
+        return f"'{what} {op} {v:g}' can never be true"
+    if always:
+        return f"'{what} {op} {v:g}' is always true"
     return None
+
+
+def _check_unit(c: ParsedCondition, what: str) -> str | None:
+    return _check_range(c, 0.0, 1.0, what)
 
 
 def _check_judge(c: ParsedCondition, questions: Mapping[str, CoachQuestion]) -> str | None:
@@ -59,24 +74,21 @@ def _check_judge(c: ParsedCondition, questions: Mapping[str, CoachQuestion]) -> 
     if q is None:
         return f"judge.{qid} is not a core question or a question defined in this coach"
     if field == "confidence" and len(c.path) == 3:
-        return _check_unit(c.value, f"judge.{qid}.confidence")
+        return _check_unit(c, f"judge.{qid}.confidence")
     if field == "p" and len(c.path) == 3:
         if not isinstance(q, NoulQuestion):
             return f"judge.{qid}.p is only valid for yes/no (noul) questions; {qid} is {q.type}"
-        return _check_unit(c.value, f"judge.{qid}.p")
+        return _check_unit(c, f"judge.{qid}.p")
     if field == "score" and len(c.path) == 3:
         if not isinstance(q, ScoreQuestion):
             return f"judge.{qid}.score is only valid for score questions; {qid} is {q.type}"
-        top = len(q.criteria)
-        if not 1 <= c.value <= top:
-            return f"judge.{qid}.score is 1-{top}, but it is compared with {c.value:g}"
-        return None
+        return _check_range(c, 1.0, float(len(q.criteria)), f"judge.{qid}.score")
     if field == "probabilities" and len(c.path) == 4:
         if not isinstance(q, ChoiceQuestion):
             return f"judge.{qid}.probabilities is only valid for choice questions; {qid} is {q.type}"
         if c.path[3] not in q.criteria:
             return f"judge.{qid}.probabilities.{c.path[3]}: {c.path[3]!r} is not one of {sorted(q.criteria)}"
-        return _check_unit(c.value, f"judge.{qid}.probabilities.{c.path[3]}")
+        return _check_unit(c, f"judge.{qid}.probabilities.{c.path[3]}")
     return f"unknown judge field {'.'.join(c.path[2:])!r} (use p, score, confidence or probabilities.<choice>)"
 
 
@@ -85,7 +97,7 @@ def _check_metrics(c: ParsedCondition) -> str | None:
         return f"unknown metric {'.'.join(c.path)!r}; metrics are {sorted(METRIC_FIELDS)}"
     name = c.path[1]
     if name in _UNIT_METRICS:
-        return _check_unit(c.value, f"metrics.{name}")
+        return _check_unit(c, f"metrics.{name}")
     if name != "volume_db" and c.value < 0:
         return f"metrics.{name} is never negative, but it is compared with {c.value:g}"
     return None
