@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from http import HTTPStatus
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -79,7 +80,26 @@ def _err(status: int, code: str, message: str, details: Any = None) -> JSONRespo
 
 @app.exception_handler(StarletteHTTPException)
 async def _http_exc(_: Request, exc: StarletteHTTPException) -> JSONResponse:
-    return _err(exc.status_code, f"http_{exc.status_code}", str(exc.detail))
+    """A str detail becomes the message. A dict detail is kept as data: its optional "code" and
+    "message" fill those fields and the remaining keys become `details` (e.g. {"errors": [...]});
+    a list detail becomes `details` as is."""
+    status, detail = exc.status_code, exc.detail
+    code, message = f"http_{status}", _phrase(status)
+    if isinstance(detail, dict):
+        rest = {k: v for k, v in detail.items() if k not in ("code", "message")}
+        code = str(detail.get("code") or code)
+        message = str(detail.get("message") or message)
+        return _err(status, code, message, jsonable(rest) if rest else None)
+    if isinstance(detail, list):
+        return _err(status, code, message, jsonable(detail))
+    return _err(status, code, str(detail))
+
+
+def _phrase(status: int) -> str:
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return f"HTTP {status}"
 
 
 @app.exception_handler(RequestValidationError)

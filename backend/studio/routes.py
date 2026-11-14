@@ -4,12 +4,11 @@ Studio functions are looked up on the `backend.studio` package inside each handl
 is imported at the bottom of `backend/studio/__init__.py`, so a top-level import would cycle, and
 the lookup keeps them patchable in tests).
 
-Error shapes:
+Error shapes (all main.py's envelope):
 - coach/goal problems (422, or 500 if the builder ever returns an invalid coach):
-  `{"ok": false, "error": {"code", "message", "details": [str]}, "detail": {"errors": [str]}}`
-  (main.py's envelope plus `detail.errors`; returned directly because main.py's HTTPException
-  handler stringifies `detail`)
-- id mismatch 400 / unknown coach 404: main.py's envelope `{"ok": false, "error": {...}}`
+  `{"ok": false, "error": {"code": "invalid_coach"|"invalid_goal"|"invalid_built_coach",
+  "message": "<errors joined by '; '>", "details": {"errors": [str]}}}`
+- id mismatch 400 / unknown coach 404: `{"ok": false, "error": {"code": "http_4xx", "message"}}`
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ import logging
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.contracts import CoachSpec, HabitProfile
@@ -46,10 +44,9 @@ class BuildResponse(BaseModel):
     notes: list[str]
 
 
-def _errors(status: int, code: str, errors: list[str]) -> JSONResponse:
-    body = {"ok": False, "error": {"code": code, "message": "; ".join(errors), "details": errors},
-            "detail": {"errors": errors}}
-    return JSONResponse(body, status_code=status)
+def _errors(status: int, code: str, errors: list[str]) -> HTTPException:
+    """main.py turns this into {"ok": false, "error": {code, message, "details": {"errors": [...]}}}."""
+    return HTTPException(status, {"code": code, "message": "; ".join(errors), "errors": errors})
 
 
 def _all_coaches(st: AppState) -> list[CoachSpec]:
@@ -83,32 +80,32 @@ def get_coach(coach_id: str, brain: "Brain" = Depends(get_brain)) -> CoachSpec:
 
 @router.put("/coaches/{coach_id}", response_model=CoachSpec)
 def put_coach(coach_id: str, spec: CoachSpec,
-              st: AppState = Depends(get_app_state)) -> CoachSpec | JSONResponse:
+              st: AppState = Depends(get_app_state)) -> CoachSpec:
     from backend import studio
 
     if spec.id != coach_id:
         raise HTTPException(400, f"body id {spec.id!r} does not match path id {coach_id!r}")
     errors = studio.validate_coach(spec)
     if errors:
-        return _errors(422, "invalid_coach", errors)
+        raise _errors(422, "invalid_coach", errors)
     st.db.save_coach(spec)
     return spec
 
 
 @router.post("/coaches/build", response_model=BuildResponse)
 async def build(req: BuildRequest,
-                st: AppState = Depends(get_app_state)) -> BuildResponse | JSONResponse:
+                st: AppState = Depends(get_app_state)) -> BuildResponse:
     from backend import studio
 
     goal = req.goal.strip()  # untrusted text: only ever handed to the builder
     goal_errors = _goal_errors(goal)
     if goal_errors:
-        return _errors(422, "invalid_goal", goal_errors)
+        raise _errors(422, "invalid_goal", goal_errors)
     result = await studio.build_coach_with_meta(goal)
     errors = studio.validate_coach(result.spec)
     if errors:  # the builder guarantees a valid spec; this should never happen
         log.error("builder returned an invalid coach (%s): %s", result.source, "; ".join(errors))
-        return _errors(500, "invalid_built_coach", errors)
+        raise _errors(500, "invalid_built_coach", errors)
     st.db.save_coach(result.spec)
     return BuildResponse(spec=result.spec, source=result.source, elapsed_ms=result.elapsed_ms,
                          notes=list(result.notes))

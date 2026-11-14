@@ -72,7 +72,10 @@ def test_put_invalid_422_with_errors(client: TestClient) -> None:
     spec = _custom("put-bad").model_copy(update={"confidence_threshold": 0.3, "nudge_rules": []})
     r = client.put("/coaches/put-bad", json=spec.model_dump(mode="json"))
     assert r.status_code == 422
-    errors = r.json()["detail"]["errors"]
+    body = r.json()
+    assert body["ok"] is False and body["error"]["code"] == "invalid_coach"
+    errors = body["error"]["details"]["errors"]
+    assert body["error"]["message"] == "; ".join(errors)
     assert isinstance(errors, list) and len(errors) >= 2
     assert all(isinstance(e, str) for e in errors)
     assert "put-bad" not in _ids(client)
@@ -109,7 +112,8 @@ def test_build_invalid_spec_500(client: TestClient, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(studio, "build_coach_with_meta", fake)
     r = client.post("/coaches/build", json={"goal": "anything"})
-    assert r.status_code == 500 and r.json()["detail"]["errors"]
+    assert r.status_code == 500 and r.json()["error"]["code"] == "invalid_built_coach"
+    assert r.json()["error"]["details"]["errors"]
     assert "built-bad" not in _ids(client)
 
 
@@ -136,8 +140,8 @@ def test_build_prompt_injection_goal_is_just_a_goal(client: TestClient) -> None:
 @pytest.mark.parametrize(("goal", "needle"), [("   ", "empty"), ("x" * 301, "301 chars")])
 def test_build_rejects_bad_goal(client: TestClient, goal: str, needle: str) -> None:
     r = client.post("/coaches/build", json={"goal": goal})
-    assert r.status_code == 422
-    errors = r.json()["detail"]["errors"]
+    assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_goal"
+    errors = r.json()["error"]["details"]["errors"]
     assert any(needle in e for e in errors), errors
 
 
