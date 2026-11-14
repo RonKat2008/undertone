@@ -34,6 +34,21 @@ def setup_env(speed: float) -> None:
     os.environ.setdefault("UNDERTONE_DATA", str(tmp))
 
 
+def loop_time() -> float:
+    return asyncio.get_running_loop().time()
+
+
+def fast_answer_done(seen) -> bool:
+    """True once a wearer turn has ended after the first slow_down nudge."""
+    buzzed = False
+    for ev in seen:
+        if ev.type == "nudge" and ev.haptic == "slow_down":
+            buzzed = True
+        elif buzzed and ev.type == "turn.final" and ev.speaker == "me":
+            return True
+    return False
+
+
 async def run(a) -> int:
     from backend import haptics_port, studio
     from backend.brain import Brain
@@ -78,9 +93,13 @@ async def run(a) -> int:
     os.environ["STT_FAKE_SCRIPT"] = a.regular
     await brain.start_session()
     d = duration(a.regular)
-    await asyncio.sleep(d * 0.6)
-    await brain.single_tap()
-    await asyncio.sleep(d * 0.4)
+    t_start = loop_time()
+    # plan.md section 9: the tap comes after the fast answer that drew the pace buzz, and should
+    # answer "talking too much". Tap on the first wearer turn that ends after a slow_down nudge.
+    while loop_time() - t_start < d * 0.9 and not fast_answer_done(seen):
+        await asyncio.sleep(0.1)
+    reply = await brain.single_tap()
+    await asyncio.sleep(max(0.0, d - (loop_time() - t_start)))
     await brain.end_session()
     for _ in range(40):
         await asyncio.sleep(0.25)
@@ -94,6 +113,9 @@ async def run(a) -> int:
     ok &= deb is not None
     print("  live nudges: %s" % ([n.haptic for n in live] or "none"))
     ok &= any(n.haptic == "slow_down" for n in live)
+    verdict = reply.verdict if reply is not None else None
+    print("  tap after the fast answer: %s (demo script expects talking_too_much)" % verdict)
+    ok &= verdict == "talking_too_much"
 
     # 2 + 3. practice rounds
     counts = []
