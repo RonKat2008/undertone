@@ -117,7 +117,7 @@ export function GraphHome() {
     <div className="pt-6">
       <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
         <div className="min-w-0">
-          <div className="caps flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="label flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Last {url.days} days</span>
           </div>
           <h1 className="serif mt-1 text-[clamp(36px,5vw,64px)] leading-[0.95]">Who you talk to, and how.</h1>
@@ -133,8 +133,8 @@ export function GraphHome() {
       </header>
 
       {isError && (
-        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 border-l-[3px] border-vermilion bg-well/60 px-3 py-2">
-          <span className="text-[13px]"><span className="caps mr-2 !text-vermilion">Backend</span>{graph?.error ?? 'Cannot reach the backend.'}</span>
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 border-l-[3px] border-ink bg-well/60 px-3 py-2">
+          <span className="text-[13px]"><span className="label mr-2 !text-ink">Backend</span>{graph?.error ?? 'Cannot reach the backend.'}</span>
           <button type="button" className="btn btn-sm" onClick={() => setAttempt((a) => a + 1)}>Try again</button>
         </div>
       )}
@@ -174,7 +174,7 @@ export function GraphHome() {
 
       {query.trim() && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-live="polite">
-          <span className="caps mr-1">{matchList.length ? `${matches?.size ?? 0} match${matches?.size === 1 ? '' : 'es'}` : 'No matches'}</span>
+          <span className="label mr-1">{matchList.length ? `${matches?.size ?? 0} match${matches?.size === 1 ? '' : 'es'}` : 'No matches'}</span>
           {matchList.map((n) => (
             <button key={n.id} type="button" className="chip hover:border-ink" onClick={() => select(n.id)}>
               <KindSwatch kind={n.kind} size={11} open={n.meta.open !== false} />{n.label}
@@ -245,7 +245,7 @@ function Legend({ compact = false }: { compact?: boolean }) {
   }
   return (
     <section aria-label="How to read the graph" className="border-t border-ink pt-3">
-      <h2 className="caps !text-ink">How to read it</h2>
+      <h2 className="label !text-ink">How to read it</h2>
       <ul className="mt-3 space-y-2.5">
         {LEGEND.map((l) => (
           <li key={l.kind} className="grid grid-cols-[22px_1fr] items-center gap-x-2 text-[13px]">
@@ -277,7 +277,7 @@ function GraphLoading() {
     <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-4" aria-busy aria-live="polite">
       <svg width={160} height={160} viewBox="-80 -80 160 160" aria-hidden>
         {[28, 50, 72].map((r) => <circle key={r} r={r} fill="none" stroke="var(--rule)" strokeDasharray="2 4" />)}
-        <circle r={9} fill="var(--ink)" className="live-dot" />
+        <circle r={9} fill="var(--ink)" className="graph-breathe" />
       </svg>
       <p className="serif text-[24px] text-ink-3">Drawing your graph…</p>
     </div>

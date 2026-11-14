@@ -11,8 +11,8 @@ import { activeTurnIndex, markFillers } from '@/api/transcript';
 import { usePlayback, type Playback } from '@/audio/player';
 import { Header } from '@/ui/Header';
 import { PlayerBar } from '@/ui/PlayerBar';
-import { Btn, SampleTag, Screen, T, clock } from '@/ui/kit';
-import { C } from '@/ui/theme';
+import { Btn, Label, SampleTag, Screen, T, clock } from '@/ui/kit';
+import { C, S, TONE } from '@/ui/theme';
 
 const SCROLL_PAUSE_MS = 4000; // after the wearer scrolls by hand, leave the scroll alone this long
 
@@ -42,11 +42,11 @@ export default function TranscriptScreen() {
     <Screen scroll={false} style={{ flex: 1, paddingBottom: 0 }}>
       <Header title="What was said" right={<SampleTag show={sample} />} />
       {!id ? <Notice title="Nothing to show." body="Open a conversation from History to read what was said." />
-        : !result ? <T v="serif" size={28} color={C.paper3}>Fetching what was said…</T>
+        : !result ? <T v="displayM" color={C.fg3}>Fetching what was said…</T>
           : result.kind === 'not-found' ? <Notice title="The laptop has no conversation by that name." body="It may have been a capture the laptop chose not to keep." />
             : result.kind === 'unreachable' ? (
               <Notice title="Laptop unreachable" body={`${result.message} Check the laptop is awake and on this Wi-Fi.`}>
-                <Btn small label="Try again" onPress={() => setAttempt((n) => n + 1)} style={{ marginTop: 16, alignSelf: 'flex-start' }} />
+                <Btn small label="Try again" onPress={() => setAttempt((n) => n + 1)} style={{ marginTop: S[4], alignSelf: 'flex-start' }} />
               </Notice>
             ) : <Script t={result.data} headline={headline} dropped={result.dropped} />}
     </Screen>
@@ -56,8 +56,8 @@ export default function TranscriptScreen() {
 function Notice({ title, body, children }: { title: string; body: string; children?: ReactNode }) {
   return (
     <View>
-      <T v="serif" size={28}>{title}</T>
-      <T v="small" style={{ marginTop: 6 }}>{body}</T>
+      <T v="displayM">{title}</T>
+      <T v="small" style={{ marginTop: S[2] }}>{body}</T>
       {children}
     </View>
   );
@@ -81,38 +81,38 @@ function Script({ t, headline, dropped }: { t: SessionTranscript; headline: stri
   useEffect(() => {
     if (!activeId || !pb.status.playing || Date.now() - handScrollAt.current < SCROLL_PAUSE_MS) return;
     const y = rowY.current[activeId];
-    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, listY.current + y - barH - 12), animated: true });
+    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, listY.current + y - barH - S[3]), animated: true });
   }, [activeId, pb.status.playing, barH]);
 
   const started = new Date(t.started_at);
   const length = t.duration_s ?? (t.turns.length ? t.turns[t.turns.length - 1].end : 0);
   const when = Number.isNaN(started.getTime()) ? 'Unknown date'
-    : `${started.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · ${started.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+    : `${started.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}, ${started.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
 
   return (
     <ScrollView ref={scroll} stickyHeaderIndices={[1]} showsVerticalScrollIndicator={false} style={{ flex: 1, marginHorizontal: -20 }}
-      contentContainerStyle={{ paddingBottom: 40 }} onScrollBeginDrag={() => { handScrollAt.current = Date.now(); }}>
+      contentContainerStyle={{ paddingBottom: S[7] }} onScrollBeginDrag={() => { handScrollAt.current = Date.now(); }}>
       <View style={{ paddingHorizontal: 20 }}>
-        <T v="caps">{when} · {clock(length)}</T>
-        {headline ? <T v="serif" size={28} style={{ marginTop: 6 }}>{headline}</T> : null}
+        <T v="numS" color={C.fg2}>{when}  <T v="numS" color={C.fg3}>{clock(length)}</T></T>
+        {headline ? <T v="displayM" style={{ marginTop: S[2] }}>{headline}</T> : null}
       </View>
 
-      <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)} style={{ backgroundColor: C.ink, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.rule }}>
+      <View onLayout={(e) => setBarH(e.nativeEvent.layout.height)} style={{ backgroundColor: C.bg, paddingHorizontal: 20, paddingTop: S[4], paddingBottom: S[3], marginTop: S[4], borderBottomWidth: 1, borderBottomColor: C.rule }}>
         {url ? <PlayerBar pb={pb} title="Recording" subtitle="Your actual conversation. Tap a line to hear it." what="the recording" /> : (
-          <View style={{ borderWidth: 1, borderColor: C.rule, padding: 14 }}>
-            <T v="serif" size={22} color={C.paper2}>Recording</T>
-            <T v="small">No recording was kept for this one.</T>
+          <View>
+            <T v="displayS" color={C.fg2}>Recording</T>
+            <T v="small" style={{ marginTop: S[1] }}>No recording was kept for this one.</T>
           </View>
         )}
       </View>
 
-      <View style={{ paddingHorizontal: 20, paddingTop: 14 }} onLayout={(e) => { listY.current = e.nativeEvent.layout.y; }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-          <T v="caps" color={C.paper}>The script · {t.turns.length} turns</T>
-          <T v="caps" size={9.5}>dotted: filler words</T>
+      <View style={{ paddingHorizontal: 20, paddingTop: S[4] }} onLayout={(e) => { listY.current = e.nativeEvent.layout.y; }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: S[1] }}>
+          <Label>The script</Label>
+          <T v="small" color={C.fg3}><T v="numS" color={C.fg3}>{t.turns.length}</T> turns, fillers <T v="small" color={TONE.ochre.text} style={{ backgroundColor: TONE.ochre.tint }}>marked</T></T>
         </View>
-        {t.turns.length === 0 ? <T v="small" style={{ marginTop: 10 }}>No words were caught in this one.</T> : null}
-        {dropped > 0 ? <T v="small" style={{ marginTop: 6 }}>{dropped === 1 ? 'One line' : `${dropped} lines`} could not be read and {dropped === 1 ? 'is' : 'are'} left out.</T> : null}
+        {t.turns.length === 0 ? <T v="small" style={{ marginTop: S[3] }}>No words were caught in this one.</T> : null}
+        {dropped > 0 ? <T v="small" style={{ marginTop: S[2] }}>{dropped === 1 ? 'One line' : `${dropped} lines`} could not be read and {dropped === 1 ? 'is' : 'are'} left out.</T> : null}
         {t.turns.map((turn) => (
           <View key={turn.turn_id} onLayout={(e) => { rowY.current[turn.turn_id] = e.nativeEvent.layout.y; }}>
             <Line turn={turn} active={turn.turn_id === activeId} playing={pb.status.playing} pb={url ? pb : null} offset={t.audio_offset_s} />
@@ -127,15 +127,16 @@ function Line({ turn, active, playing, pb, offset }: { turn: TranscriptTurn; act
   const me = turn.speaker === 'me';
   const who = me ? 'You' : 'Them';
   const runs = markFillers(turn.text, turn.fillers);
+  // Phone transcript (DESIGN.md §6.1–6.2): the cue sits above the turn; the other person is ink-2, indented.
   const body = (
-    <View style={{ flexDirection: 'row', gap: 12, paddingVertical: 12, paddingRight: 10, paddingLeft: 10, borderLeftWidth: 3, borderLeftColor: active ? C.paper : 'transparent', backgroundColor: active ? C.well : 'transparent' }}>
-      <View style={{ width: 46 }}>
-        <T v="caps" color={me ? C.paper : C.them}>{who}</T>
-        <T v="mono" size={12} color={C.paper3} style={{ marginTop: 3 }}>{clock(turn.start)}</T>
+    <View style={{ paddingVertical: S[3], paddingRight: S[3], paddingLeft: me ? S[3] : S[3] + S[6], borderLeftWidth: 2, borderLeftColor: active ? C.fg : 'transparent', backgroundColor: active ? C.well : 'transparent' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: S[3] }}>
+        <T v="label" color={me ? C.fg : C.fg2}>{who}</T>
+        <T v="numS" color={C.fg3}>{clock(turn.start)}</T>
       </View>
-      <T v="body" size={me ? 17 : 16} color={me ? C.paper : C.paper2} style={{ flex: 1 }}>
+      <T v="textL" color={me ? C.fg : C.fg2} style={{ marginTop: S[1] }}>
         {runs.map((r, i) => r.filler
-          ? <T key={i} v="body" size={me ? 17 : 16} color={C.paper3} style={{ textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: C.paper3 }}>{r.text}</T>
+          ? <T key={i} v="textL" color={TONE.ochre.text} style={{ backgroundColor: TONE.ochre.tint }}>{r.text}</T>
           : r.text)}
       </T>
     </View>
@@ -145,7 +146,7 @@ function Line({ turn, active, playing, pb, offset }: { turn: TranscriptTurn; act
     <Pressable onPress={() => pb.seek(turn.start + offset, true)} accessibilityRole="button"
       accessibilityLabel={`${who}, at ${clock(turn.start)}: ${turn.text}`} accessibilityHint="Plays the recording from this line"
       accessibilityState={{ selected: active && playing }}
-      style={({ pressed }) => ({ borderTopWidth: 1, borderTopColor: C.rule, opacity: pressed ? 0.6 : 1 })}>
+      style={({ pressed }) => ({ borderTopWidth: 1, borderTopColor: C.rule, opacity: pressed ? 0.55 : 1 })}>
       {body}
     </Pressable>
   );

@@ -4,8 +4,8 @@ import { approveApp, listApps, revokeApp, type AppInfo } from '@/api/client';
 import { useBus } from '@/bus/use-bus';
 import { Glyph } from '@/ui/Glyph';
 import { Header } from '@/ui/Header';
-import { Btn, SampleTag, Screen, T } from '@/ui/kit';
-import { C, TONE } from '@/ui/theme';
+import { Btn, Label, SampleTag, Screen, StateMark, T } from '@/ui/kit';
+import { C, F, S, TONE } from '@/ui/theme';
 
 function ago(seconds: number | null): string {
   if (!seconds) return 'never';
@@ -43,28 +43,40 @@ export default function ConnectedApps() {
     <Screen>
       <Header title="Connected apps" right={<SampleTag show={sample} />} />
       <T v="small">Any site or app can ask to tap you. Nothing buzzes until you say yes here, and you can take it back.</T>
-      {error ? <T v="small" color={TONE.vermilion} style={{ marginTop: 10 }}>{error}</T> : null}
+      {/* Errors are ink and words, never vermilion: vermilion is `interrupt`. */}
+      {error ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: S[2], marginTop: S[3] }} accessibilityLiveRegion="polite">
+          <StateMark kind="fault" /><T v="body" style={{ fontFamily: F.sansMedium }}>{error}</T>
+        </View>
+      ) : null}
 
+      {/* Pending requests lead the list, with the `approve` glyph: that is what it means. */}
       {pending.map((a) => (
-        <View key={a.app_id} style={{ borderWidth: 1.5, borderColor: C.paper, padding: 16, marginTop: 18 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Glyph pattern="approve" size={20} playKey={a.app_id} /><T v="caps" color={C.paper}>Wants to tap you</T></View>
-          <T v="serif" size={36} style={{ marginTop: 6 }}>{a.name}</T>
-          <T v="mono" size={12} color={C.paper3}>{a.origin ?? 'unknown origin'} · asked {ago(a.created_at)}</T>
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+        <View key={a.app_id} style={{ borderTopWidth: 2, borderTopColor: C.fg, paddingTop: S[4], marginTop: S[6] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: S[2] }}>
+            <Glyph pattern="approve" size={34} playKey={a.app_id} />
+            <T v="small" color={TONE.rose.text} style={{ marginBottom: 2 }}>waiting for you</T>
+          </View>
+          <T v="displayM" style={{ marginTop: S[2] }}>{a.name}</T>
+          <T v="body">Wants to tap you</T>
+          <T v="numS" color={C.fg3} style={{ marginTop: S[1] }}>{a.origin ?? 'unknown origin'}</T>
+          <T v="small" style={{ marginTop: 2 }}>Asked {ago(a.created_at)}</T>
+          <View style={{ flexDirection: 'row', gap: S[3], marginTop: S[4] }}>
             <Btn label="Approve" solid onPress={() => void act(approveApp, a.app_id)} style={{ flex: 1 }} />
             <Btn label="Decline" onPress={() => void act(revokeApp, a.app_id)} style={{ flex: 1 }} />
           </View>
         </View>
       ))}
 
-      <T v="caps" color={C.paper} style={{ marginTop: 26 }}>Allowed</T>
-      {rest.length === 0 ? <T v="small" style={{ marginTop: 6 }}>No apps yet.</T> : null}
+      <Label style={{ marginTop: S[7] }}>Allowed</Label>
+      {rest.length === 0 ? <T v="small" style={{ marginTop: S[2] }}>No apps yet.</T> : null}
       {rest.map((a) => (
-        <View key={a.app_id} style={{ borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: 14, marginTop: 8, opacity: a.status === 'revoked' ? 0.5 : 1 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <View key={a.app_id} style={{ borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: S[4], marginTop: S[2], opacity: a.status === 'revoked' ? 0.55 : 1 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: S[3] }}>
             <View style={{ flex: 1 }}>
-              <T v="serif" size={28}>{a.name}</T>
-              <T v="small">{a.status === 'revoked' ? 'Revoked' : `${a.buzzes} buzz${a.buzzes === 1 ? '' : 'es'} · last ${ago(a.last_used)}`}</T>
+              <T v="displayS">{a.name}</T>
+              {a.origin ? <T v="numS" color={C.fg3} style={{ marginTop: 2 }}>{a.origin}</T> : null}
+              <T v="small" style={{ marginTop: 2 }}>{a.status === 'revoked' ? 'Revoked' : `${a.buzzes} buzz${a.buzzes === 1 ? '' : 'es'}, last ${ago(a.last_used)}`}</T>
             </View>
             {a.status === 'approved'
               ? <Btn small label="Revoke" onPress={() => void act(revokeApp, a.app_id)} />
@@ -73,13 +85,13 @@ export default function ConnectedApps() {
         </View>
       ))}
 
-      <T v="caps" color={C.paper} style={{ marginTop: 26 }}>Recent buzzes from apps</T>
-      {foreign.length === 0 ? <T v="small" style={{ marginTop: 6 }}>None since the app opened.</T> : null}
+      <Label style={{ marginTop: S[7] }}>Recent buzzes from apps</Label>
+      {foreign.length === 0 ? <T v="small" style={{ marginTop: S[2] }}>None since the app opened.</T> : null}
       {foreign.map((b) => (
-        <View key={b.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: 10, marginTop: 6 }}>
-          <View style={{ width: 70 }}><Glyph pattern={b.pattern} size={18} maxWidth={70} /></View>
-          <View style={{ flex: 1 }}><T v="body" size={15}>{b.label}</T><T v="small">{b.source_app}</T></View>
-          <T v="mono" size={12} color={C.paper3}>{new Date(b.at).toTimeString().slice(0, 8)}</T>
+        <View key={b.id} style={{ flexDirection: 'row', alignItems: 'center', gap: S[3], borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: S[3], marginTop: S[2] }}>
+          <View style={{ width: 72 }}><Glyph pattern={b.pattern} size={22} maxWidth={72} /></View>
+          <View style={{ flex: 1 }}><T v="body">{b.label}</T><T v="small">{b.source_app}</T></View>
+          <T v="numS" color={C.fg3}>{new Date(b.at).toTimeString().slice(0, 8)}</T>
         </View>
       ))}
     </Screen>

@@ -5,7 +5,7 @@
  */
 import type { HapticPattern } from './contracts';
 
-export type Tone = 'ink' | 'vermilion' | 'amber' | 'ochre' | 'blue' | 'violet' | 'green';
+export type Tone = 'vermilion' | 'ochre' | 'green' | 'teal' | 'blue' | 'violet' | 'pencil' | 'rose';
 
 /** One pulse. Times in ms from the start of the pattern; level is 0-1. */
 export interface Pulse {
@@ -46,21 +46,21 @@ export const PATTERNS: Record<HapticPattern, PatternSpec> = {
     [{ at: 0, dur: 90, level: 0.6 }]),
   interrupt: spec('interrupt', 'Interrupt', 'Two sharp, heavy taps', 'Let them finish', 'vermilion', 'nudge',
     [{ at: 0, dur: 55, level: 1 }, { at: 130, dur: 55, level: 1 }]),
-  wrap_up: spec('wrap_up', 'Wrap up', 'Three rising taps', 'Ask a question', 'amber', 'nudge',
+  wrap_up: spec('wrap_up', 'Wrap up', 'Three rising taps', 'Ask a question', 'teal', 'nudge',
     [{ at: 0, dur: 70, level: 0.4 }, { at: 190, dur: 70, level: 0.7 }, { at: 380, dur: 70, level: 1 }]),
   still: spec('still', 'Still', 'Two soft, slow pulses', 'Hands calm', 'violet', 'nudge',
     [{ at: 0, dur: 240, level: 0.35, shape: 'soft' }, { at: 620, dur: 240, level: 0.35, shape: 'soft' }]),
   success: spec('success', 'Success', 'A bright double', 'That worked', 'green', 'nudge',
     [{ at: 0, dur: 60, level: 0.4 }, { at: 150, dur: 80, level: 1 }]),
-  tap: spec('tap', 'Tap', 'One light tick', 'Noted', 'ink', 'system',
+  tap: spec('tap', 'Tap', 'One light tick', 'Noted', 'rose', 'system',
     [{ at: 0, dur: 45, level: 0.3 }]),
-  approve: spec('approve', 'Approve', 'Two tiny ticks', 'Something is waiting for approval', 'ink', 'system',
+  approve: spec('approve', 'Approve', 'Two tiny ticks', 'Something is waiting for approval', 'rose', 'system',
     [{ at: 0, dur: 28, level: 0.25 }, { at: 120, dur: 28, level: 0.25 }]),
-  status_good: spec('status_good', 'One', 'One slow, even buzz', 'You are doing fine', 'ink', 'status',
+  status_good: spec('status_good', 'One', 'One slow, even buzz', 'You are doing fine', 'pencil', 'status',
     [{ at: 0, dur: SLOW, level: 0.6 }]),
-  status_talking: spec('status_talking', 'Two', 'Two slow, even buzzes', 'Talking too much', 'ink', 'status',
+  status_talking: spec('status_talking', 'Two', 'Two slow, even buzzes', 'Talking too much', 'pencil', 'status',
     [0, 1].map((i) => ({ at: i * (SLOW + GAP), dur: SLOW, level: 0.6 }))),
-  status_ask: spec('status_ask', 'Three', 'Three slow, even buzzes', 'Ask a question', 'ink', 'status',
+  status_ask: spec('status_ask', 'Three', 'Three slow, even buzzes', 'Ask a question', 'pencil', 'status',
     [0, 1, 2].map((i) => ({ at: i * (SLOW + GAP), dur: SLOW, level: 0.6 }))),
 };
 
