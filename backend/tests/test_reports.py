@@ -253,3 +253,32 @@ def test_tiny_differences_are_not_meaningful(metric: str) -> None:
     rest.append(conv("r9", 10, None, **{"inter" if metric == "interruptions" else "questions": 1}))
     c = comparison(metric, group, rest)  # 0 against 0.33: ratio 0, but the gap is under 0.5
     assert c.ratio == 0 and c.meaningful is False
+
+
+def test_relationships_on_person_rows_and_overview_groups() -> None:
+    from backend.contracts import Relationship
+
+    rels = (("alex", Relationship(person_id="alex", kind="boss", confidence=0.834, source="decisions")),
+            ("sam", Relationship(person_id="sam", kind="coworker", confidence=1.0, source="user")))
+    convs = tuple(sorted((*CURRENT, *PREVIOUS), key=lambda c: -c.started_ts))
+    inp = split(GraphInput(conversations=convs, people=PEOPLE, has_any_session=True, commitments=STATES,
+                           relationships=rels), DAYS, NOW)
+    people = {p.person_id: p for p in by_person_report(inp).people}
+    assert (people["alex"].relationship, people["alex"].relationship_confidence,
+            people["alex"].relationship_source) == ("boss", 0.83, "decisions")
+    assert people["sam"].relationship == "coworker" and people["sam"].relationship_source == "user"
+    assert people["priya"].relationship is None and people["priya"].relationship_confidence is None
+    groups = [(g.kind, g.people, g.conversations, g.node_ids) for g in overview_report(inp).by_relationship]
+    assert groups == [("boss", 1, 3, ["person:alex"]), ("coworker", 1, 3, ["person:sam"]),
+                      ("unknown", 1, 1, ["person:priya"])]
+
+
+def test_habit_sentence_when_the_habit_stopped() -> None:
+    from backend.contracts import ReportDelta, ReportHabitCount
+
+    trend = ReportDelta(metric="habit_per_conversation", current=0.0, previous=0.75, change=-0.75, direction="down",
+                        better=True, sample=4, previous_sample=4)
+    habit = ReportHabitCount(rule_id="talk_share", node_id="habit:talk_share", label="Talking most of the time",
+                             total=0, buzzed=0, quiet=0, conversations=0, per_conversation=0.0, trend=trend)
+    assert habit_sentence(habit, 5) == (
+        "Talking most of the time did not show up, down from 0.8 times a conversation in the 5 days before.")

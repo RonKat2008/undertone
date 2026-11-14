@@ -19,6 +19,7 @@ from backend.graph._merge import map_labels
 from backend.graph._rows import Conversation, GraphInput, HabitHit, Line, Promise
 from backend.graph._topics import keyword_topics, merge_labels
 from backend.growth._store import StoredSession, load_sessions
+from backend.relationships import relationships_by_person
 
 log = logging.getLogger(__name__)
 
@@ -87,8 +88,9 @@ def _conversation(db: DB, s: StoredSession, cached: tuple[str, ...] | None,
 
 
 def load_input(db: DB, days: int, now: float) -> GraphInput:
-    """Kept, finished sessions started within `days` of `now`, newest first, plus the people store
-    and stored promise states. Topic labels are mapped onto their canonical label (_aliases.py)."""
+    """Kept, finished sessions started within `days` of `now`, newest first, plus the people store,
+    stored promise states and each person's relationship (backend/relationships, read-only).
+    Topic labels are mapped onto their canonical label (_aliases.py)."""
     cutoff = now - days * SECONDS_PER_DAY
     stored = [s for s in load_sessions(db) if to_unix(s.started_at) >= cutoff]
     cached = load_topics(db)
@@ -98,5 +100,6 @@ def load_input(db: DB, days: int, now: float) -> GraphInput:
     any_session = bool(db.query("SELECT 1 FROM sessions LIMIT 1"))
     people = tuple((p.person_id, p.name) for p in db.list_people())
     return GraphInput(conversations=conversations, people=people, has_any_session=any_session,
-                      commitments=load_states(db))
+                      commitments=load_states(db),
+                      relationships=tuple(sorted(relationships_by_person(db).items())))
 

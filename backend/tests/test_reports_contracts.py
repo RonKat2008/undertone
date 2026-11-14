@@ -35,7 +35,7 @@ def _ts_report_interfaces() -> set[str]:
 
 
 def test_report_type_list_matches_ts() -> None:
-    assert len(c.REPORT_TYPES) == 26
+    assert len(c.REPORT_TYPES) == 27
     assert set(c.REPORT_TYPES) == _ts_report_interfaces()
 
 
@@ -58,7 +58,8 @@ DELTA = {"metric": "talk_ratio", "current": 0.55, "previous": 0.66, "change": -0
          "better": True, "sample": 4, "previous_sample": 4}
 FOCUS = {"node_ids": ["me", "person:alex"], "edges": [{"source": "me", "target": "person:alex"}]}
 HABIT = {"rule_id": "interrupt", "node_id": "habit:interrupt", "label": "Interrupting", "total": 7, "buzzed": 6,
-         "quiet": 1, "conversations": 3, "per_conversation": 1.75, "trend": {**DELTA, "metric": "habit_per_conversation"}}
+         "quiet": 1, "conversations": 3, "per_conversation": 1.75,
+         "trend": {**DELTA, "metric": "habit_per_conversation"}}
 PROMISE = {"id": "commitment:3", "bookmark_id": 3, "text": "Send Alex the deck", "quote": "I'll send the deck.",
            "person_id": "alex", "person_name": "Alex", "person_node_id": "person:alex", "session_id": "s1",
            "conversation_node_id": "conversation:s1", "made_at": 1762000000.0, "age_days": 6, "open": False,
@@ -75,6 +76,8 @@ EXAMPLES: dict[str, dict[str, Any]] = {
         "promises": {"made": 2, "open": 1, "done": 1, "overdue": 0},
         "top_people": [{"node_id": "person:alex", "label": "Alex", "conversations": 2, "minutes": 29.0}],
         "top_topics": [],
+        "by_relationship": [{"kind": "boss", "people": 1, "conversations": 2, "minutes": 29.0,
+                             "node_ids": ["person:alex"]}],
         "series": [{"day": "2026-11-13", "conversations": 1, "minutes_spoken": 6.6, "talk_ratio": 0.55,
                     "wpm": 158.0, "fillers_per_min": 5.2, "interruptions": 2, "questions": 3, "nudges": 2,
                     "quiet_marks": 3},

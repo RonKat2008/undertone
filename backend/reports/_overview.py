@@ -19,7 +19,7 @@ from backend.graph._rows import Conversation
 from backend.reports._habits import best_habit, habit_counts_for, weakest_habit
 from backend.reports._input import ReportInput
 from backend.reports._measures import MIN_COMPARE, day_series, measure, strongest, window_delta
-from backend.reports._people import by_person_report
+from backend.reports._people import by_person_report, relationship_groups
 from backend.reports._promises import promise_counts
 from backend.reports._sentences import (
     habit_sentence, insufficient_sentence, measure_sentence, promises_sentence, topic_highlight,
@@ -115,6 +115,7 @@ def overview_report(inp: ReportInput) -> OverviewReport:
     return OverviewReport(
         window=inp.window, totals=totals(cur), measures=measures, habits=habits, best_habit=best,
         weakest_habit=weakest_habit(inp, habits, best), promises=promise_counts(rows), top_people=top_people,
-        top_topics=top_topics, series=day_series(inp.first_day, inp.days, cur),
+        top_topics=top_topics, by_relationship=relationship_groups(inp),
+        series=day_series(inp.first_day, inp.days, cur),
         highlights=_highlights(inp, measures, parts),
         insufficient_data=len(cur) < MIN_COMPARE or len(inp.previous) < MIN_COMPARE, graph_focus=focus.build())

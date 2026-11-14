@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
-from backend.contracts import GraphEdge, GraphNode, GraphStats, KnowledgeGraph
+from backend.contracts import GraphEdge, GraphNode, GraphStats, KnowledgeGraph, Relationship
 from backend.graph._due import due_day
 from backend.graph._rows import CommitmentState, Conversation, GraphInput, Promise
 from backend.graph._topics import slugify
@@ -53,11 +53,19 @@ def _grouped(convs: Iterable[Conversation],
     return out
 
 
+def relationship_meta(rel: Relationship | None) -> dict[str, str | float | None]:
+    """Person-node meta: kind, confidence and source of the relationship; all None if never analysed."""
+    return {"relationship": rel.kind if rel else None,
+            "relationship_confidence": round(rel.confidence, 2) if rel else None,
+            "relationship_source": rel.source if rel else None}
+
+
 def _people(inp: GraphInput) -> Part:
     names = dict(inp.people)
     groups = _grouped(inp.conversations, lambda c: [c.person_id] if c.person_id else [])
     nodes = tuple(GraphNode(id=f"person:{pid}", kind="person", label=names.get(pid, pid), weight=len(cs),
-                            last_seen=max(c.started_ts for c in cs), meta={"person_id": pid})
+                            last_seen=max(c.started_ts for c in cs),
+                            meta={"person_id": pid, **relationship_meta(inp.relationship(pid))})
                   for pid, cs in groups.items())
     edges = tuple(GraphEdge(source=ME, target=f"person:{pid}", kind="talked_with", weight=len(cs))
                   for pid, cs in groups.items())

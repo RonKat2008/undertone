@@ -75,6 +75,8 @@ def habit_sentence(h: ReportHabitCount, days: int) -> str | None:
     if t.current is None or t.previous is None or t.direction not in ("up", "down"):
         return None
     way = "up" if t.direction == "up" else "down"
+    if t.current == 0:
+        return f"{h.label} did not show up, down from {num(t.previous)} times a conversation in the {days} days before."
     return (f"{h.label} showed up {num(t.current)} times a conversation, {way} from {num(t.previous)} "
             f"in the {days} days before.")
 

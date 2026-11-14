@@ -719,6 +719,14 @@ class ReportQuote(Model):
     text: str
 
 
+class ReportRelationshipGroup(Model):
+    kind: RelationshipKind  # people never analysed are grouped under "unknown"
+    people: int
+    conversations: int
+    minutes: float
+    node_ids: list[str] = Field(default_factory=list)  # person node ids
+
+
 class OverviewReport(Model):
     window: ReportWindow
     totals: ReportTotals
@@ -729,6 +737,7 @@ class OverviewReport(Model):
     promises: ReportPromiseCounts
     top_people: list[ReportRank] = Field(default_factory=list)
     top_topics: list[ReportRank] = Field(default_factory=list)
+    by_relationship: list[ReportRelationshipGroup] = Field(default_factory=list)
     series: list[ReportDayPoint] = Field(default_factory=list)
     highlights: list[ReportHighlight] = Field(default_factory=list)
     insufficient_data: bool = True  # too few conversations to compare with the previous window
@@ -743,6 +752,9 @@ class PersonReportSummary(Model):
     minutes_together: float
     minutes_spoken: float
     last_talked: float | None = None  # unix seconds
+    relationship: RelationshipKind | None = None  # null = never analysed (backend/relationships)
+    relationship_confidence: float | None = None
+    relationship_source: RelationshipSource | None = None
     comparisons: list[ReportComparison] = Field(default_factory=list)
     sentence: str | None = None  # the clearest meaningful comparison, ready to show
     open_promises: int = 0
@@ -823,6 +835,7 @@ REPORT_TYPES: tuple[str, ...] = (
     "ReportWindow", "ReportDelta", "ReportDayPoint", "ReportBucket", "ReportRank", "ReportCount",
     "ReportComparison", "ReportHighlight", "GraphFocusEdge", "GraphFocus", "ReportTotals",
     "ReportPromiseCounts", "ReportHabitCount", "ReportConversation", "ReportPromise", "ReportQuote",
+    "ReportRelationshipGroup",
     "OverviewReport", "PersonReportSummary", "ByPersonReport", "PersonReport", "TopicReportSummary",
     "ByTopicReport", "TopicReport", "HabitReport", "HabitsReport", "PromisesReport",
 )

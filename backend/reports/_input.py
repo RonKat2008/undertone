@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from backend.contracts import ReportWindow
+from backend.contracts import Relationship, ReportWindow
 from backend.db import DB
 from backend.graph._load import load_input
 from backend.graph._rows import CommitmentState, Conversation, GraphInput
@@ -29,6 +29,10 @@ class ReportInput:
     previous: tuple[Conversation, ...]  # newest first
     people: tuple[tuple[str, str], ...]  # (person_id, name)
     commitments: tuple[CommitmentState, ...]
+    relationships: tuple[tuple[str, Relationship], ...] = ()
+
+    def relationship(self, person_id: str) -> Relationship | None:
+        return dict(self.relationships).get(person_id)
 
     @property
     def window(self) -> ReportWindow:
@@ -60,7 +64,8 @@ def split(inp: GraphInput, days: int, now: float) -> ReportInput:
     current = tuple(c for c in inp.conversations if start <= c.started_ts <= now)
     previous = tuple(c for c in inp.conversations if previous_start <= c.started_ts < start)
     return ReportInput(now=now, days=days, start=start, previous_start=previous_start, current=current,
-                       previous=previous, people=inp.people, commitments=inp.commitments)
+                       previous=previous, people=inp.people, commitments=inp.commitments,
+                       relationships=inp.relationships)
 
 
 def load_report_input(db: DB, days: int, now: float) -> ReportInput:

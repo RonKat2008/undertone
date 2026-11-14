@@ -8,7 +8,9 @@ and a per-measure absolute minimum).
 
 from __future__ import annotations
 
-from backend.contracts import ByPersonReport, PersonReport, PersonReportSummary, ReportMeasure, ReportRank
+from backend.contracts import (
+    ByPersonReport, PersonReport, PersonReportSummary, ReportMeasure, ReportRank, ReportRelationshipGroup,
+)
 from backend.graph._rows import Conversation
 from backend.reports._input import ReportInput
 from backend.reports._measures import comparison, measure, strongest
@@ -47,13 +49,32 @@ def person_summary(inp: ReportInput, person_id: str) -> PersonReportSummary:
     best = strongest(comps)
     name = inp.name(person_id)
     first = name.split()[0] if name.split() else name
+    rel = inp.relationship(person_id)
     return PersonReportSummary(
         person_id=person_id, node_id=person_node(person_id), name=name, conversations=len(theirs),
         minutes_together=minutes(theirs), minutes_spoken=measure(theirs, "minutes_spoken") or 0.0,
-        last_talked=max((c.started_ts for c in theirs), default=None), comparisons=comps,
+        last_talked=max((c.started_ts for c in theirs), default=None),
+        relationship=rel.kind if rel else None,
+        relationship_confidence=round(rel.confidence, 2) if rel else None,
+        relationship_source=rel.source if rel else None, comparisons=comps,
         sentence=person_sentence(first, best) if best else None,
         open_promises=sum(1 for r in promise_rows(inp, theirs) if r.open),
         top_topics=_topic_rank(theirs, TOP_TOPICS))
+
+
+def relationship_groups(inp: ReportInput) -> list[ReportRelationshipGroup]:
+    """People talked with in the window grouped by relationship kind (never analysed: "unknown").
+    Most conversations first, then kind."""
+    groups: dict[str, list[Conversation]] = {}
+    for c in inp.current:
+        if c.person_id:
+            rel = inp.relationship(c.person_id)
+            groups.setdefault(rel.kind if rel else "unknown", []).append(c)
+    rows = [ReportRelationshipGroup(
+        kind=kind, people=len({c.person_id for c in cs}), conversations=len(cs),  # type: ignore[arg-type]
+        minutes=minutes(cs), node_ids=[person_node(p) for p in sorted({c.person_id or "" for c in cs})])
+        for kind, cs in groups.items()]
+    return sorted(rows, key=lambda g: (-g.conversations, g.kind))
 
 
 def by_person_report(inp: ReportInput) -> ByPersonReport:

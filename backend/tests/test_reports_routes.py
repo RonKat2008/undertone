@@ -140,3 +140,14 @@ def test_empty_database(tmp_path: Path) -> None:
         assert body["graph_focus"] == {"node_ids": ["me"], "edges": []}
     assert client.get("/reports/person/alex").status_code == 404
     db.close()
+
+
+def test_user_relationship_reaches_the_reports(db: DB, client: TestClient) -> None:
+    from backend.relationships import set_user_kind
+
+    set_user_kind(db, "sam", "coworker")
+    people = {p["person_id"]: p for p in client.get("/reports/by-person").json()["people"]}
+    assert people["sam"]["relationship"] == "coworker" and people["sam"]["relationship_source"] == "user"
+    assert people["sam"]["relationship_confidence"] == 1.0
+    groups = {g["kind"]: g for g in client.get("/reports/overview").json()["by_relationship"]}
+    assert groups["coworker"]["node_ids"] == ["person:sam"] and groups["coworker"]["conversations"] == 3

@@ -492,6 +492,14 @@ export interface ReportQuote {
   text: string;
 }
 
+export interface ReportRelationshipGroup {
+  kind: RelationshipKind; // people never analysed are grouped under 'unknown'
+  people: number;
+  conversations: number;
+  minutes: number;
+  node_ids: string[]; // person node ids
+}
+
 // GET /reports/overview
 export interface OverviewReport {
   window: ReportWindow;
@@ -503,6 +511,7 @@ export interface OverviewReport {
   promises: ReportPromiseCounts;
   top_people: ReportRank[];
   top_topics: ReportRank[];
+  by_relationship: ReportRelationshipGroup[];
   series: ReportDayPoint[];
   highlights: ReportHighlight[];
   insufficient_data: boolean; // too few conversations to compare with the previous window
@@ -517,6 +526,9 @@ export interface PersonReportSummary {
   minutes_together: number;
   minutes_spoken: number;
   last_talked: number | null;
+  relationship: RelationshipKind | null; // null = never analysed (GET /relationships)
+  relationship_confidence: number | null;
+  relationship_source: RelationshipSource | null;
   comparisons: ReportComparison[];
   sentence: string | null; // the clearest meaningful comparison, ready to show
   open_promises: number;

@@ -246,3 +246,13 @@ def test_build_is_pure(db: DB) -> None:
     first = build_graph(inp, 1.0)
     again = build_graph(replace(inp), 1.0)
     assert first == again and first.generated_at == 1.0
+
+
+def test_person_nodes_carry_the_relationship(db: DB, client: TestClient) -> None:
+    from backend.relationships import set_user_kind
+
+    set_user_kind(db, "alex", "boss")
+    nodes = _by_id(KnowledgeGraph.model_validate(client.get("/graph").json()))
+    alex, priya = nodes["person:alex"].meta, nodes["person:priya"].meta  # type: ignore[attr-defined]
+    assert (alex["relationship"], alex["relationship_confidence"], alex["relationship_source"]) == ("boss", 1.0, "user")
+    assert (priya["relationship"], priya["relationship_confidence"], priya["relationship_source"]) == (None, None, None)
