@@ -316,3 +316,6 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 input[type="range"] { accent-color: var(--ink); }
+
+/* figures never inherit small caps from a surrounding label */
+.num, .num-s, .num-m, .num-l, .num-xl { font-variant-caps: normal; }

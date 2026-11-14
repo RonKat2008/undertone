@@ -49,7 +49,7 @@ function DebriefView({ d, audio, sample, turns, marks, coach, baseline }: {
   const goTo = (ln: number) => {
     const det = transcriptRef.current;
     if (det) det.open = true;
-    requestAnimationFrame(() => document.getElementById(`line-${ln}`)?.scrollIntoView({ block: 'center' }));
+    setTimeout(() => document.getElementById(`line-${ln}`)?.scrollIntoView({ block: 'center' }), 80);
   };
   const target = talkTarget(coach);
   const pace = d.timeline.filter((p) => p.wpm > 0).map((p) => p.wpm);
@@ -162,9 +162,8 @@ function Transcript({ turns, open }: { turns: TurnView[]; open: RefObject<HTMLDe
     return () => det.removeEventListener('toggle', on);
   }, [open]);
   const { lines } = useMemo(() => layout(turns), [turns]);
-  if (!shown) return null;
   return (
-    <section aria-label="Full transcript" className="mt-6 xl:max-w-[calc(100%*7/12)]">
+    <section aria-label="Full transcript" hidden={!shown} className="mt-6 xl:max-w-[calc(100%*7/12)]">
       {lines.map((l, i) => {
         const t = turns[l.turn];
         const firstOfTurn = i === 0 || lines[i - 1].turn !== l.turn;

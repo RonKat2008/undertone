@@ -297,7 +297,7 @@ function Script({ state }: { state: BusState }) {
   const sub = state.partial ? subtitle(state.partial.text) : [];
   return (
     <section aria-label="Transcript">
-      <div ref={ref} className="no-scrollbar -ml-[var(--margin-l)] max-h-[max(340px,calc(100vh-560px))] min-h-[280px] overflow-y-auto pl-[var(--margin-l)]">
+      <div ref={ref} className={`no-scrollbar -ml-[var(--margin-l)] max-h-[max(340px,calc(100vh-560px))] overflow-y-auto ${count ? 'min-h-[280px]' : ''} pl-[var(--margin-l)]`}>
         {state.turns.map((t, i) => {
           const until = state.turns[i + 1]?.start ?? Infinity;
           const marks = state.marks.filter((m) => m.kind !== 'nudge' && m.kind !== 'status' && m.ts >= (i === 0 ? -1 : t.start) && m.ts < until);
