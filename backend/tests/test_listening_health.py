@@ -99,6 +99,19 @@ def test_voice_without_words_is_flagged() -> None:
     assert r["listening_ok"] is False and r["listening_reason"].startswith("Speech-to-text is not returning words")
 
 
+def test_speech_that_just_started_is_not_flagged_as_no_words() -> None:
+    """Seen live: after a 40 s quiet gap, the first second of loud speech pulled the 10 s mean over
+    the voice level and the check fired before Deepgram could answer. Voice must fill the window."""
+    ctl = _ctl(hearing=_hearing(last_transcript_at=4900.0))
+    ctl.last_heard_at = 4900.0
+    for i in range(1200):
+        ctl.band.loudness.add(4.0 + i * 0.08, -90.0)  # quiet
+    for i in range(12):
+        ctl.band.loudness.add(99.0 + i * 0.08, -12.0)  # loud speech, the last second only
+    r = listening_report(ctl, clock=Clock())
+    assert r["listening_ok"] is True, r["listening_reason"]
+
+
 def test_stt_off_and_failed_start() -> None:
     assert listening_report(_ctl(stt="off"), clock=Clock())["listening_reason"] == "Speech-to-text is off (STT=off)"
     ctl = _ctl(hearing=None)

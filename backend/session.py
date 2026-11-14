@@ -321,7 +321,9 @@ class SessionController:
         await self._start_listening(coach, end_on_failure=True)
         up = self.hearing is not None or self.stt == "off"
         (log.info if up else log.debug)("always-on: mic %s, speech pipeline %s",
-                                        "on" if self.band.mic_on else "off", "up" if up else "DOWN")
+                                        "on" if self.band.mic_on else "off",
+                                        ("started (connecting)" if self.stt != "off" else "off")
+                                        if up else "DOWN")
 
     async def stop_dead_hearing(self) -> None:
         """Stop a Deepgram worker that died; its last turn is flushed to whoever listens now."""

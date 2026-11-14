@@ -67,6 +67,17 @@ def stt_state(ctl: Any, now: float) -> dict:
 
 # ---------- the whole picture ----------
 
+VOICE_SLICES = 4  # the "no words" check needs voice in every quarter of its window, not one loud second
+
+
+def _sustained_db(loud: Any, secs: float) -> Optional[float]:
+    """The quietest slice of the last NO_WORDS_S: voice-level only if someone talked throughout."""
+    step = NO_WORDS_S / VOICE_SLICES
+    vals = [loud.mean_db(secs - NO_WORDS_S + k * step, secs - NO_WORDS_S + (k + 1) * step)
+            for k in range(VOICE_SLICES)]
+    return None if any(v is None for v in vals) else min(vals)
+
+
 def listening_report(ctl: Any, extra: Optional[dict] = None, clock: Clock = time.monotonic) -> dict:
     """GET /band/diag (and the `listening` block of /health). `extra` adds judge / phone data."""
     now = clock()
@@ -75,7 +86,7 @@ def listening_report(ctl: Any, extra: Optional[dict] = None, clock: Clock = time
     secs = float(getattr(band, "audio_seconds", 0.0) or 0.0)
     loud = getattr(band, "loudness", None)
     recent = loud.mean_db(max(0.0, secs - 5.0), secs) if (loud is not None and secs > 0) else None
-    voice = loud.mean_db(max(0.0, secs - NO_WORDS_S), secs) if (loud is not None and secs > 0) else None
+    voice = _sustained_db(loud, secs) if (loud is not None and secs >= NO_WORDS_S) else None
     chunk_age = _age(getattr(band, "last_chunk_at", None), now)
     gap = silent_for(band, now)
     quiet_s = None if gap is None else round(gap, 1)
