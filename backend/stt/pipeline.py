@@ -154,7 +154,12 @@ def _nova_service_class():
 
     class NovaSTTService(DeepgramSTTService):
         def _build_connect_kwargs(self) -> dict:
-            return split_connect_kwargs(super()._build_connect_kwargs(), accepted)
+            kw = super()._build_connect_kwargs()
+            if kw.get("diarize_model"):
+                # Deepgram refuses diarize (true or false) next to diarize_model (probed
+                # 14 Nov); diarize_model alone turns diarization on
+                kw = {k: v for k, v in kw.items() if k != "diarize"}
+            return split_connect_kwargs(kw, accepted)
 
     return NovaSTTService
 

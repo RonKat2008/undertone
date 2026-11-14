@@ -35,6 +35,7 @@ def test_real_service_connect_kwargs_fit_the_sdk():
         model="nova-2", diarize=True, extra={"filler_words": True, "diarize_model": "latest"}))
     kw2 = svc2._build_connect_kwargs()
     assert set(kw2) <= accepted and kw2.get("diarize_model") == "latest"  # DIARIZE_MODEL reaches the SDK
+    assert "diarize" not in kw2  # Deepgram refuses the connection with both
 
 
 # ---------- turns stay whole while a final is still on its way ----------
