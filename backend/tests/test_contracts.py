@@ -175,6 +175,10 @@ EXAMPLES: dict[str, tuple[type[BaseModel], dict[str, Any]]] = {
         "reason": "judge.interrupted.p = 0.92", "confidence": 0.92, "latency_ms": 210.0,
         "budget_left": 4, "ts": 16.2,
     }),
+    "nudge.quiet": (c.NudgeQuietEvent, {
+        "type": "nudge.quiet", "rule_id": "fillers", "haptic": "filler",
+        "message": "Pause instead of 'like'", "reason": "fillers_per_min=7.5", "ts": 21.0,
+    }),
     "nudge.snoozed": (c.NudgeSnoozedEvent, {
         "type": "nudge.snoozed", "rule_id": "interrupt", "ts": 17.5,
     }),
@@ -238,7 +242,7 @@ def test_examples_cover_every_event_type() -> None:
 
 def test_event_types_match_ts_contract() -> None:
     ts_types = _ts_bus_event_types()
-    assert len(ts_types) == 18
+    assert len(ts_types) == 19
     assert set(c.EVENT_TYPES) == ts_types
 
 
