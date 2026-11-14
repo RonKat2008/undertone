@@ -14,6 +14,10 @@ Transports:
               which is then played in real time while the mic is on. Taps: keyboard.
   laptop-mic  no band. Laptop microphone for audio, keyboard for taps (d = double, s = single).
 
+BAND_AUDIO=laptop with ble or serial: the band still gives taps and motion, but audio comes
+from the laptop microphone (plan.md section 10: the fallback when venue Bluetooth drops audio).
+The band's mic stays off, so its LED is set solid blue by hand while a session runs.
+
 Handlers stay short: they only push to queues (plan.md section 3.1).
 """
 from __future__ import annotations
@@ -57,7 +61,8 @@ async def _call(emit: Optional[Emit], event: dict) -> None:
 
 class BandSource:
     def __init__(self, transport: str = "sim", number: int = 13, emit: Optional[Emit] = None,
-                 sim_wav: Optional[str] = None, keyboard: Optional[bool] = None) -> None:
+                 sim_wav: Optional[str] = None, keyboard: Optional[bool] = None,
+                 audio_source: str = "band") -> None:
         if transport not in TRANSPORTS:
             raise ValueError("BAND_TRANSPORT must be one of %s, got %r" % (TRANSPORTS, transport))
         self.transport = transport
@@ -65,6 +70,9 @@ class BandSource:
         self.emit = emit
         self.sim_wav = sim_wav
         self.keyboard = sys.stdin.isatty() if keyboard is None else keyboard
+        if audio_source not in ("band", "laptop"):
+            raise ValueError("BAND_AUDIO must be band or laptop, got %r" % (audio_source,))
+        self.audio_source = "laptop" if transport == "laptop-mic" else audio_source
         self.pcm_q: asyncio.Queue = asyncio.Queue(maxsize=500)      # ~40 s of audio
         self.motion_q: asyncio.Queue = asyncio.Queue(maxsize=2000)  # ~20 s at 100 Hz
         self.tap_q: asyncio.Queue = asyncio.Queue()
@@ -86,6 +94,7 @@ class BandSource:
         return cls(transport=os.getenv("BAND_TRANSPORT", "sim").strip() or "sim",
                    number=int(os.getenv("VEXO_BAND_NUMBER") or 13), emit=emit,
                    sim_wav=os.getenv("SIM_WAV") or None,
+                   audio_source=(os.getenv("BAND_AUDIO") or "band").strip().lower(),
                    keyboard=None if os.getenv("KEYBOARD_TAPS") is None else os.getenv("KEYBOARD_TAPS") == "1")
 
     # ---------- clock ----------
@@ -161,15 +170,24 @@ class BandSource:
             await b.set_motion(accel_range=8)  # default 2 g clips real gestures
         except Exception as e:  # noqa: BLE001
             log.warning("set_motion failed: %s", e)
-        await b.configure(motion=100, sensors="both", events=True, battery=60, audio=self.mic_on)
+        await b.configure(motion=100, sensors="both", events=True, battery=60,
+                          audio=self.mic_on and self.audio_source == "band")
 
     async def mic(self, on: bool) -> None:
         """Mic on = session running. On the real band this also locks the LED solid blue."""
         if on == self.mic_on:
             return
         self.mic_on = on
-        if self.transport == "laptop-mic":
+        if self.audio_source == "laptop":
             self._laptop_mic(on)
+            if self.band is not None:  # band kept for taps and motion: show "listening" by hand
+                try:
+                    if on:
+                        await self.band.set_led("#0000ff")
+                    else:
+                        await self.band.led_off()
+                except Exception as e:  # noqa: BLE001
+                    log.warning("band LED: %s", e)
         elif self.band is not None:
             await self.band.configure(audio=on)
             if on and self.transport == "sim" and self.sim_wav:
@@ -190,7 +208,7 @@ class BandSource:
             self.motion_q.put_nowait(s)
 
     def _on_audio(self, a) -> None:
-        if not self.mic_on or (self.transport == "sim" and self.sim_wav):
+        if not self.mic_on or self.audio_source == "laptop" or (self.transport == "sim" and self.sim_wav):
             return
         pcm = self._decoder.feed(a) if self._decoder is not None else b"\x00" * 640
         self._push_pcm(pcm)

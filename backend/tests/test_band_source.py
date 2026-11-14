@@ -64,3 +64,37 @@ def test_sim_session_end_to_end(tmp_path, monkeypatch):
     assert any(e["mic_on"] for e in st) and st[-1]["connected"] is False
     started = next(e for e in events if e["type"] == "session.started")
     assert set(started) == {"type", "session_id", "coach_id", "mode", "policy", "ts"}
+
+
+def test_band_audio_laptop_keeps_band_for_taps_and_motion(monkeypatch, tmp_path):
+    """BAND_AUDIO=laptop: sim band for taps/motion, laptop mic for audio, LED set by hand."""
+    import backend.motion.classifier as cl
+    monkeypatch.setattr(cl, "CAL_DIR", tmp_path)
+    from backend.band.source import BandSource
+
+    async def run():
+        src = BandSource("sim", 13, keyboard=False, audio_source="laptop")
+        calls = []
+        src._laptop_mic = lambda on: calls.append(on)
+        await src.start()
+        await src.mic(True)
+        await asyncio.sleep(0.5)
+        led = await src.band.get_led()
+        motion = src.motion_q.qsize()
+        band_audio = src.band.streams.get("audio") if isinstance(src.band.streams, dict) else None
+        await src.mic(False)
+        await src.stop()
+        return calls, led, motion, band_audio
+
+    calls, led, motion, band_audio = asyncio.run(run())
+    assert calls == [True, False]
+    assert motion > 0
+    assert not band_audio
+    assert led["b"] == 255 and led["pattern"] == "solid"
+
+
+def test_bad_band_audio_value():
+    import pytest
+    from backend.band.source import BandSource
+    with pytest.raises(ValueError):
+        BandSource("sim", 13, keyboard=False, audio_source="phone")
