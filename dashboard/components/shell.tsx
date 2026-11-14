@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { BandStatus } from '@/components/band-status';
 import { Glyph } from '@/components/glyph';
 import type { HapticPattern } from '@/lib/bus/contracts';
-import { PATTERNS, PATTERN_ORDER } from '@/lib/bus/patterns';
+import { PATTERNS } from '@/lib/bus/patterns';
 import { isLive } from '@/lib/bus/reducer';
 import { BusProvider, useBus, useNow } from '@/lib/bus/use-bus';
 
@@ -44,7 +44,6 @@ export function Shell({ children }: { children: ReactNode }) {
         <main className="flex-1 pb-16">{children}</main>
       </div>
       <LiveOnly><NudgeTakeover /></LiveOnly>
-      <Director />
     </BusProvider>
   );
 }
@@ -125,7 +124,6 @@ function Masthead() {
 }
 
 function FeedState({ status }: { status: string }) {
-  if (status === 'mock') return <span className="sample-tag" title="Scripted mock feed. Nothing leaves this browser.">mock feed</span>;
   if (status === 'offline') return <span className="flex items-center gap-2 font-medium text-ink"><span className="state state-fault" aria-hidden />Offline</span>;
   if (status === 'connecting') return <span className="flex items-center gap-2 text-ink-2"><span className="state" aria-hidden />Connecting</span>;
   return null;
@@ -188,78 +186,6 @@ function NudgeTakeover() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-/** Hidden rehearsal panel. Toggle with the backtick key. */
-function Director() {
-  const { state, send, kind } = useBus();
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (e.key === '`') setOpen((o) => !o);
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-  if (!open) return null;
-  return (
-    <aside aria-label="Director panel" className="anim-rise fixed bottom-4 right-4 z-50 w-[372px] max-w-[calc(100vw-32px)] border border-rule-strong bg-well p-5" style={{ boxShadow: 'var(--shadow-panel)' }}>
-      <div className="mb-4 flex items-baseline justify-between">
-        <span className="display-s">Director</span>
-        <span className="text-s text-ink-2">{kind === 'mock' ? 'Mock feed' : 'Live backend'}, <kbd className="num-s">`</kbd> to close</span>
-      </div>
-      <div className="space-y-4">
-        <Row label="Session">
-          <B onClick={() => send({ cmd: 'start', mode: 'regular' })}>Start regular</B>
-          <B onClick={() => send({ cmd: 'start', mode: 'practice' })}>Start practice</B>
-          <B onClick={() => send({ cmd: 'stop' })}>Stop</B>
-          <B onClick={() => send({ cmd: 'debrief' })}>Jump to debrief</B>
-          {kind === 'mock' && <B onClick={() => send({ cmd: 'replay' })}>Replay script</B>}
-        </Row>
-        <Row label="Nudge">
-          {PATTERN_ORDER.filter((p) => PATTERNS[p].group === 'nudge').map((p) => (
-            <button key={p} className="btn btn-sm" onClick={() => send({ cmd: 'nudge', pattern: p })} title={PATTERNS[p].action}>
-              <Glyph pattern={p} size={18} /> <span className="num-s">{p}</span>
-            </button>
-          ))}
-        </Row>
-        <Row label="How am I doing?">
-          <B onClick={() => send({ cmd: 'status', verdict: 'good' })}>1 good</B>
-          <B onClick={() => send({ cmd: 'status', verdict: 'talking_too_much' })}>2 talking</B>
-          <B onClick={() => send({ cmd: 'status', verdict: 'ask_question' })}>3 ask</B>
-        </Row>
-        <Row label="Marks">
-          <B onClick={() => send({ cmd: 'bookmark' })}>Bookmark</B>
-          <B onClick={() => send({ cmd: 'signal', kind: 'nerves' })}>Nerves</B>
-          <B onClick={() => send({ cmd: 'signal', kind: 'checked_out' })}>Checked out</B>
-        </Row>
-        <Row label="Hands">
-          <B onClick={() => send({ cmd: 'motion', state: 'still' })}>Still</B>
-          <B onClick={() => send({ cmd: 'motion', state: 'gesture' })}>Gesture</B>
-          <B onClick={() => send({ cmd: 'motion', state: 'fidget' })}>Fidget</B>
-        </Row>
-      </div>
-      <p className="text-s mt-4 text-ink-2">
-        {state.status === 'live' ? 'Test nudges buzz the paired phone. They also show on this screen when the backend runs with DEV=1.' : 'Everything here is scripted. Nothing leaves this browser.'}
-      </p>
-    </aside>
-  );
-}
-
-function B({ children, onClick }: { children: ReactNode; onClick: () => void }) {
-  return <button className="btn btn-sm" onClick={onClick}>{children}</button>;
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="label mb-1.5">{label}</div>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
     </div>
   );
 }

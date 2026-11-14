@@ -281,10 +281,6 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .field:hover { border-bottom-color: var(--ink-2); }
 .field:focus { outline: none; border-bottom-color: var(--ink); box-shadow: 0 1px 0 var(--ink); }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--rule-strong); border-radius: var(--r-key); font-size: 14px; }
-.sample-tag {
-  display: inline-block; font-size: 14px; font-weight: 500; font-variant-caps: all-small-caps; letter-spacing: 0.05em;
-  color: var(--ink-2); border: 1px dashed var(--rule-strong); padding: 0 6px 1px; border-radius: var(--r-key); vertical-align: middle; line-height: 1.35;
-}
 
 /* system state marks (§2.4): ink dot in a ring, hollow ring, dashed ring */
 .state { position: relative; display: inline-block; width: 12px; height: 12px; flex-shrink: 0; }

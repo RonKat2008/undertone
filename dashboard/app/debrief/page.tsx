@@ -4,50 +4,138 @@ import Link from 'next/link';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Glyph } from '@/components/glyph';
 import { LINES_PER_PAGE, cite, layout, lineAt } from '@/components/lines';
-import { conversationHref } from '@/lib/conversations/links';
+import { conversationHref, LIBRARY_HREF } from '@/lib/conversations/links';
 import { clock } from '@/components/shell';
-import { SampleTag } from '@/components/sample-tag';
 import { Spark } from '@/components/spark';
-import { getDebrief, listSessions, mediaUrl, type DebriefPayload, type Sampled } from '@/lib/api/client';
+import { findConversation, getDebrief, listSessions, mediaUrl, type DebriefPayload } from '@/lib/api/client';
 import type { CoachSpec, Debrief, TimelinePoint } from '@/lib/bus/contracts';
 import type { Mark, TurnView } from '@/lib/bus/reducer';
-import { useBus } from '@/lib/bus/use-bus';
+import { useBus, useNow } from '@/lib/bus/use-bus';
+import { reasonLabel } from '@/lib/conversations/model';
+
+/** After a conversation ends, how long to show "Writing the debrief…" before saying there is none. */
+const DEBRIEF_WAIT_MS = 90_000;
+
+type Load =
+  | { state: 'loading' }
+  | { state: 'ok'; payload: DebriefPayload }
+  | { state: 'none'; sessionId: string | null; reason: string | null }
+  | { state: 'error'; message: string };
 
 export default function DebriefPage() {
   const { state } = useBus();
-  const [fallback, setFallback] = useState<Sampled<DebriefPayload> | null>(null);
+  const now = useNow(1000);
+  const [load, setLoad] = useState<Load>({ state: 'loading' });
+  const [attempt, setAttempt] = useState(0);
   // ?session=<id> (linked from the graph) asks for one stored conversation, not the latest.
   const [requested] = useState<string | null>(() => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('session')));
   const live = state.debrief && (!requested || state.debrief.session_id === requested) ? state.debrief : null;
+  // A conversation on the bus that this page is about, still running or just ended without its debrief yet.
+  const pendingSession = state.session && (!requested || state.session.id === requested) && live?.session_id !== state.session.id ? state.session : null;
+  const waiting = pendingSession !== null && (pendingSession.endedAt === null || now - pendingSession.endedAt < DEBRIEF_WAIT_MS);
+  const waitKey = waiting ? 'waiting' : pendingSession ? `gave-up-${pendingSession.id}` : 'idle';
+
   useEffect(() => {
     if (live) return;
     let on = true;
-    // No matching debrief on the bus: show the requested stored one, else the most recent, or the sample.
-    const pick = requested
-      ? getDebrief(requested)
-      : listSessions().then((s) => getDebrief(s.sample ? 'latest' : s.data[0].session_id));
-    pick.then((r) => on && setFallback(r));
+    setLoad({ state: 'loading' });
+    void loadStored(requested).then((r) => on && setLoad(r));
     return () => { on = false; };
-  }, [live, requested]);
-  const payload = live ?? fallback?.data ?? null;
-  if (!payload) return <p className="display-m caret pt-16 text-ink-3">Fetching the debrief</p>;
-  // The transcript and marks on the bus belong to this debrief only if no newer session replaced them.
-  const own = live !== null && state.session?.id === live.session_id;
-  return <DebriefView sessionId={requested ?? payload.session_id} d={payload.data} audio={mediaUrl(payload.audio_url)} sample={live ? state.status === 'mock' : fallback?.sample ?? true}
-    turns={own ? state.turns : []} marks={own ? state.marks : []} coach={state.coach} baseline={state.metrics?.baseline_wpm ?? null} />;
+  }, [live, requested, attempt, waitKey]);
+
+  const coach = state.coach;
+  const baseline = state.metrics?.baseline_wpm ?? null;
+  if (live) {
+    // The transcript and marks on the bus belong to this debrief only if no newer session replaced them.
+    const own = state.session?.id === live.session_id;
+    return <DebriefView sessionId={live.session_id} d={live.data} audio={mediaUrl(live.audio_url)} turns={own ? state.turns : []} marks={own ? state.marks : []} coach={coach} baseline={baseline} />;
+  }
+  if (load.state === 'ok') return <DebriefView sessionId={load.payload.session_id} d={load.payload.data} audio={mediaUrl(load.payload.audio_url)} turns={[]} marks={[]} coach={coach} baseline={baseline} />;
+  if (waiting && load.state === 'none') return <Waiting running={pendingSession?.endedAt === null} />;
+  if (load.state === 'loading') return <p className="display-m caret pt-16 text-ink-3">Fetching the debrief</p>;
+  if (load.state === 'error') return <Unreachable message={load.message} onRetry={() => setAttempt((a) => a + 1)} />;
+  return <NoDebrief sessionId={load.sessionId} reason={load.reason} />;
+}
+
+/** The requested stored debrief, or the newest kept conversation's; 'none' when there is no debrief to show. */
+async function loadStored(requested: string | null): Promise<Load> {
+  let id = requested;
+  if (!id) {
+    const sessions = await listSessions();
+    if (!sessions.ok) return { state: 'error', message: sessions.error };
+    const newest = sessions.data.find((s) => s.kept !== false);
+    if (!newest) return { state: 'none', sessionId: null, reason: null };
+    id = newest.session_id;
+  }
+  const r = await getDebrief(id);
+  if (r.kind === 'ok') return { state: 'ok', payload: r.data };
+  if (r.kind === 'error') return { state: 'error', message: r.message };
+  const summary = await findConversation(id).catch(() => null);
+  return { state: 'none', sessionId: id, reason: summary ? reasonLabel(summary) : null };
+}
+
+function Waiting({ running }: { running: boolean }) {
+  return (
+    <div className="pt-16" aria-live="polite">
+      <span className="label">Debrief</span>
+      <p className={`display-l mt-2 text-ink-3 ${running ? '' : 'caret'}`}>{running ? 'A conversation is going on.' : 'Writing the debrief'}</p>
+      <p className="text-m mt-4 max-w-[52ch] text-ink-2">{running ? 'The debrief lands here a few seconds after it ends.' : 'It usually takes a few seconds after a conversation ends.'}</p>
+    </div>
+  );
+}
+
+function NoDebrief({ sessionId, reason }: { sessionId: string | null; reason: string | null }) {
+  if (!sessionId) {
+    return (
+      <div className="pt-16">
+        <span className="label">Debrief</span>
+        <p className="display-l mt-2 max-w-[22ch]">No debriefs yet.</p>
+        <p className="text-m mt-4 max-w-[52ch] text-ink-2">Wear the band and talk. When a conversation ends, its debrief shows up here on its own.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="pt-16">
+      <span className="label">Debrief</span>
+      <p className="display-l mt-2 max-w-[22ch]">No debrief for this one.</p>
+      <p className="text-m mt-4 max-w-[52ch] text-ink-2">
+        {reason ? `It was filtered out (${reason}), so the coach did not write one.` : 'The conversation closed without a debrief. The words, if any were captured, are still there.'}
+      </p>
+      <div className="mt-6 flex flex-wrap gap-2">
+        <Link href={conversationHref(sessionId)} className="btn">Transcript and recording</Link>
+        <Link href={LIBRARY_HREF} className="btn btn-quiet">All conversations</Link>
+      </div>
+    </div>
+  );
+}
+
+function Unreachable({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="pt-16">
+      <div role="alert" className="max-w-[60ch] border-l-[3px] border-ink pl-5">
+        <span className="label !text-ink">Backend</span>
+        <p className="display-m mt-1">The debrief could not be fetched.</p>
+        <p className="text-m mt-3 text-ink-2">{message.replace(/\.$/, '')}. Check that the laptop backend is running, then try again.</p>
+        <button type="button" className="btn btn-solid mt-5" onClick={onRetry}>Try again</button>
+      </div>
+    </div>
+  );
 }
 
 /** The coach's talk-share target, read from a rule like "metrics.talk_ratio > 0.4". */
 function talkTarget(coach: CoachSpec | null): number | null {
-  const rule = coach?.nudge_rules.find((r) => r.when.includes('metrics.talk_ratio'));
+  const rule = coach?.nudge_rules?.find((r) => r.when.includes('metrics.talk_ratio'));
   const n = rule ? Number(rule.when.split(/[<>=]+/).pop()) : NaN;
   return Number.isFinite(n) && n > 0 && n < 1 ? n : null;
 }
 
-function DebriefView({ sessionId, d, audio, sample, turns, marks, coach, baseline }: {
-  sessionId: string; d: Debrief; audio: string | null; sample: boolean; turns: TurnView[]; marks: Mark[]; coach: CoachSpec | null; baseline: number | null;
+function DebriefView({ sessionId, d, audio, turns, marks, coach, baseline }: {
+  sessionId: string; d: Debrief; audio: string | null; turns: TurnView[]; marks: Mark[]; coach: CoachSpec | null; baseline: number | null;
 }) {
-  const n = d.numbers;
+  const n: Partial<Debrief['numbers']> = d.numbers ?? {};
+  const bookmarks = d.bookmarks ?? [];
+  const notes = d.notes ?? [];
+  const timeline = d.timeline ?? [];
   const { lines, first } = useMemo(() => layout(turns), [turns]);
   const transcriptRef = useRef<HTMLDetailsElement>(null);
   const citeAt = (ts: number) => { const ln = lineAt(turns, first, ts); return ln !== null ? { n: ln, label: cite(ln) } : null; };
@@ -57,12 +145,12 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks, coach, baselin
     setTimeout(() => document.getElementById(`line-${ln}`)?.scrollIntoView({ block: 'center' }), 80);
   };
   const target = talkTarget(coach);
-  const pace = d.timeline.filter((p) => p.wpm > 0).map((p) => p.wpm);
+  const pace = timeline.filter((p) => p.wpm > 0).map((p) => p.wpm);
 
   return (
     <article className="pt-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3"><span className="label">Debrief</span><SampleTag show={sample} /></div>
+        <div className="flex items-center gap-3"><span className="label">Debrief</span></div>
         <Link href={conversationHref(sessionId)} className="link text-s">Transcript and recording</Link>
       </div>
       <div className="grid gap-x-6 gap-y-12 xl:grid-cols-12">
@@ -85,16 +173,16 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks, coach, baselin
         </div>
 
         <aside className="xl:col-span-4">
-          <Player audio={audio} text={[d.headline_fact, d.strength, d.one_fix, d.if_then].join(' ')} />
+          <Player audio={audio} text={[d.headline_fact, d.strength, d.one_fix, d.if_then].filter(Boolean).join(' ')} />
           <dl className="mt-8 border-t border-ink">
-            <Num value={`${Math.round(n.talk_ratio * 100)}`} unit="%" label={<>of the talking was you{target !== null && <>, target <span className="num-s text-ink">{Math.round(target * 100)}%</span></>}</>} />
-            <Num value={String(Math.round(n.wpm))} unit="wpm" label={<>
+            <Num value={fmt(n.talk_ratio, (v) => `${Math.round(v * 100)}`)} unit={known(n.talk_ratio) ? '%' : undefined} label={<>of the talking was you{target !== null && <>, target <span className="num-s text-ink">{Math.round(target * 100)}%</span></>}</>} />
+            <Num value={fmt(n.wpm, (v) => String(Math.round(v)))} unit={known(n.wpm) ? 'wpm' : undefined} label={<>
               <span className="inline-flex items-center gap-2">your pace{baseline !== null && <>, usual <span className="num-s text-ink">{Math.round(baseline)}</span></>}
                 {pace.length > 1 && <Spark values={pace} width={64} height={14} min={100} max={230} band={baseline !== null ? [baseline * 0.75, baseline * 1.25] : [120, 200]} />}</span>
             </>} />
-            <Num value={n.fillers_per_min.toFixed(1)} label="fillers a minute" />
-            <Num value={String(n.questions)} label={n.questions === 1 ? 'question asked' : 'questions asked'} />
-            <Num value={String(n.interruptions)} label={n.interruptions === 1 ? 'interruption' : 'interruptions'} />
+            <Num value={fmt(n.fillers_per_min, (v) => v.toFixed(1))} label="fillers a minute" />
+            <Num value={fmt(n.questions, (v) => String(Math.round(v)))} label={n.questions === 1 ? 'question asked' : 'questions asked'} />
+            <Num value={fmt(n.interruptions, (v) => String(Math.round(v)))} label={n.interruptions === 1 ? 'interruption' : 'interruptions'} />
           </dl>
           {d.vs_last_time && (
             <p className="text-s mt-4 text-ink-2"><span className="label mr-2">Against your last time</span>{d.vs_last_time}</p>
@@ -108,13 +196,13 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks, coach, baselin
         </aside>
       </div>
 
-      <VoiceBody points={d.timeline} marks={marks} bookmarks={d.bookmarks.map((b) => ({ t: b.ts, cite: citeAt(b.ts)?.label ?? null }))} />
+      <VoiceBody points={timeline} marks={marks} bookmarks={bookmarks.map((b) => ({ t: b.ts, cite: citeAt(b.ts)?.label ?? null }))} />
 
       <div className="mt-16 grid gap-x-6 gap-y-12 xl:grid-cols-12">
         <section className="xl:col-span-6">
-          <h2 className="display-s border-b border-ink pb-2">Bookmarks <span className="num-s ml-1 text-ink-3">{d.bookmarks.length}</span></h2>
-          {d.bookmarks.length === 0 && <p className="text-m pt-3 text-ink-3">No bookmarks in this conversation.</p>}
-          {d.bookmarks.map((b, i) => {
+          <h2 className="display-s border-b border-ink pb-2">Bookmarks <span className="num-s ml-1 text-ink-3">{bookmarks.length}</span></h2>
+          {bookmarks.length === 0 && <p className="text-m pt-3 text-ink-3">No bookmarks in this conversation.</p>}
+          {bookmarks.map((b, i) => {
             const c = citeAt(b.ts);
             return (
               <div key={i} className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-6 border-b border-rule py-5">
@@ -144,7 +232,7 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks, coach, baselin
             </>
           )}
           <h2 className="display-s mt-6 border-b border-ink pb-2">Notes</h2>
-          <ol className="py-3">{d.notes.map((note, i) => <li key={i} className="text-m grid grid-cols-[28px_1fr] py-1.5"><span className="num-s pt-[3px] text-ink-3">{i + 1}</span>{note}</li>)}</ol>
+          <ol className="py-3">{notes.map((note, i) => <li key={i} className="text-m grid grid-cols-[28px_1fr] py-1.5"><span className="num-s pt-[3px] text-ink-3">{i + 1}</span>{note}</li>)}</ol>
           <details ref={transcriptRef} className="group border-t border-rule pt-4">
             <summary className="text-m cursor-pointer list-none text-ink-2 hover:text-ink">
               <span className="mr-2 inline-block transition-transform group-open:rotate-90">›</span>Full transcript <span className="num-s text-ink-3">{turns.length ? `${turns.length} turns, ${lines.length} lines` : 'not loaded'}</span>
@@ -157,6 +245,15 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks, coach, baselin
       {turns.length > 0 && <Transcript turns={turns} open={transcriptRef} />}
     </article>
   );
+}
+
+/** A number for the panel, or a dash when the backend did not send one. */
+function known(v: number | null | undefined): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function fmt(v: number | null | undefined, f: (v: number) => string): string {
+  return known(v) ? f(v) : '—';
 }
 
 /** Court-record transcript: 25 numbered lines a page, numbers in the score margin. Shown when the summary above is opened. */

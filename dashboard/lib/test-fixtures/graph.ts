@@ -1,11 +1,11 @@
 /**
- * The built-in sample graph (40 nodes over 90 days), shown in mock mode, when the backend
- * is unreachable, or when it answers `sample: true`. Always labelled "sample" on screen.
+ * TEST-ONLY fixture: a made-up graph (40 nodes over 90 days) for the layout and validation
+ * unit tests. No page or component may import this; the dashboard only ever draws real data.
  * Times are relative to `now` so the 7 / 30 / 90 day windows always have something in them.
  */
-import type { SessionSummary } from '@/lib/bus/contracts';
-import { buildAdjacency, computeStats, neighbourIds, windowGraph } from './model.ts';
-import type { GraphEdge, GraphEdgeKind, GraphNode, GraphNodeDetail, GraphQuote, KnowledgeGraph } from './types';
+import type { SessionSummary } from '../bus/contracts';
+import { buildAdjacency, computeStats, neighbourIds, windowGraph } from '../graph/model.ts';
+import type { GraphEdge, GraphEdgeKind, GraphNode, GraphNodeDetail, GraphQuote, KnowledgeGraph } from '../graph/types';
 
 const DAY = 86400;
 
