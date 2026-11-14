@@ -1,7 +1,9 @@
 """Eval: run fixtures/judge_cases.jsonl through the rule judge and the Gemini Decisions judge.
 
-Usage: uv run python scripts/eval_judge.py [--rules-only] [--limit N] [--ids j01,j05]
+Usage: uv run python scripts/eval_judge.py [--cases PATH] [--rules-only] [--limit N] [--ids j01,j05]
        [--gap 0.5] [--interval 2.0] [--timeout 10.0] [--json PATH]
+--cases defaults to fixtures/judge_cases.jsonl; fixtures/judge_cases_holdout.jsonl is a held-out
+set for measuring only (never tune the judges to it).
 Prints per-question accuracy for both judges, the misses, and Decisions latency stats.
 Always exits 0 (it is a report). Never prints the API key.
 """
@@ -49,8 +51,8 @@ class Result:
     latencies_ms: list[float] = field(default_factory=list)
 
 
-def load_cases(limit: int | None, ids: set[str] | None) -> list[dict[str, Any]]:
-    cases = [json.loads(line) for line in CASES_PATH.read_text().splitlines() if line.strip()]
+def load_cases(limit: int | None, ids: set[str] | None, path: Path = CASES_PATH) -> list[dict[str, Any]]:
+    cases = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     if ids:
         cases = [c for c in cases if c["id"] in ids]
     return cases[:limit] if limit else cases
@@ -221,6 +223,7 @@ def dump_json(path: Path, cases: list[dict[str, Any]], rules: Result, dec: Resul
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--cases", type=Path, default=CASES_PATH, help="JSONL case file (default: %(default)s)")
     ap.add_argument("--rules-only", action="store_true", help="skip the Decisions API (no network)")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--ids", type=str, default="", help="comma-separated case ids, e.g. j01,j05")
@@ -231,9 +234,9 @@ def main() -> None:
     args = ap.parse_args()
 
     ids = {s.strip() for s in args.ids.split(",") if s.strip()} or None
-    cases = load_cases(args.limit, ids)
+    cases = load_cases(args.limit, ids, args.cases)
     coach = default_coach()
-    print(f"cases: {len(cases)}  coach: {coach.id}  gap: {args.gap}s")
+    print(f"cases: {len(cases)} from {args.cases.name}  coach: {coach.id}  gap: {args.gap}s")
     rules = run_rules(cases, coach, args.gap)
     dec: Result | None = None
     if not args.rules_only:
