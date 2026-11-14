@@ -506,6 +506,45 @@ class GraphNodeDetail(Model):
     quotes: list[GraphQuote] = Field(default_factory=list)
 
 
+# ---------- REST: relationships (backend/relationships) ----------
+# friend/partner/family: personal ties. boss: they manage ME; report: ME manages them;
+# coworker: same team or company, no clear lead. client: ME serves them (customer, patient, client);
+# service: they serve ME (shop staff, waiter, driver, help desk). teacher: they teach ME;
+# student: ME teaches them. acquaintance: some shared history, not close. stranger: no shared
+# history (asking directions, small talk with someone new). unknown: not enough speech or mixed signals.
+RelationshipKind = Literal[
+    "friend", "partner", "family", "boss", "report", "coworker", "client", "teacher", "student",
+    "service", "acquaintance", "stranger", "unknown",
+]
+RelationshipFormality = Literal["casual", "neutral", "formal"]
+RelationshipPower = Literal["they_lead", "peer", "i_lead", "unknown"]
+RelationshipSource = Literal["decisions", "rules", "user"]
+
+
+class Relationship(Model):
+    person_id: str
+    kind: RelationshipKind
+    confidence: float = Field(ge=0, le=1)
+    formality: RelationshipFormality = "neutral"
+    power: RelationshipPower = "unknown"
+    warmth: float = Field(default=0.5, ge=0, le=1)
+    evidence: list[str] = Field(default_factory=list, max_length=3)  # short, never quotes speech
+    source: RelationshipSource
+    based_on_sessions: int = 0
+    updated_at: float | None = None  # unix seconds; None = not analysed yet
+
+
+class PersonRelationship(Model):
+    person_id: str
+    name: str
+    sessions: int  # kept conversations with this person
+    relationship: Relationship
+
+
+class RelationshipUpdate(Model):
+    kind: RelationshipKind
+
+
 # ---------- INTERNAL (not on the wire) ----------
 class MotionSnapshot(Model):
     """Current body state, built by brain.py from motion events, for the nudge engine.
