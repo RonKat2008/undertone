@@ -106,7 +106,8 @@ class SessionController:
 
     async def shutdown(self) -> None:
         if self.session_id:
-            await self.stop_session()
+            # attached to the Brain: the Brain announces session.ended itself
+            await self.stop_session(announce=self.on_double_tap is None)
         for t in self._tasks:
             t.cancel()
         await self.band.stop()
