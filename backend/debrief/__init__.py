@@ -11,16 +11,22 @@ FINAL PUBLIC INTERFACE (do not change signatures; add private modules inside bac
     def spoken_text(debrief: Debrief) -> str   # the ~20 s script, in contract order
     router: APIRouter                          # GET /sessions/{id}/debrief
 
-STUB: local template debrief from the numbers; speak returns None.
+Private modules:
+    wire.py      DebriefDraft: the language-only shape asked of the LLM (no numbers, no timeline)
+    prompt.py    build_prompt(session, metrics, last, reasons)
+    rules.py     check_draft (wording rules), verify_quote, headline evidence
+    local.py     numbers, bookmark snippets, assemble(draft -> Debrief), fallback_debrief
+    generate.py  one LLM call -> check -> one retry with reasons -> local fallback
+    speech.py    say_numbers, spoken_text, speak (Deepgram)
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.contracts import (
-    BookmarkReview, Debrief, DebriefNumbers, Metrics, SessionSummary, TimelinePoint,
-)
+from backend.contracts import Debrief, Metrics, SessionSummary, TimelinePoint
+from backend.debrief import generate as _generate
+from backend.debrief import speech as _speech
 from backend.deps import get_app_state
 from backend.state import AppState, SessionState
 
@@ -29,50 +35,17 @@ __all__ = ["generate_debrief", "router", "speak", "spoken_text"]
 router = APIRouter(tags=["debrief"])
 
 
-def _numbers(m: Metrics) -> DebriefNumbers:
-    return DebriefNumbers(talk_ratio=m.talk_ratio, interruptions=m.interruptions, questions=m.questions,
-                          fillers_per_min=m.fillers_per_min, wpm=m.wpm)
-
-
-def _snippet(session: SessionState, ts: float) -> str:
-    near = [t for t in session.turns if t.start - 5 <= ts <= t.end + 5]
-    return " ".join(f"{t.speaker}: {t.text}" for t in near)[:300]
-
-
 async def generate_debrief(session: SessionState, metrics: Metrics, timeline: list[TimelinePoint],
                            last: SessionSummary | None) -> Debrief:
-    me_turns = [t for t in session.turns if t.speaker == "me"]
-    best = min(me_turns, key=lambda t: len(t.fillers) / max(1, len(t.text.split())), default=None)
-    vs_last = None
-    if last is not None:
-        vs_last = (f"Last time you talked {last.numbers.talk_ratio:.0%} of the time; "
-                   f"this time {metrics.talk_ratio:.0%}.")
-    return Debrief(
-        headline_fact=(f"You talked {metrics.talk_ratio:.0%} of the time and asked "
-                       f"{metrics.questions} question{'s' if metrics.questions != 1 else ''}."),
-        strength="You stayed engaged and kept the conversation moving.",
-        one_fix="Your turns ran long before you handed the conversation back.",
-        if_then="When you hit 30 seconds, end with a question.",
-        numbers=_numbers(metrics),
-        best_moment_quote=best.text[:200] if best else "",
-        vs_last_time=vs_last,
-        notes=[f"{len(session.turns)} turns over {session.duration_s:.0f} s."],
-        bookmarks=[BookmarkReview(ts=b.ts, source=b.source, snippet=_snippet(session, b.ts),
-                                  what_happened=b.text or "Bookmarked moment",
-                                  follow_up=b.text if b.source == "promise" else None)
-                   for b in session.bookmarks],
-        timeline=timeline,
-        better_version=None,
-    )
+    return await _generate.generate_debrief(session, metrics, timeline, last)
 
 
 def spoken_text(debrief: Debrief) -> str:
-    return " ".join([debrief.headline_fact, debrief.strength, debrief.one_fix, debrief.if_then])[:2000]
+    return _speech.spoken_text(debrief)
 
 
 async def speak(text: str, session_id: str) -> str | None:
-    """STUB: no audio. Worker: Deepgram Aura-2 REST call (plan.md 3.2)."""
-    return None
+    return await _speech.speak(text, session_id)
 
 
 @router.get("/sessions/{session_id}/debrief")
