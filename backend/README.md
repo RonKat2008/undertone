@@ -15,6 +15,10 @@ uv run python scripts/replay.py --speed 4
 
 - Tests: `uv run pytest -q`
 - Decisions smoke test: `uv run python scripts/smoke_decisions.py` (add `--rest` for raw REST via httpx instead of the SDK; `--calls N`).
+- Judge eval: `uv run python scripts/eval_judge.py [--rules-only] [--cases PATH]`; `fixtures/judge_cases_holdout.jsonl` is a held-out set for measuring only (do not tune to it).
+- Sample history for the demo: `uv run python scripts/seed_sample.py [db_path] [--force] [--today YYYY-MM-DD]`
+  writes realistic past sessions (History, People, Today screens) into `UNDERTONE_DB` (or `db_path`). Seeded ids
+  start with `sample_`; `--force` replaces only those and keeps real sessions. Needs no `.env` and no keys.
 - Python is pinned to 3.13 via `.python-version`.
 
 Env flags (read in `backend/config.py` from the repo-root `.env`; never print key values):
@@ -25,10 +29,11 @@ Env flags (read in `backend/config.py` from the repo-root `.env`; never print ke
 | `DEEPGRAM_API_KEY` | Speech/TTS for the spoken debrief |
 | `PUBLIC_BACKEND_URL` | Default `http://localhost:8000` |
 | `USE_RULE_JUDGE_ONLY` | Skip Gemini, always use the rule judge |
-| `DEMO_POLICY` | Nudge policy forced to min_gap 10 s, budget 8 per session |
+| `DEMO_POLICY` | Demo override: every enabled rule may buzz (not only the focus rule), min_gap 10 s, budget 8 per session; fading and silent sessions are skipped |
 | `DEV` | Enables `POST /dev/publish` |
 | `UNDERTONE_DB` | SQLite path (default `undertone.db` at repo root) |
 | `UNDERTONE_ENV_FILE` | Extra env file to load; use in git worktrees where `.env` is absent |
+| `UNDERTONE_STUDIO_HEDGE` | `2` or `3` races that many coach generations in `POST /coaches/build`; the first valid one wins (cuts the slow tail on stage). Default 1 |
 
 ## 2. Layout
 
@@ -47,7 +52,8 @@ Person B packages:
 - `studio/` coach library/builder/validation (`prebuilt/*.json`, `default.py`, `routes.py`).
 - `growth/` habit profile, daily mission, streak, people, history (`routes.py`).
 
-Other: `tests/` (test_bus, test_contracts, test_db, test_e2e); `scripts/` (replay, ws_tail, smoke_decisions, smoke_flash, smoke_tts).
+Other: `tests/` (`conftest.py` sets the isolated test env once: temp db, no keys, DEV, DEMO_POLICY, rule judge);
+`scripts/` (replay, ws_tail, seed_sample, eval_judge, smoke_decisions, smoke_flash, smoke_tts, try_debrief, try_studio).
 
 ## 3. For Person A (band + speech)
 
@@ -80,11 +86,32 @@ def on_volume(self, db: float, ts: float) -> None
 ```
 `start_session` raises ValueError for an unknown coach; the others return None when no session runs. `single_tap` snoozes a nudge fired within the last 3 s, then replies with a status verdict.
 
+Session start picks the coach and policy:
+- **Practice mode** (`mode="practice"`, no `coach_id`): the personal coach, `studio.build_personal_coach(profile)`
+  from the stored `HabitProfile` (`growth.current_profile`); a starter coach before any history. An explicit
+  `coach_id` wins. Practice keeps the personal coach's own policy (tighter band, budget 8).
+- **Regular mode**: the given or active coach. Its policy goes through **fading**,
+  `nudge.next_policy(policy, recent_focus_rates, session_index)`: `recent_focus_rates` are the focus rule's firing
+  rates (buzzed + quiet, per wearer minute) over the last 3 finished regular sessions with that coach, oldest to
+  newest (`growth.focus_rates`); `session_index` is the 1-based index of this session (finished sessions + 1,
+  `growth.next_session_index`). Three strictly falling rates drop the budget by one (min 1); every fifth session
+  is `silent` (tracked, no buzz). A failure here logs and keeps the coach's policy.
+- `DEMO_POLICY` replaces all of this with min_gap 10 s and budget 8 (no fading, never silent).
+
 Do not edit `main.py`. Hand Person B an `APIRouter` to include.
 
 ## 4. For Person C (UI + phone)
 
 `WS /ws` streams every bus event as JSON matching `contracts/events.ts` (`type` field discriminates).
+
+- `nudge`: a buzz (focus rule, or any enabled rule under `DEMO_POLICY`), with `latency_ms` and `budget_left`.
+- `nudge.quiet` `{rule_id, haptic, message, reason, ts}`: a rule fired but did not buzz (not the focus rule, budget
+  spent, too soon after the last buzz, snoozed, a silent session, or another rule buzzed at that moment). Show it as a quiet mark on the laptop; it is
+  stored with the nudges so the habit profile and fading count silent slips too.
+- `debrief` arrives in **two steps with the same `session_id`**: first the text (`audio_url: null`) right after
+  the session ends (also the body of `POST /session/stop`), then a second `debrief` event with `audio_url` set once
+  the spoken MP3 is ready (a few seconds later). No second event if speech fails or no Deepgram key is set.
+  Replace the first by `session_id`; `GET /sessions/{id}/debrief` returns the latest stored version.
 
 REST routes:
 
@@ -109,7 +136,10 @@ REST routes:
 | GET | `/media/*` | static files (debrief MP3s) |
 
 Error envelope for all errors: `{"ok": false, "error": {"code": "...", "message": "...", "details"?: ...}}`.
-Codes: `http_<status>`, `invalid_request` (422), `invalid_event` (422), `internal` (500).
+Codes: `http_<status>`, `invalid_request` (422), `invalid_event` (422), `internal` (500), and studio's
+`invalid_coach` / `invalid_goal` (422) / `invalid_built_coach` (500) with `details: {"errors": [str]}`.
+An `HTTPException` with a dict detail sets `code`/`message` from its `code`/`message` keys and keeps the other
+keys as `details`; a list detail becomes `details`; a str detail is the message.
 
 Haptics: call `haptics_port.register_sender(async_fn)` once at startup; `async_fn(cmd: HapticCommand)`
 (fields: pattern, intensity, label, source_app) delivers to the paired phone. The brain calls
@@ -187,7 +217,8 @@ metrics.monologue_s > 45          motion.fidget_while_other_s > 8          motio
 ```
 
 Env shape: `{"judge": {qid: answer.model_dump()}, "metrics": Metrics.model_dump(),
-"motion": MotionSnapshot.model_dump()}`. So `judge.<qid>.p` (noul), `.choice` (choice), `.score` (score),
+"motion": MotionSnapshot.model_dump()}`. So `judge.<qid>.p` (noul), `.choice` (choice), `.score` (score: the
+expected level, **1-based**, 1 = the first (worst) criterion .. `max` = number of levels; may be fractional),
 plus `metrics.*` (talk_ratio, interruptions, questions, fillers_per_min, wpm, monologue_s, volume_db, ...)
 and `motion.*` (state, hand_energy, speaker_context, confidence, fidget_while_other_s, ts).
 
@@ -197,7 +228,8 @@ and `motion.*` (state, hand_energy, speaker_context, confidence, fidget_while_ot
 - Response `answers[qid]` has `.type`:
   - `'noul'`: `.noul`, `.confidence`
   - `'choice'`: `.choice`, `.probabilities`, `.confidence`
-  - `'score'`: `.score` (0-based expected level), `.probabilities` keyed "0"..., `.legend`, `.confidence`
+  - `'score'`: `.score` (0-based expected level in the raw SDK response), `.probabilities` keyed "0"..., `.legend`, `.confidence`.
+    `judge/decisions.py` adds 1, so `ScoreAnswer.score` on the wire and in nudge conditions is 1-based (1..max).
 - Async: `client.aio.decisions.create(..., timeout=seconds)`.
 - The SDK retries 429/5xx up to 4 times by default, so the judge must enforce its own 800 ms `asyncio` timeout.
 - A choice question with fewer than 2 options returns HTTP 400 "must have between 2 and 255 options".
