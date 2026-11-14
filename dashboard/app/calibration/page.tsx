@@ -40,7 +40,8 @@ function useCountdown(running: boolean, totalMs: number, onDone: () => void): nu
 }
 
 export default function CalibrationPage() {
-  const { state, send, kind } = useBus();
+  const { state } = useBus();
+  const [failed, setFailed] = useState<string | null>(null);
   // voice
   const [voice, setVoice] = useState<'idle' | 'listening' | 'done'>('idle');
   const [swapped, setSwapped] = useState(false);
@@ -56,15 +57,13 @@ export default function CalibrationPage() {
   useEffect(() => { if (remoteVoice) setVoice('done'); }, [remoteVoice]);
   useEffect(() => { if (remoteMotion?.done) setStep(MOTION_STEPS.length); }, [remoteMotion?.done]);
 
+  const fail = (e: unknown) => setFailed(e instanceof Error ? e.message : 'The backend did not answer.');
+
   function startMotion() {
+    setFailed(null);
     setStep(0);
-    void calibrateMotion().catch(() => undefined);
-    if (kind === 'mock') send({ cmd: 'motion', state: 'still' });
+    void calibrateMotion().catch((e: unknown) => { fail(e); setStep(-1); });
   }
-  useEffect(() => {
-    if (kind === 'mock' && running) send({ cmd: 'motion', state: MOTION_STEPS[step].id });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
 
   const energy = state.motion?.hand_energy ?? 0;
   const calibrated = voice === 'done' && step >= MOTION_STEPS.length;
@@ -72,6 +71,7 @@ export default function CalibrationPage() {
   return (
     <div className="pt-8">
       <div className="caps mb-4">Calibration · about twenty seconds, once per room</div>
+      {failed && <p role="alert" className="mb-4 text-[13px] text-vermilion">{failed}</p>}
       <div className="grid gap-x-16 gap-y-12 lg:grid-cols-2">
         <section aria-label="Voice calibration">
           <h2 className="serif border-b border-ink pb-2 text-[40px] leading-none">1 · Whose voice is yours</h2>
@@ -85,7 +85,7 @@ export default function CalibrationPage() {
                   <p className="serif text-[30px] leading-tight">You are the {swapped ? 'second' : 'first'} voice.</p>
                   <p className="mt-1 text-[13px] text-ink-2">If the transcript shows your words under “Them”, swap. You can do this mid-conversation too.</p>
                   <div className="mt-4 flex gap-2">
-                    <button className="btn" onClick={() => { setSwapped((s) => !s); void swapSpeakers().catch(() => undefined); }}>Swap speakers</button>
+                    <button className="btn" onClick={() => { setSwapped((s) => !s); setFailed(null); void swapSpeakers().catch(fail); }}>Swap speakers</button>
                     <button className="btn btn-quiet" onClick={() => setVoice('idle')}>Redo</button>
                   </div>
                 </>

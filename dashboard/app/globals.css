@@ -100,7 +100,6 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .field:hover { border-bottom-color: var(--ink-3); }
 .field:focus { outline: none; border-bottom-color: var(--ink); }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 1px solid var(--rule); border-radius: 2px; font-size: 12px; }
-.sample-tag { display: inline-block; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); border: 1px dashed var(--ink-3); padding: 1px 5px; border-radius: 2px; vertical-align: middle; }
 
 /* ---------- motion: transform, opacity, clip-path only ---------- */
 @keyframes glyph-bar { 0% { opacity: 0.22; transform: scaleY(0.55); } 12% { opacity: 1; transform: scaleY(1.12); } 100% { opacity: 1; transform: scaleY(1); } }

@@ -9,7 +9,6 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { AudioPlayer, type PlayerHandle } from '@/components/conversations/audio-player';
 import { debriefHref } from '@/components/graph/detail-panel';
-import { SampleTag } from '@/components/sample-tag';
 import {
   findConversation, getTranscript, listPeople, recordingUrl, type TranscriptResult,
 } from '@/lib/api/client';
@@ -43,7 +42,7 @@ export function ConversationView({ sessionId }: { sessionId: string | null }) {
     setLoad({ state: 'loading' } as Load);
     getTranscript(sessionId).then((r) => on && setLoad(r));
     findConversation(sessionId).then((s) => on && setSummary(s)).catch(() => on && setSummary(null));
-    listPeople().then((p) => on && setPeople(p.data)).catch(() => undefined);
+    listPeople().then((p) => on && setPeople(p.ok ? p.data : [])).catch(() => undefined);
     return () => { on = false; };
   }, [sessionId, attempt, busKey]);
 
@@ -53,10 +52,10 @@ export function ConversationView({ sessionId }: { sessionId: string | null }) {
   if (load.kind === 'error') return <Unreachable message={load.message} onRetry={() => setAttempt((a) => a + 1)} />;
 
   const person = summary?.person_id ? people.find((p) => p.person_id === summary.person_id)?.name ?? null : null;
-  return <Loaded t={load.data} sample={load.sample} summary={summary} person={person} />;
+  return <Loaded t={load.data} summary={summary} person={person} />;
 }
 
-function Loaded({ t, sample, summary, person }: { t: SessionTranscript; sample: boolean; summary: LibrarySession | null; person: string | null }) {
+function Loaded({ t, summary, person }: { t: SessionTranscript; summary: LibrarySession | null; person: string | null }) {
   const reducedMotion = useReducedMotion();
   const player = useRef<PlayerHandle>(null);
   const [active, setActive] = useState(-1);
@@ -107,7 +106,6 @@ function Loaded({ t, sample, summary, person }: { t: SessionTranscript; sample: 
         <Link href={libraryHref} className="hover:text-ink">Conversations</Link>
         <span aria-hidden className="text-ink-3">/</span>
         <span className="!text-ink">{dayName ?? longDate(day, today)}, {timeOfDay(t.started_at)}</span>
-        <SampleTag show={sample} />
       </nav>
 
       <header className="mt-2 border-b border-ink pb-5">
@@ -124,7 +122,7 @@ function Loaded({ t, sample, summary, person }: { t: SessionTranscript; sample: 
       <div className="mt-6 grid gap-x-12 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
         <aside className="sticky top-0 z-10 -mx-4 border-b border-rule bg-paper px-4 pb-4 pt-3 md:-mx-8 md:px-8 lg:order-2 lg:top-4 lg:mx-0 lg:self-start lg:border-b-0 lg:border-t lg:border-t-ink lg:bg-transparent lg:px-0 lg:pt-4">
           {src
-            ? <AudioPlayer ref={player} src={src} turns={t.turns} offset={t.audio_offset_s} durationHint={length !== null ? length + t.audio_offset_s : null} sample={sample} onTime={onTime} onPlayingChange={setPlaying} />
+            ? <AudioPlayer ref={player} src={src} turns={t.turns} offset={t.audio_offset_s} durationHint={length !== null ? length + t.audio_offset_s : null} onTime={onTime} onPlayingChange={setPlaying} />
             : <NoRecording hasWords={t.turns.length > 0} />}
           <div className="mt-4 hidden flex-wrap gap-2 lg:flex">
             <Actions sessionId={t.session_id} debrief={!filtered} onCopy={copy} copied={copied} canCopy={t.turns.length > 0} />

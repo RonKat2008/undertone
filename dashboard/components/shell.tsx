@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { BandStatus } from '@/components/band-status';
 import { Glyph } from '@/components/glyph';
 import type { HapticPattern } from '@/lib/bus/contracts';
-import { PATTERNS, PATTERN_ORDER } from '@/lib/bus/patterns';
+import { PATTERNS } from '@/lib/bus/patterns';
 import { isLive } from '@/lib/bus/reducer';
 import { BusProvider, useBus, useNow } from '@/lib/bus/use-bus';
 
@@ -36,7 +36,6 @@ export function Shell({ children }: { children: ReactNode }) {
         <main className="flex-1 pb-10">{children}</main>
       </div>
       <LiveOnly><NudgeTakeover /></LiveOnly>
-      <Director />
     </BusProvider>
   );
 }
@@ -87,7 +86,7 @@ function Masthead() {
             <span>{phone ? (phone.connected ? phone.name : 'offline') : 'not paired'}</span>
           </span>
           <span className={`caps rounded-sm border px-1.5 py-0.5 ${state.status === 'live' ? 'border-green !text-green' : state.status === 'offline' ? 'border-vermilion !text-vermilion' : 'border-rule'}`}>
-            {state.status === 'mock' ? 'mock feed' : state.status}
+            {state.status}
           </span>
         </div>
       ) : (
@@ -105,7 +104,7 @@ function Masthead() {
           <span>{phone ? (phone.connected ? phone.name : 'offline') : 'not paired'}</span>
         </span>
         <span className={`caps rounded-sm border px-1.5 py-0.5 ${state.status === 'live' ? 'border-green !text-green' : state.status === 'offline' ? 'border-vermilion !text-vermilion' : 'border-rule'}`}>
-          {state.status === 'mock' ? 'mock feed' : state.status}
+          {state.status}
         </span>
         <span className="num w-12 text-right text-[18px] leading-none" aria-label="Session clock">{clock(elapsed)}</span>
         {live ? (
@@ -174,78 +173,6 @@ function NudgeTakeover() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-/** Hidden rehearsal panel. Toggle with the backtick key. */
-function Director() {
-  const { state, send, kind } = useBus();
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (e.key === '`') setOpen((o) => !o);
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-  if (!open) return null;
-  return (
-    <aside aria-label="Director panel" className="fixed bottom-4 right-4 z-50 w-[340px] border border-ink bg-paper p-4 shadow-[6px_6px_0_var(--ink)]">
-      <div className="mb-3 flex items-baseline justify-between">
-        <span className="serif text-[20px]">Director</span>
-        <span className="caps">{kind === 'mock' ? 'mock feed' : 'live backend'} · ` to close</span>
-      </div>
-      <div className="space-y-3">
-        <Row label="Session">
-          <B onClick={() => send({ cmd: 'start', mode: 'regular' })}>Start regular</B>
-          <B onClick={() => send({ cmd: 'start', mode: 'practice' })}>Start practice</B>
-          <B onClick={() => send({ cmd: 'stop' })}>Stop</B>
-          <B onClick={() => send({ cmd: 'debrief' })}>Jump to debrief</B>
-          {kind === 'mock' && <B onClick={() => send({ cmd: 'replay' })}>Replay script</B>}
-        </Row>
-        <Row label="Nudge">
-          {PATTERN_ORDER.filter((p) => PATTERNS[p].group === 'nudge').map((p) => (
-            <button key={p} className="btn btn-sm" onClick={() => send({ cmd: 'nudge', pattern: p })} title={PATTERNS[p].action}>
-              <Glyph pattern={p} size={12} /> {p}
-            </button>
-          ))}
-        </Row>
-        <Row label="How am I doing?">
-          <B onClick={() => send({ cmd: 'status', verdict: 'good' })}>1 · good</B>
-          <B onClick={() => send({ cmd: 'status', verdict: 'talking_too_much' })}>2 · talking</B>
-          <B onClick={() => send({ cmd: 'status', verdict: 'ask_question' })}>3 · ask</B>
-        </Row>
-        <Row label="Marks">
-          <B onClick={() => send({ cmd: 'bookmark' })}>Bookmark</B>
-          <B onClick={() => send({ cmd: 'signal', kind: 'nerves' })}>Nerves</B>
-          <B onClick={() => send({ cmd: 'signal', kind: 'checked_out' })}>Checked out</B>
-        </Row>
-        <Row label="Hands">
-          <B onClick={() => send({ cmd: 'motion', state: 'still' })}>Still</B>
-          <B onClick={() => send({ cmd: 'motion', state: 'gesture' })}>Gesture</B>
-          <B onClick={() => send({ cmd: 'motion', state: 'fidget' })}>Fidget</B>
-        </Row>
-      </div>
-      <p className="mt-3 text-[11px] text-ink-2">
-        {state.status === 'live' ? 'Test nudges buzz the paired phone. They also show on this screen when the backend runs with DEV=1.' : 'Everything here is scripted. Nothing leaves this browser.'}
-      </p>
-    </aside>
-  );
-}
-
-function B({ children, onClick }: { children: ReactNode; onClick: () => void }) {
-  return <button className="btn btn-sm" onClick={onClick}>{children}</button>;
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="caps mb-1">{label}</div>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
     </div>
   );
 }

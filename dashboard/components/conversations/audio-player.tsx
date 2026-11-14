@@ -20,7 +20,6 @@ interface AudioPlayerProps {
   offset: number;
   /** Shown as the total until the file's own duration is known. */
   durationHint: number | null;
-  sample: boolean;
   onTime: (audioTime: number) => void;
   onPlayingChange?: (playing: boolean) => void;
   ref?: Ref<PlayerHandle>;
@@ -32,7 +31,7 @@ const SKIP_S = 5;
 const OWN_KEYS_SPACE = 'button, a, input, textarea, select, [contenteditable="true"], [role="slider"]';
 const OWN_KEYS_ARROWS = 'input, textarea, select, [contenteditable="true"], [role="slider"], [role="radiogroup"]';
 
-export function AudioPlayer({ src, turns, offset, durationHint, sample, onTime, onPlayingChange, ref }: AudioPlayerProps) {
+export function AudioPlayer({ src, turns, offset, durationHint, onTime, onPlayingChange, ref }: AudioPlayerProps) {
   const audio = useRef<HTMLAudioElement>(null);
   const track = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -194,7 +193,7 @@ export function AudioPlayer({ src, turns, offset, durationHint, sample, onTime, 
         </span>
       </div>
       <p className="caps mt-2 !text-ink-3">
-        {sample ? 'Sample recording · tones stand in for voices' : 'Space plays or pauses · ← → skip 5 s'}
+        Space plays or pauses · ← → skip 5 s
       </p>
     </section>
   );

@@ -1,20 +1,17 @@
 'use client';
 
-/** `useBus()`: the only place components get live state from. Mock or socket, same interface. */
+/** `useBus()`: the only place components get live state from: the backend's event socket. */
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import { getBusConfig } from '@/lib/config';
 import type { BusEvent } from './contracts';
-import { createMockSource } from './mock-source';
 import { initialState, reduce, type BusState } from './reducer';
 import { createSocketSource } from './socket-source';
 import type { BusSource, DirectorCommand } from './types';
 
 export interface BusApi {
   state: BusState;
-  /** 'mock' or 'socket' */
-  kind: BusSource['kind'];
   send(command: DirectorCommand): void;
-  /** Fold an event in locally (e.g. after a REST call in mock mode). */
+  /** Fold an event in locally (e.g. right after a REST call, before the bus echoes it). */
   inject(event: BusEvent): void;
   resolveApp(app_id: string): void;
 }
@@ -27,7 +24,7 @@ export function BusProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const config = getBusConfig();
-    const source = config.url ? createSocketSource(config.url) : createMockSource({ startAt: config.startAt, freeze: config.freeze, speed: config.speed });
+    const source = createSocketSource(config.url);
     sourceRef.current = source;
     source.start({
       onEvent: (event, at) => dispatch({ type: 'event', event, at: at ?? Date.now() }),
@@ -42,7 +39,6 @@ export function BusProvider({ children }: { children: ReactNode }) {
 
   const api = useMemo<BusApi>(() => ({
     state,
-    kind: state.status === 'mock' ? 'mock' : 'socket',
     send: (command) => sourceRef.current?.send(command),
     inject: (event) => dispatch({ type: 'event', event, at: Date.now() }),
     resolveApp: (app_id) => dispatch({ type: 'app.resolved', app_id }),

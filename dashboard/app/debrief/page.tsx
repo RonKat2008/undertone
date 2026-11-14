@@ -2,44 +2,129 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { conversationHref } from '@/lib/conversations/links';
+import { conversationHref, LIBRARY_HREF } from '@/lib/conversations/links';
 import { clock } from '@/components/shell';
-import { SampleTag } from '@/components/sample-tag';
-import { getDebrief, listSessions, mediaUrl, type DebriefPayload, type Sampled } from '@/lib/api/client';
+import { findConversation, getDebrief, listSessions, mediaUrl, type DebriefPayload } from '@/lib/api/client';
 import type { Debrief, TimelinePoint } from '@/lib/bus/contracts';
 import type { Mark, TurnView } from '@/lib/bus/reducer';
-import { useBus } from '@/lib/bus/use-bus';
+import { useBus, useNow } from '@/lib/bus/use-bus';
+import { reasonLabel } from '@/lib/conversations/model';
+
+/** After a conversation ends, how long to show "Writing the debrief…" before saying there is none. */
+const DEBRIEF_WAIT_MS = 90_000;
+
+type Load =
+  | { state: 'loading' }
+  | { state: 'ok'; payload: DebriefPayload }
+  | { state: 'none'; sessionId: string | null; reason: string | null }
+  | { state: 'error'; message: string };
 
 export default function DebriefPage() {
   const { state } = useBus();
-  const [fallback, setFallback] = useState<Sampled<DebriefPayload> | null>(null);
+  const now = useNow(1000);
+  const [load, setLoad] = useState<Load>({ state: 'loading' });
+  const [attempt, setAttempt] = useState(0);
   // ?session=<id> (linked from the graph) asks for one stored conversation, not the latest.
   const [requested] = useState<string | null>(() => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('session')));
   const live = state.debrief && (!requested || state.debrief.session_id === requested) ? state.debrief : null;
+  // A conversation on the bus that this page is about, still running or just ended without its debrief yet.
+  const pendingSession = state.session && (!requested || state.session.id === requested) && live?.session_id !== state.session.id ? state.session : null;
+  const waiting = pendingSession !== null && (pendingSession.endedAt === null || now - pendingSession.endedAt < DEBRIEF_WAIT_MS);
+  const waitKey = waiting ? 'waiting' : pendingSession ? `gave-up-${pendingSession.id}` : 'idle';
+
   useEffect(() => {
     if (live) return;
     let on = true;
-    // No matching debrief on the bus: show the requested stored one, else the most recent, or the sample.
-    const pick = requested
-      ? getDebrief(requested)
-      : listSessions().then((s) => getDebrief(s.sample ? 'latest' : s.data[0].session_id));
-    pick.then((r) => on && setFallback(r));
+    setLoad({ state: 'loading' });
+    void loadStored(requested).then((r) => on && setLoad(r));
     return () => { on = false; };
-  }, [live, requested]);
-  const payload = live ?? fallback?.data ?? null;
-  if (!payload) return <p className="serif pt-16 text-[32px] text-ink-3">Fetching the debrief…</p>;
-  // The transcript and marks on the bus belong to this debrief only if no newer session replaced them.
-  const own = live !== null && state.session?.id === live.session_id;
-  return <DebriefView sessionId={requested ?? payload.session_id} d={payload.data} audio={mediaUrl(payload.audio_url)} sample={live ? state.status === 'mock' : fallback?.sample ?? true}
-    turns={own ? state.turns : []} marks={own ? state.marks : []} />;
+  }, [live, requested, attempt, waitKey]);
+
+  if (live) {
+    // The transcript and marks on the bus belong to this debrief only if no newer session replaced them.
+    const own = state.session?.id === live.session_id;
+    return <DebriefView sessionId={live.session_id} d={live.data} audio={mediaUrl(live.audio_url)} turns={own ? state.turns : []} marks={own ? state.marks : []} />;
+  }
+  if (load.state === 'ok') return <DebriefView sessionId={load.payload.session_id} d={load.payload.data} audio={mediaUrl(load.payload.audio_url)} turns={[]} marks={[]} />;
+  if (waiting && load.state === 'none') return <Waiting running={pendingSession?.endedAt === null} />;
+  if (load.state === 'loading') return <p className="serif pt-16 text-[32px] text-ink-3">Fetching the debrief…</p>;
+  if (load.state === 'error') return <Unreachable message={load.message} onRetry={() => setAttempt((a) => a + 1)} />;
+  return <NoDebrief sessionId={load.sessionId} reason={load.reason} />;
 }
 
-function DebriefView({ sessionId, d, audio, sample, turns, marks }: { sessionId: string; d: Debrief; audio: string | null; sample: boolean; turns: TurnView[]; marks: Mark[] }) {
-  const n = d.numbers;
+/** The requested stored debrief, or the newest kept conversation's; 'none' when there is no debrief to show. */
+async function loadStored(requested: string | null): Promise<Load> {
+  let id = requested;
+  if (!id) {
+    const sessions = await listSessions();
+    if (!sessions.ok) return { state: 'error', message: sessions.error };
+    const newest = sessions.data.find((s) => s.kept !== false);
+    if (!newest) return { state: 'none', sessionId: null, reason: null };
+    id = newest.session_id;
+  }
+  const r = await getDebrief(id);
+  if (r.kind === 'ok') return { state: 'ok', payload: r.data };
+  if (r.kind === 'error') return { state: 'error', message: r.message };
+  const summary = await findConversation(id).catch(() => null);
+  return { state: 'none', sessionId: id, reason: summary ? reasonLabel(summary) : null };
+}
+
+function Waiting({ running }: { running: boolean }) {
+  return (
+    <div className="pt-16" aria-live="polite">
+      <div className="caps">Debrief</div>
+      <p className="serif mt-2 text-[clamp(34px,4.6vw,56px)] leading-none text-ink-3">{running ? 'A conversation is going on.' : 'Writing the debrief…'}</p>
+      <p className="mt-4 max-w-[52ch] text-[14px] text-ink-2">{running ? 'The debrief lands here a few seconds after it ends.' : 'It usually takes a few seconds after a conversation ends.'}</p>
+    </div>
+  );
+}
+
+function NoDebrief({ sessionId, reason }: { sessionId: string | null; reason: string | null }) {
+  if (!sessionId) {
+    return (
+      <div className="pt-16">
+        <div className="caps">Debrief</div>
+        <p className="serif mt-2 max-w-[22ch] text-[clamp(38px,5vw,64px)] leading-[0.98]">No debriefs yet.</p>
+        <p className="mt-4 max-w-[52ch] text-[14px] text-ink-2">Wear the band and talk. When a conversation ends, its debrief shows up here on its own.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="pt-16">
+      <div className="caps">Debrief</div>
+      <p className="serif mt-2 max-w-[22ch] text-[clamp(38px,5vw,64px)] leading-[0.98]">No debrief for this one.</p>
+      <p className="mt-4 max-w-[52ch] text-[14px] text-ink-2">
+        {reason ? `It was filtered out (${reason}), so the coach did not write one.` : 'The conversation closed without a debrief. The words, if any were captured, are still there.'}
+      </p>
+      <div className="mt-6 flex flex-wrap gap-2">
+        <Link href={conversationHref(sessionId)} className="btn">Transcript and recording</Link>
+        <Link href={LIBRARY_HREF} className="btn btn-quiet">All conversations</Link>
+      </div>
+    </div>
+  );
+}
+
+function Unreachable({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="pt-16">
+      <div role="alert" className="max-w-[60ch] border-l-[3px] border-vermilion pl-5">
+        <div className="caps !text-vermilion">Backend</div>
+        <p className="serif mt-1 text-[clamp(32px,4vw,48px)] leading-[1.02]">The debrief could not be fetched.</p>
+        <p className="mt-3 text-[13.5px] text-ink-2">{message.replace(/\.$/, '')}. Check that the laptop backend is running, then try again.</p>
+        <button type="button" className="btn btn-solid mt-5" onClick={onRetry}>Try again</button>
+      </div>
+    </div>
+  );
+}
+
+function DebriefView({ sessionId, d, audio, turns, marks }: { sessionId: string; d: Debrief; audio: string | null; turns: TurnView[]; marks: Mark[] }) {
+  const n: Partial<Debrief['numbers']> = d.numbers ?? {};
+  const bookmarks = d.bookmarks ?? [];
+  const notes = d.notes ?? [];
   return (
     <article className="pt-8">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="caps flex items-center gap-3">Debrief <SampleTag show={sample} /></div>
+        <div className="caps flex items-center gap-3">Debrief</div>
         <Link href={conversationHref(sessionId)} className="btn btn-sm">Transcript and recording</Link>
       </div>
       <div className="grid gap-x-16 gap-y-10 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
@@ -59,13 +144,13 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks }: { sessionId:
           </section>
         </div>
         <aside>
-          <Player audio={audio} text={[d.headline_fact, d.strength, d.one_fix, d.if_then].join(' ')} />
+          <Player audio={audio} text={[d.headline_fact, d.strength, d.one_fix, d.if_then].filter(Boolean).join(' ')} />
           <dl className="mt-8 grid grid-cols-2 gap-x-8 gap-y-6 border-t border-ink pt-4">
-            <Num label="Talk ratio" value={`${Math.round(n.talk_ratio * 100)}%`} wide />
-            <Num label="Interruptions" value={String(n.interruptions)} />
-            <Num label="Questions asked" value={String(n.questions)} />
-            <Num label="Fillers / min" value={n.fillers_per_min.toFixed(1)} />
-            <Num label="Pace, wpm" value={String(Math.round(n.wpm))} />
+            <Num label="Talk ratio" value={fmt(n.talk_ratio, (v) => `${Math.round(v * 100)}%`)} wide />
+            <Num label="Interruptions" value={fmt(n.interruptions, (v) => String(Math.round(v)))} />
+            <Num label="Questions asked" value={fmt(n.questions, (v) => String(Math.round(v)))} />
+            <Num label="Fillers / min" value={fmt(n.fillers_per_min, (v) => v.toFixed(1))} />
+            <Num label="Pace, wpm" value={fmt(n.wpm, (v) => String(Math.round(v)))} />
           </dl>
           {d.vs_last_time && <p className="mt-5 border-t border-rule pt-3 text-[13px] text-ink-2"><span className="caps mr-2">Against your last time</span>{d.vs_last_time}</p>}
           {d.best_moment_quote && (
@@ -77,13 +162,13 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks }: { sessionId:
         </aside>
       </div>
 
-      <VoiceBody points={d.timeline} marks={marks} bookmarks={d.bookmarks.map((b) => b.ts)} />
+      <VoiceBody points={d.timeline ?? []} marks={marks} bookmarks={bookmarks.map((b) => b.ts)} />
 
       <div className="mt-14 grid gap-x-16 gap-y-10 lg:grid-cols-2">
         <section>
-          <h2 className="caps border-b border-ink pb-2 !text-ink">Bookmarks · {d.bookmarks.length}</h2>
-          {d.bookmarks.length === 0 && <p className="pt-3 text-ink-3">No bookmarks in this conversation.</p>}
-          {d.bookmarks.map((b, i) => (
+          <h2 className="caps border-b border-ink pb-2 !text-ink">Bookmarks · {bookmarks.length}</h2>
+          {bookmarks.length === 0 && <p className="pt-3 text-ink-3">No bookmarks in this conversation.</p>}
+          {bookmarks.map((b, i) => (
             <div key={i} className="grid grid-cols-[64px_1fr] gap-x-4 border-b border-rule py-4">
               <div><div className="num text-[15px]">{clock(b.ts)}</div><div className={`caps mt-1 ${b.source === 'promise' ? '!text-green' : ''}`}>{b.source === 'promise' ? 'promise heard' : 'you tapped'}</div></div>
               <div>
@@ -106,7 +191,7 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks }: { sessionId:
             </>
           )}
           <h2 className="caps mt-4 border-b border-ink pb-2 !text-ink">Notes</h2>
-          <ul className="py-3">{d.notes.map((note, i) => <li key={i} className="grid grid-cols-[20px_1fr] py-1 text-[13.5px]"><span className="num text-ink-3">{i + 1}</span>{note}</li>)}</ul>
+          <ul className="py-3">{notes.map((note, i) => <li key={i} className="grid grid-cols-[20px_1fr] py-1 text-[13.5px]"><span className="num text-ink-3">{i + 1}</span>{note}</li>)}</ul>
           <details className="border-t border-rule pt-3">
             <summary className="caps cursor-pointer hover:text-ink">Full transcript · {turns.length ? `${turns.length} turns` : 'not loaded'}</summary>
             <div className="mt-3 space-y-2">
@@ -118,6 +203,11 @@ function DebriefView({ sessionId, d, audio, sample, turns, marks }: { sessionId:
       </div>
     </article>
   );
+}
+
+/** A number for the panel, or a dash when the backend did not send one. */
+function fmt(v: number | null | undefined, f: (v: number) => string): string {
+  return typeof v === 'number' && Number.isFinite(v) ? f(v) : '—';
 }
 
 function Num({ label, value, wide }: { label: string; value: string; wide?: boolean }) {

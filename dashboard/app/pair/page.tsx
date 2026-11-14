@@ -3,7 +3,6 @@
 import qrcode from 'qrcode-generator';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Glyph } from '@/components/glyph';
-import { SampleTag } from '@/components/sample-tag';
 import { approveApp, createPairing, listApps, listDevices, revokeApp, testBuzz, type AppInfo, type DeviceInfo, type Pairing } from '@/lib/api/client';
 import type { HapticPattern } from '@/lib/bus/contracts';
 import { PATTERNS, PATTERN_ORDER } from '@/lib/bus/patterns';
@@ -37,25 +36,28 @@ function ago(seconds: number | null): string {
 }
 
 export default function PairPage() {
-  const { state, kind, resolveApp } = useBus();
+  const { state, resolveApp } = useBus();
   const [pairing, setPairing] = useState<Pairing | null>(null);
-  const [devices, setDevices] = useState<DeviceInfo[]>([]);
-  const [apps, setApps] = useState<AppInfo[]>([]);
-  const [sample, setSample] = useState(false);
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
+  const [apps, setApps] = useState<AppInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [played, setPlayed] = useState<{ pattern: HapticPattern; n: number; note: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const [d, a] = await Promise.all([listDevices(), listApps()]);
-      setDevices(d.data); setApps(a.data); setSample(d.sample); setError(null);
+      setDevices(d); setApps(a); setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Cannot reach the backend.');
     }
   }, []);
 
   const newPairing = useCallback(() => {
-    createPairing().then(setPairing).catch((e) => setError(e instanceof Error ? e.message : 'Could not create a pairing.'));
+    setPairingError(null);
+    createPairing()
+      .then((p) => { setPairing(p); setPairingError(null); })
+      .catch((e) => { setPairing(null); setPairingError(e instanceof Error ? e.message : 'Could not create a pairing.'); });
   }, []);
 
   useEffect(() => {
@@ -70,31 +72,31 @@ export default function PairPage() {
   useEffect(() => { void refresh(); }, [busKey, refresh]);
 
   const act = async (fn: () => Promise<void>, app_id: string) => { try { await fn(); resolveApp(app_id); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : 'That did not work.'); } };
-  const pending = apps.filter((a) => a.status === 'pending');
-  const rest = apps.filter((a) => a.status !== 'pending');
-  const thisPhone = pairing ? devices.find((d) => d.device_id === pairing.device_id) : undefined;
+  const pending = (apps ?? []).filter((a) => a.status === 'pending');
+  const rest = (apps ?? []).filter((a) => a.status !== 'pending');
+  const thisPhone = pairing ? devices?.find((d) => d.device_id === pairing.device_id) : undefined;
+  const phones = (devices ?? []).filter((d) => d.paired || d.connected);
 
   async function play(pattern: HapticPattern) {
-    let note = 'shown here only';
-    if (kind !== 'mock') {
-      try { const n = await testBuzz(pattern, PATTERNS[pattern].action); note = n ? `sent to ${n} phone${n > 1 ? 's' : ''}` : 'no phone connected'; } catch { note = 'backend unreachable'; }
-    }
+    let note: string;
+    try { const n = await testBuzz(pattern, PATTERNS[pattern].action); note = n ? `sent to ${n} phone${n > 1 ? 's' : ''}` : 'no phone connected'; } catch { note = 'backend unreachable'; }
     setPlayed((p) => ({ pattern, n: (p?.n ?? 0) + 1, note }));
   }
 
   return (
     <div className="pt-8">
-      <div className="caps mb-4 flex items-center gap-3">Pair and devices <SampleTag show={sample} /></div>
+      <div className="caps mb-4 flex items-center gap-3">Pair and devices</div>
       {error && <p role="alert" className="mb-4 text-[13px] text-vermilion">{error}</p>}
       <div className="grid gap-x-16 gap-y-12 lg:grid-cols-[auto_minmax(0,1fr)]">
         <section aria-label="Pair a phone">
           <div className="border border-ink p-5">{pairing ? <QR text={pairing.qr} /> : <div className="h-[280px] w-[280px] bg-well" />}</div>
           <div className="mt-4 flex items-end justify-between">
             <div><div className="caps">Or type this code</div><div className="num text-[44px] leading-none tracking-[0.08em]">{pairing ? `${pairing.code.slice(0, 3)} ${pairing.code.slice(3)}` : '··· ···'}</div></div>
-            <button className="btn btn-sm btn-quiet" onClick={newPairing}>New code</button>
+            <button className="btn btn-sm btn-quiet" onClick={newPairing}>{pairingError ? 'Try again' : 'New code'}</button>
           </div>
+          {pairingError && <p role="alert" className="mt-3 max-w-[320px] text-[12.5px] text-vermilion">No pairing code: {pairingError.replace(/\.$/, '')}. Start the laptop backend, then try again.</p>}
           <p className="mt-3 max-w-[320px] text-[12.5px] text-ink-2">
-            Open Undertone on the iPhone and scan. {thisPhone?.connected ? <span className="text-green">This phone is connected.</span> : 'Waiting for the phone…'}
+            Open Undertone on the iPhone and scan. {!pairing ? null : thisPhone?.connected ? <span className="text-green">This phone is connected.</span> : 'Waiting for the phone…'}
             {pairing && <span className="num mt-1 block text-[11px] tracking-normal text-ink-3">server {pairing.server_url}</span>}
           </p>
         </section>
@@ -102,8 +104,9 @@ export default function PairPage() {
         <div className="space-y-12">
           <section aria-label="Phones">
             <h2 className="caps border-b border-ink pb-2 !text-ink">Phones</h2>
-            {devices.filter((d) => d.paired || d.connected).length === 0 && <p className="py-3 text-ink-3">No phone has paired yet.</p>}
-            {devices.filter((d) => d.paired || d.connected).map((d) => (
+            {devices === null && <p className="py-3 text-ink-3">{error ? 'Unknown until the backend answers.' : 'Loading…'}</p>}
+            {devices !== null && phones.length === 0 && <p className="py-3 text-ink-3">No phone has paired yet.</p>}
+            {phones.map((d) => (
               <div key={d.device_id} className="grid grid-cols-[16px_1fr_auto] items-center gap-x-3 border-b border-rule py-3">
                 <span className={`h-2.5 w-2.5 rounded-full ${d.connected ? 'bg-green' : 'border border-ink-3'}`} />
                 <span className="serif text-[26px] leading-none">{d.name}</span>
@@ -133,7 +136,8 @@ export default function PairPage() {
                   : <button className="btn btn-sm btn-quiet" onClick={() => act(() => approveApp(a.app_id), a.app_id)}>Allow again</button>}
               </div>
             ))}
-            {apps.length === 0 && <p className="py-3 text-ink-3">No app has asked yet. Open the slide timer in sdk/demo to see a request arrive.</p>}
+            {apps === null && <p className="py-3 text-ink-3">{error ? 'Unknown until the backend answers.' : 'Loading…'}</p>}
+            {apps !== null && apps.length === 0 && <p className="py-3 text-ink-3">No app has asked yet. An app that wants to tap you shows up here for your approval.</p>}
           </section>
         </div>
       </div>

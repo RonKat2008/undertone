@@ -8,7 +8,6 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { KindSwatch } from '@/components/graph/node-shape';
-import { SampleTag } from '@/components/sample-tag';
 import { getGraphNode, type GraphResult } from '@/lib/api/client';
 import { conversationHref } from '@/lib/conversations/links';
 import { duration, KIND_LABEL, nodeFacts, relativeDay } from '@/lib/graph/format';
@@ -26,7 +25,7 @@ interface DetailPanelProps {
 
 type Load =
   | { state: 'loading' }
-  | { state: 'ready'; detail: GraphNodeDetail; sample: boolean }
+  | { state: 'ready'; detail: GraphNodeDetail }
   | { state: 'error'; message: string };
 
 export function debriefHref(sessionId: string): string {
@@ -42,7 +41,7 @@ export function DetailPanel({ nodeId, graph, now, reducedMotion, onSelect, onClo
     let on = true;
     setLoad({ state: 'loading' });
     getGraphNode(nodeId, graph)
-      .then((r) => on && setLoad({ state: 'ready', detail: r.data, sample: r.sample }))
+      .then((detail) => on && setLoad({ state: 'ready', detail }))
       .catch((e: unknown) => on && setLoad({ state: 'error', message: e instanceof Error ? e.message : 'Could not load this node.' }));
     return () => { on = false; };
   }, [nodeId, graph, attempt]);
@@ -68,7 +67,6 @@ export function DetailPanel({ nodeId, graph, now, reducedMotion, onSelect, onClo
           <div className="caps flex items-center gap-2">
             {node && <KindSwatch kind={node.kind} open={node.meta.open !== false} />}
             {node ? KIND_LABEL[node.kind].one : 'Node'}
-            {load.state === 'ready' && <SampleTag show={load.sample} />}
           </div>
           <h2 id="node-detail-heading" className="serif mt-1 break-words text-[clamp(28px,3vw,40px)] leading-[1.02] outline-none">
             {node?.label ?? nodeId}

@@ -4,20 +4,22 @@
 import Link from 'next/link';
 import { debriefHref } from '@/components/graph/detail-panel';
 import { KindSwatch } from '@/components/graph/node-shape';
-import { SampleTag } from '@/components/sample-tag';
-import type { Sampled } from '@/lib/api/client';
+import type { Fetched } from '@/lib/api/client';
 import type { HabitProfile, SessionSummary, WeeklyReport } from '@/lib/bus/contracts';
 import { conversationHref, LIBRARY_HREF } from '@/lib/conversations/links';
 import { duration, relativeDay } from '@/lib/graph/format';
 import type { GraphNode, GraphStats } from '@/lib/graph/types';
 
-export function StatsStrip({ stats, days, loading }: { stats: GraphStats; days: number; loading: boolean }) {
+/** A count for the strip: a dash while unknown (loading, or the backend did not answer). */
+const count = (v: number, unknown: boolean) => (unknown || !Number.isFinite(v) ? '—' : String(Math.round(v)));
+
+export function StatsStrip({ stats, days, loading, unknown = false }: { stats: GraphStats; days: number; loading: boolean; unknown?: boolean }) {
   const items: { label: string; value: string; strong?: boolean }[] = [
-    { label: 'Conversations', value: String(stats.conversations) },
-    { label: 'People', value: String(stats.people) },
-    { label: 'Topics', value: String(stats.topics) },
-    { label: 'Minutes you spoke', value: String(stats.minutes_spoken) },
-    { label: 'Open promises', value: String(stats.open_commitments), strong: stats.open_commitments > 0 },
+    { label: 'Conversations', value: count(stats.conversations, unknown) },
+    { label: 'People', value: count(stats.people, unknown) },
+    { label: 'Topics', value: count(stats.topics, unknown) },
+    { label: 'Minutes you spoke', value: count(stats.minutes_spoken, unknown) },
+    { label: 'Open promises', value: count(stats.open_commitments, unknown), strong: !unknown && stats.open_commitments > 0 },
   ];
   return (
     <dl aria-label={`Last ${days} days`} aria-busy={loading}
@@ -32,52 +34,55 @@ export function StatsStrip({ stats, days, loading }: { stats: GraphStats; days: 
   );
 }
 
-function SectionHead({ title, count, sample }: { title: string; count?: number; sample?: boolean }) {
+function SectionHead({ title, count }: { title: string; count?: number }) {
   return (
     <h2 className="caps flex items-center gap-2 border-b border-ink pb-2 !text-ink">
-      {title}{count !== undefined && <span className="num text-ink-3">{count}</span>}<SampleTag show={sample ?? false} />
+      {title}{count !== undefined && <span className="num text-ink-3">{count}</span>}
     </h2>
   );
 }
 
-export function RecentConversations({ sessions, now }: { sessions: Sampled<SessionSummary[]> | null; now: number }) {
+export function RecentConversations({ sessions, now }: { sessions: Fetched<SessionSummary[]> | null; now: number }) {
+  const list = sessions?.ok ? sessions.data : [];
   return (
     <section aria-label="Recent conversations">
-      <SectionHead title="Recent conversations" sample={sessions?.sample} />
+      <SectionHead title="Recent conversations" />
       {!sessions && <Skeleton rows={4} />}
-      {sessions && sessions.data.length === 0 && <Empty text="No conversations yet. They appear here the moment one ends." />}
+      {sessions && !sessions.ok && <Failed text={sessions.error} />}
+      {sessions?.ok && list.length === 0 && <Empty text="No conversations yet. Wear the band and talk; they show up here on their own." />}
       <ul>
-        {sessions?.data.slice(0, 6).map((s) => {
+        {list.slice(0, 6).map((s) => {
           const when = Date.parse(s.started_at) / 1000;
           return (
             <li key={s.session_id} className="grid grid-cols-[76px_1fr] gap-x-4 border-b border-rule py-3">
               <span className="text-[12px] leading-tight text-ink-2">
                 <span className="block">{Number.isFinite(when) ? (now > 0 ? relativeDay(when, now) : s.started_at.slice(0, 10)) : '—'}</span>
-                <span className="num block">{duration(s.duration_s)}</span>
+                <span className="num block">{Number.isFinite(s.duration_s) ? duration(s.duration_s) : '—'}</span>
                 {s.mode === 'practice' && <span className="caps mt-1 block !text-[9px]">practice</span>}
               </span>
               <span className="min-w-0">
-                <Link href={debriefHref(s.session_id)} className="block text-[14px] leading-snug hover:underline">{s.headline_fact}</Link>
-                <span className="num mt-1 block text-[11.5px] text-ink-2">{Math.round(s.numbers.talk_ratio * 100)}% you · {Math.round(s.numbers.wpm)} wpm · {s.coach_name}</span>
+                <Link href={debriefHref(s.session_id)} className="block text-[14px] leading-snug hover:underline">{s.headline_fact || 'Untitled conversation'}</Link>
+                <span className="num mt-1 block text-[11.5px] text-ink-2">{sessionNumbers(s)}</span>
                 <Link href={conversationHref(s.session_id)} className="mt-1 inline-block text-[11.5px] text-ink-2 underline decoration-rule underline-offset-2 hover:text-ink hover:decoration-ink">Transcript and recording</Link>
               </span>
             </li>
           );
         })}
       </ul>
-      {sessions && sessions.data.length > 0 && (
+      {list.length > 0 && (
         <Link href={LIBRARY_HREF} className="caps mt-3 inline-block hover:text-ink">All conversations →</Link>
       )}
     </section>
   );
 }
 
-export function OpenPromises({ nodes, sample, now, onSelect }: { nodes: GraphNode[]; sample: boolean; now: number; onSelect: (id: string) => void }) {
+export function OpenPromises({ nodes, loaded, now, onSelect }: { nodes: GraphNode[]; loaded: boolean; now: number; onSelect: (id: string) => void }) {
   const open = nodes.filter((n) => n.kind === 'commitment' && n.meta.open === true).sort((a, b) => (b.last_seen ?? 0) - (a.last_seen ?? 0));
   return (
     <section aria-label="Open promises">
-      <SectionHead title="Open promises" count={open.length} sample={sample} />
-      {open.length === 0 && <Empty text="Nothing you promised is still open. Promises the judge hears land here." />}
+      <SectionHead title="Open promises" count={loaded ? open.length : undefined} />
+      {!loaded && <Empty text="Promises show here once the graph loads." />}
+      {loaded && open.length === 0 && <Empty text="Nothing you promised is still open. Promises the judge hears land here." />}
       <ul>
         {open.map((n) => (
           <li key={n.id} className="border-b border-rule">
@@ -104,14 +109,16 @@ const TREND = {
 
 const METRIC_LABEL: Record<string, string> = { talk_ratio: 'Talk share', interruptions: 'Interruptions', questions: 'Questions', fillers_per_min: 'Fillers / min', wpm: 'Pace, wpm' };
 
-export function TopHabits({ profile, weekly }: { profile: Sampled<HabitProfile> | null; weekly: Sampled<WeeklyReport> | null }) {
-  const issues = profile ? [...profile.data.recurring_issues].sort((a, b) => b.rate - a.rate).slice(0, 4) : [];
+export function TopHabits({ profile, weekly }: { profile: Fetched<HabitProfile> | null; weekly: Fetched<WeeklyReport> | null }) {
+  const issues = profile?.ok ? [...profile.data.recurring_issues].sort((a, b) => b.rate - a.rate).slice(0, 4) : [];
+  const trend = weekly?.ok ? weekly.data.trend.filter((t) => Number.isFinite(t.from) && Number.isFinite(t.to)) : [];
   const fmt = (metric: string, v: number) => (metric === 'talk_ratio' ? `${Math.round(v * 100)}%` : Number.isInteger(v) ? String(v) : v.toFixed(1));
   return (
     <section aria-label="Top habits">
-      <SectionHead title="Habits" sample={profile?.sample} />
+      <SectionHead title="Habits" />
       {!profile && <Skeleton rows={3} />}
-      {profile && issues.length === 0 && <Empty text="No habits yet. A habit needs three conversations." />}
+      {profile && !profile.ok && <Failed text={profile.error} />}
+      {profile?.ok && issues.length === 0 && <Empty text="No habits yet. A habit needs three conversations." />}
       <ul>
         {issues.map((h) => {
           const t = TREND[h.trend];
@@ -124,20 +131,20 @@ export function TopHabits({ profile, weekly }: { profile: Sampled<HabitProfile> 
               <div className="mt-2 h-1.5 w-full bg-well" aria-hidden>
                 <div className="h-full origin-left bg-[var(--k-habit)]" style={{ transform: `scaleX(${Math.min(1, h.rate)})` }} />
               </div>
-              <div className="num mt-1 text-[11.5px] text-ink-2">in {Math.round(h.rate * 100)}% of conversations</div>
+              <div className="num mt-1 text-[11.5px] text-ink-2">in {Math.round(Math.min(1, Math.max(0, h.rate)) * 100)}% of conversations</div>
             </li>
           );
         })}
       </ul>
-      {profile && profile.data.crutch_words.length > 0 && (
+      {profile?.ok && profile.data.crutch_words.length > 0 && (
         <p className="mt-3 text-[12.5px] text-ink-2">
           <span className="caps mr-2">Crutch words</span>
           {profile.data.crutch_words.map((w) => `“${w.word}” ${w.per_min.toFixed(1)}/min`).join(' · ')}
         </p>
       )}
-      {weekly && weekly.data.trend.length > 0 && (
+      {trend.length > 0 && (
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-rule pt-3">
-          {weekly.data.trend.slice(0, 4).map((t) => (
+          {trend.slice(0, 4).map((t) => (
             <div key={t.metric}>
               <dt className="caps">{METRIC_LABEL[t.metric] ?? t.metric}</dt>
               <dd className="num text-[14px]">{fmt(t.metric, t.from)} <span className="text-ink-3">→</span> {fmt(t.metric, t.to)}</dd>
@@ -159,4 +166,18 @@ function Skeleton({ rows }: { rows: number }) {
 
 function Empty({ text }: { text: string }) {
   return <p className="py-4 text-[13px] text-ink-3">{text}</p>;
+}
+
+function Failed({ text }: { text: string }) {
+  return <p role="alert" className="py-4 text-[13px] text-vermilion">{text}</p>;
+}
+
+/** "54% you · 254 wpm · Coach", leaving out whatever the backend did not send. */
+function sessionNumbers(s: SessionSummary): string {
+  const n = s.numbers;
+  return [
+    Number.isFinite(n?.talk_ratio) ? `${Math.round(n.talk_ratio * 100)}% you` : null,
+    Number.isFinite(n?.wpm) ? `${Math.round(n.wpm)} wpm` : null,
+    s.coach_name || null,
+  ].filter(Boolean).join(' · ');
 }

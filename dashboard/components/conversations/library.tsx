@@ -10,8 +10,7 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { SampleTag } from '@/components/sample-tag';
-import { listConversations, listPeople, setKept, type LibraryResult, type Sampled } from '@/lib/api/client';
+import { listConversations, listPeople, setKept, type Fetched, type LibraryResult } from '@/lib/api/client';
 import type { Person } from '@/lib/bus/contracts';
 import { useBus } from '@/lib/bus/use-bus';
 import { conversationHref } from '@/lib/conversations/links';
@@ -30,7 +29,7 @@ export function Library() {
   const { state } = useBus();
   const [result, setResult] = useState<LibraryResult | null>(null);
   const [list, setList] = useState<LibrarySession[]>([]);
-  const [people, setPeople] = useState<Sampled<Person[]> | null>(null);
+  const [people, setPeople] = useState<Fetched<Person[]> | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [rowError, setRowError] = useState<RowError | null>(null);
@@ -61,12 +60,11 @@ export function Library() {
     return () => { on = false; };
   }, [busKey]);
 
-  // Sample names only label sample conversations, never real ones.
   const names = useMemo(() => {
     const m = new Map<string, string>();
-    if (people && result && people.sample === result.sample) for (const p of people.data) m.set(p.person_id, p.name);
+    if (people?.ok) for (const p of people.data) m.set(p.person_id, p.name);
     return m;
-  }, [people, result]);
+  }, [people]);
   const personName = (id: string | null) => (id ? names.get(id) ?? null : null);
 
   const visible = url.all ? list : list.filter((s) => s.kept);
@@ -75,7 +73,7 @@ export function Library() {
   const today = dayKey(new Date().toISOString());
   const keptCount = list.filter((s) => s.kept).length;
   const filteredCount = list.length - keptCount;
-  const keptMinutes = Math.round(list.filter((s) => s.kept).reduce((m, s) => m + s.duration_s, 0) / 60);
+  const keptMinutes = Math.round(list.filter((s) => s.kept).reduce((m, s) => m + (Number.isFinite(s.duration_s) ? s.duration_s : 0), 0) / 60);
 
   async function override(session: LibrarySession, kept: boolean) {
     const previous = session;
@@ -102,7 +100,6 @@ export function Library() {
         <div className="min-w-0">
           <div className="caps flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Library</span>
-            {result && <SampleTag show={result.sample} />}
           </div>
           <h1 className="serif mt-1 text-[clamp(36px,5vw,64px)] leading-[0.95]">Every conversation, word for word.</h1>
         </div>

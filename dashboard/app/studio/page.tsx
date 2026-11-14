@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Glyph } from '@/components/glyph';
-import { SampleTag } from '@/components/sample-tag';
-import { activateCoach, buildCoach, buildPersonalCoach, getProfile, listCoaches, saveCoach, type Sampled } from '@/lib/api/client';
+import { activateCoach, buildCoach, buildPersonalCoach, getProfile, listCoaches, saveCoach, type Fetched } from '@/lib/api/client';
 import type { CoachQuestion, CoachSpec, HabitProfile, HapticPattern, NudgeRule } from '@/lib/bus/contracts';
 import { PATTERNS, PATTERN_ORDER } from '@/lib/bus/patterns';
 import { useBus } from '@/lib/bus/use-bus';
@@ -18,25 +17,21 @@ const STAGES = ['Name and goal', 'Questions for the judge', 'Nudge rules', 'Crut
 type Phase = 'empty' | 'generating' | 'sheet';
 
 export default function StudioPage() {
-  const { state, inject, kind } = useBus();
+  const { state, inject } = useBus();
   const [phase, setPhase] = useState<Phase>('empty');
   const [goal, setGoal] = useState('');
   const [stage, setStage] = useState(0);
   const [draft, setDraft] = useState<CoachSpec | null>(null);
   const [library, setLibrary] = useState<CoachSpec[]>([]);
-  const [profile, setProfile] = useState<Sampled<HabitProfile> | null>(null);
+  const [profile, setProfile] = useState<Fetched<HabitProfile> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
 
   useEffect(() => {
     let on = true;
-    listCoaches().then((c) => on && setLibrary(c)).catch(() => on && setError('Could not load the coach library.'));
+    listCoaches().then((c) => on && setLibrary(c)).catch((e: unknown) => on && setError(`Could not load the coach library. ${e instanceof Error ? e.message : ''}`.trim()));
     getProfile().then((p) => on && setProfile(p));
-    // ?demo=generating | ?demo=sheet : jump straight to a state (rehearsal, screenshots)
-    const demo = new URLSearchParams(window.location.search).get('demo');
-    if (demo === 'generating') { setGoal(EXAMPLES[0]); setPhase('generating'); setStage(3); }
-    if (demo === 'sheet') void buildCoach(`I want to ${EXAMPLES[0]}`).then((c) => { if (on) { setGoal(EXAMPLES[0]); setDraft(c); setPhase('sheet'); } });
     return () => { on = false; };
   }, []);
 
@@ -64,7 +59,7 @@ export default function StudioPage() {
     try {
       if (coach.kind !== 'prebuilt') await saveCoach(coach);
       const active = (await activateCoach(coach.id)) ?? coach;
-      if (kind === 'mock') inject({ type: 'coach.activated', coach: active });
+      inject({ type: 'coach.activated', coach: active });
       setLibrary(await listCoaches());
       setSaved(`${active.name} is the active coach.`);
     } catch (e) {
@@ -262,11 +257,11 @@ function Sheet({ coach, onChange, onActivate, busy, active }: { coach: CoachSpec
 const TREND = { better: 'getting better', same: 'steady', worse: 'rising' } as const;
 
 function Library({ coaches, activeId, profile, onOpen, onActivate, onPersonal, busy }: {
-  coaches: CoachSpec[]; activeId: string | null; profile: Sampled<HabitProfile> | null;
+  coaches: CoachSpec[]; activeId: string | null; profile: Fetched<HabitProfile> | null;
   onOpen: (c: CoachSpec) => void; onActivate: (c: CoachSpec) => void; onPersonal: () => void; busy: boolean;
 }) {
   const others = coaches.filter((c) => c.kind !== 'personal');
-  const p = profile?.data;
+  const p = profile?.ok ? profile.data : null;
   return (
     <section className="mt-14" aria-label="Coach library">
       <h2 className="caps border-b border-ink pb-2 !text-ink">Library</h2>
@@ -286,10 +281,11 @@ function Library({ coaches, activeId, profile, onOpen, onActivate, onPersonal, b
         </ul>
         <div className="border-b border-rule py-3">
           <div className="flex items-baseline justify-between">
-            <span><span className="serif text-[28px] leading-none">Personal</span><span className="caps ml-3">practice mode</span> <SampleTag show={profile?.sample ?? false} className="ml-2" /></span>
+            <span><span className="serif text-[28px] leading-none">Personal</span><span className="caps ml-3">practice mode</span></span>
             <button className="btn" onClick={onPersonal}>Open</button>
           </div>
-          <p className="mt-1 text-[13px] text-ink-2">Built from your own last {p?.sessions ?? 0} conversations. It drills the words you lean on.</p>
+          <p className="mt-1 text-[13px] text-ink-2">{p ? `Built from your own last ${p.sessions} conversation${p.sessions === 1 ? '' : 's'}. It drills the words you lean on.` : 'Built from your own conversations. It drills the words you lean on.'}</p>
+          {profile && !profile.ok && <p role="alert" className="mt-2 text-[13px] text-vermilion">{profile.error}</p>}
           {p && (
             <div className="mt-3 grid grid-cols-2 gap-x-8">
               <div>
