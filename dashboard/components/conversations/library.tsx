@@ -189,7 +189,7 @@ interface RowProps {
 
 function Row({ s, person, busy, failed, onKeep, onHide }: RowProps) {
   const reason = reasonLabel(s);
-  const meta = [person ? `with ${person}` : null, s.mode === 'practice' ? 'practice' : null, s.coach_name ? `${s.coach_name} coach` : null].filter(Boolean);
+  const meta = [person ? `with ${person}` : null, s.mode === 'practice' ? 'practice' : null, s.coach_name ? (/\bcoach$/i.test(s.coach_name.trim()) ? s.coach_name : `${s.coach_name} coach`) : null].filter(Boolean);
   return (
     <li className={`grid grid-cols-[52px_minmax(0,1fr)_auto] items-start gap-x-4 border-b border-rule py-3.5 last:border-b-0 ${failed ? 'bg-well/60' : ''}`}>
       <div className={`pt-[1px] ${reason ? 'opacity-55' : ''}`}>

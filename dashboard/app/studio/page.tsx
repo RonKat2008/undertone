@@ -302,8 +302,9 @@ function Library({ coaches, activeId, profile, onOpen, onActivate, onPersonal, b
               <div>
                 <div className="caps mb-1">Recurring</div>
                 {p.recurring_issues.map((r) => (
-                  <div key={r.rule_id} className="flex justify-between gap-3 py-0.5 text-[13px]"><span>{r.label}</span><span className="caps shrink-0">{TREND[r.trend]}</span></div>
+                  <div key={r.rule_id} className="flex justify-between gap-3 py-0.5 text-[13px]"><span>{r.label}</span><span className="caps shrink-0">{TREND[r.trend] ?? ''}</span></div>
                 ))}
+                {p.recurring_issues.length === 0 && <p className="text-[13px] text-ink-3">Nothing recurring yet.</p>}
               </div>
             </div>
           )}
