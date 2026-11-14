@@ -1,76 +1,46 @@
 /**
- * "Tempo" tokens for the phone (DESIGN.md §2.6, dark column; the phone ships dark).
- * React Native gets the sRGB hex fallbacks, never oklch().
- * Names are roles: `bg` is always the surface, `fg` always the main foreground.
+ * "Quiet Ink" tokens for the phone (mobile/DESIGN.md). Dark only.
+ * Hex values are the website's oklch tokens converted with culori, so both surfaces match.
+ * Names are roles, not colours: `accent` means "your moment" and nothing else.
  */
-import { Easing } from 'react-native';
-import type { Tone } from '@/bus/patterns';
 
 export const C = {
-  bg: '#0E1218', // --paper (dark): blue-black, not #000
-  well: '#171B22', // recessed surface: keys, the metronome face
-  rule: '#2B2E34', // decorative hairlines and stave lines only
-  ruleStrong: '#656970', // interactive borders and rules that carry meaning (≥ 3:1)
-  fg: '#ECEBE4', // --ink (dark)
-  fg2: '#ADB1B9', // secondary text
-  fg3: '#888C94', // tertiary text: timestamps, line numbers (passes AA)
-  them: '#60636A', // the other person's fill
+  bg: '#120F0C', //        oklch(17% .008 70)  the page
+  surface: '#1B1814', //   oklch(21% .008 70)  a raised control: quiet button, segmented track, sheet
+  pressed: '#24211E', //   oklch(25% .008 70)  a row or quiet button while pressed
+  line: '#302D2A', //      oklch(30% .008 70)  hairline rules
+  lineStrong: '#504C48', // oklch(42% .008 70) the selected segment, scrubber track
+  text: '#EAE7E2', //      oklch(93% .008 85)  primary text (15.5:1 on bg)
+  muted: '#9B9891', //     oklch(68% .01 80)   secondary text (6.6:1 on bg)
+  faint: '#6C6863', //     oklch(52% .01 80)   disabled text only (never meaning)
+  accent: '#5EBDBC', //    oklch(74% .09 195)  your moment: the nudge, the one thing to try, the primary action
+  onAccent: '#120F0C', //  text on the accent field (8.6:1)
+  warn: '#E4B572', //      oklch(80% .1 75)    something needs you: an app waiting, a lost connection
+  danger: '#E68677', //    oklch(72% .12 30)   destructive actions only (unpair, revoke)
 } as const;
 
-/** System states are neutral (§2.4): ink, shape and words. Never a pattern hue. */
-export const STATE = { on: C.fg, off: C.fg3, fault: C.fg } as const;
-
-export interface ToneSet {
-  /** Step 3: highlighter wash, selected row. */
-  tint: string;
-  /** Step 9: glyph fill, takeover field, filler underline. */
-  solid: string;
-  /** Step 11: words in that pattern's colour (≥ 4.5:1 on bg, well and tint). */
-  text: string;
-  /** Text on the solid (the takeover). Only at ≥ 24 px. */
-  on: string;
-}
-
-/** A pattern hue means that pattern and nothing else (§2.2). */
-export const TONE: Record<Tone, ToneSet> = {
-  vermilion: { tint: '#3B1C17', solid: '#ED7665', text: '#F8907F', on: C.bg },
-  ochre: { tint: '#2F250E', solid: '#E3B750', text: '#E7BE62', on: C.bg },
-  green: { tint: '#172C1C', solid: '#62BB78', text: '#7CCD8E', on: C.bg },
-  teal: { tint: '#132B2C', solid: '#5DBCC1', text: '#79CACF', on: C.bg },
-  blue: { tint: '#15273E', solid: '#69A1E8', text: '#84B7F9', on: C.bg },
-  violet: { tint: '#2C203A', solid: '#B08ADA', text: '#C4A2ED', on: C.bg },
-  pencil: { tint: '#2C251F', solid: '#BCA695', text: '#CDBAAB', on: C.bg },
-  rose: { tint: '#322028', solid: '#D08DAC', text: '#DFA3BF', on: C.bg },
-};
-
-/**
- * Families (§3.1): Newsreader for display, Ronzino for text and real small caps,
- * IBM Plex Mono for every number that changes.
- */
+/** Four faces, loaded once in app/_layout.tsx. Newsreader is the coach's voice; Inter is everything else. */
 export const F = {
   serif: 'Newsreader_400Regular',
-  serifLight: 'Newsreader_300Light', // display sizes ≥ 40 px on the phone
   serifItalic: 'Newsreader_400Regular_Italic',
-  serifLightItalic: 'Newsreader_300Light_Italic',
-  sans: 'Ronzino_400',
-  sansMedium: 'Ronzino_500',
-  sansOblique: 'Ronzino_400_Oblique',
-  mono: 'IBMPlexMono_400Regular',
-  monoItalic: 'IBMPlexMono_400Regular_Italic',
-  monoMedium: 'IBMPlexMono_500Medium',
+  sans: 'Inter_400Regular',
+  sansMedium: 'Inter_500Medium',
 } as const;
 
-/** Spacing, base 4 (§4.1). */
-export const S = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 24, 6: 32, 7: 48, 8: 64, 9: 96 } as const;
+/** Six sizes, nothing else. */
+export const SIZE = { caption: 13, small: 15, body: 17, lead: 22, title: 34, display: 52 } as const;
 
-/** Radius (§4.4): keys only; everything else is square. */
-export const R = { key: 4 } as const;
+/** Spacing on a 4 pt base. Use the steps, not raw numbers. */
+export const S = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 7: 32, 8: 48, 9: 64 } as const;
 
-/** Motion (§5.1). */
-export const EASE = {
-  enter: Easing.bezier(0.05, 0.7, 0.1, 1),
-  exit: Easing.bezier(0.3, 0, 0.8, 0.15),
-  std: Easing.bezier(0.2, 0, 0, 1),
-  sine: Easing.bezier(0.37, 0, 0.63, 1),
-} as const;
-export const DUR = { press: 120, enter: 240, exit: 200, hold: 2500, breath: 3200 } as const;
+/** Page gutter. */
+export const GUTTER = S[5];
+
+/** Radius: controls only. Rows, sections and text never sit in boxes. */
+export const R = { control: 12, sheet: 20 } as const;
+
+/** Smallest touch target (Apple HIG). */
+export const TOUCH = 44;
+
+/** Motion (ms). Short, transform/opacity only; zero under Reduce Motion. */
+export const DUR = { press: 120, state: 200, enter: 240, exit: 180, nudge: 2500, status: 3000 } as const;

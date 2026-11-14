@@ -153,3 +153,22 @@ export async function approveApp(app_id: string): Promise<void> {
 export async function revokeApp(app_id: string): Promise<void> {
   await http(`/v1/apps/${encodeURIComponent(app_id)}`, 'DELETE');
 }
+
+// ---------- relationships (optional route: a laptop without it answers 404, read as an empty list) ----------
+export type RelationshipKind = 'friend' | 'partner' | 'family' | 'boss' | 'report' | 'coworker' | 'client' | 'teacher' | 'student' | 'service' | 'acquaintance' | 'stranger' | 'unknown';
+export interface PersonRelationshipView { person_id: string; name: string; kind: RelationshipKind }
+
+const KINDS: readonly RelationshipKind[] = ['friend', 'partner', 'family', 'boss', 'report', 'coworker', 'client', 'teacher', 'student', 'service', 'acquaintance', 'stranger', 'unknown'];
+
+function parseRelationships(v: unknown): PersonRelationshipView[] | null {
+  if (!Array.isArray(v)) return null;
+  return v.flatMap((r): PersonRelationshipView[] => {
+    const o = r as { person_id?: unknown; name?: unknown; relationship?: { kind?: unknown } } | null;
+    const kind = o?.relationship?.kind;
+    if (!o || typeof o.person_id !== 'string' || typeof o.name !== 'string' || !KINDS.includes(kind as RelationshipKind)) return [];
+    return [{ person_id: o.person_id, name: o.name, kind: kind as RelationshipKind }];
+  });
+}
+
+/** GET /relationships (PersonRelationship[]). Only `kind` is kept: confidence, source and evidence are never shown. */
+export const listRelationships = async (): Promise<Load<PersonRelationshipView[]>> => asList(await load('/relationships', parseRelationships));

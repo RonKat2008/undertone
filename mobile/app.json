@@ -27,9 +27,17 @@
         }
       ],
       "expo-audio",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#120F0C",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 120
+        }
+      ]
     ],
     "scheme": "undertone",
-    "backgroundColor": "#0E1218"
+    "backgroundColor": "#120F0C"
   }
 }
