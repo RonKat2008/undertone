@@ -4,12 +4,15 @@ import { InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic } from '@
 import { useFonts } from 'expo-font';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PATTERN_ORDER, PATTERNS } from '@/bus/patterns';
+import { isLive } from '@/bus/reducer';
 import { BusProvider, useBus } from '@/bus/use-bus';
+import { DebriefNotice } from '@/ui/DebriefNotice';
 import { Glyph } from '@/ui/Glyph';
+import { StayAwake } from '@/ui/Listening';
 import { Btn, T } from '@/ui/kit';
 import { C } from '@/ui/theme';
 
@@ -27,15 +30,30 @@ export default function RootLayout() {
 }
 
 function Shell() {
-  const { mode } = useBus();
+  const { mode, state, dismissNotice } = useBus();
   const path = usePathname();
   const router = useRouter();
   const [director, setDirector] = useState(false);
+  const live = isLive(state);
+  const sessionId = state.session?.id ?? null;
+  const shownFor = useRef<string | null>(null);
 
   useEffect(() => {
     if (mode === 'unpaired' && path !== '/pair') router.replace('/pair');
     if ((mode === 'mock' || mode === 'live') && path === '/pair') router.replace('/');
   }, [mode, path, router]);
+
+  // Always-on: a conversation that opens by itself takes the phone to the Live view, once per conversation.
+  useEffect(() => {
+    if (!state.alwaysOn || !live || !sessionId || shownFor.current === sessionId) return;
+    shownFor.current = sessionId;
+    if (path !== '/live' && path !== '/pair') router.replace('/live');
+  }, [state.alwaysOn, live, sessionId, path, router]);
+
+  // Reading the debrief is what the notice asks for: once there, it is done.
+  useEffect(() => {
+    if (path === '/debrief' && state.notice) dismissNotice();
+  }, [path, state.notice, dismissNotice]);
 
   // The director panel: a three-finger tap on the phone, the backtick key on web.
   useEffect(() => {
@@ -49,13 +67,18 @@ function Shell() {
   return (
     <View style={{ flex: 1, backgroundColor: C.ink }} onTouchStart={(e) => { if (e.nativeEvent.touches.length === 3) setDirector(true); }}>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.ink }, animation: 'fade' }} />
+      {/* always-on: the screen may sleep between conversations, but not during one */}
+      {state.alwaysOn && live ? <StayAwake /> : null}
+      {state.notice && path !== '/debrief' && path !== '/pair' ? (
+        <DebriefNotice notice={state.notice} onDismiss={dismissNotice} onOpen={() => { dismissNotice(); router.push('/debrief'); }} />
+      ) : null}
       <Director open={director} onClose={() => setDirector(false)} />
     </View>
   );
 }
 
 function Director({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { send, mode } = useBus();
+  const { send, mode, alwaysOnDemo, setAlwaysOnDemo } = useBus();
   const Group = ({ title, children }: { title: string; children: React.ReactNode }) => (
     <View style={{ marginBottom: 16 }}>
       <T v="caps" style={{ marginBottom: 8 }}>{title}</T>
@@ -71,6 +94,12 @@ function Director({ open, onClose }: { open: boolean; onClose: () => void }) {
           <T v="caps">{mode === 'mock' ? 'mock feed' : 'live backend'}</T>
         </View>
         <ScrollView>
+          {mode === 'mock' ? (
+            <Group title="Demo feed">
+              <Btn small solid={!alwaysOnDemo} label="Tap to start" onPress={() => setAlwaysOnDemo(false)} />
+              <Btn small solid={alwaysOnDemo} label="Always-on day" onPress={() => setAlwaysOnDemo(true)} />
+            </Group>
+          ) : null}
           <Group title="Session">
             <Btn small label="Start regular" onPress={() => send({ cmd: 'start', mode: 'regular' })} />
             <Btn small label="Start practice" onPress={() => send({ cmd: 'start', mode: 'practice' })} />

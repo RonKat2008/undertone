@@ -2,18 +2,18 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { listPeople, type Sampled } from '@/api/client';
 import type { Person } from '@/bus/contracts';
-import { useBus } from '@/bus/use-bus';
+import { useListVersion } from '@/bus/use-bus';
 import { SampleTag, Screen, T } from '@/ui/kit';
 import { C } from '@/ui/theme';
 
 export default function PeopleScreen() {
-  const { mode } = useBus();
+  const version = useListVersion();
   const [people, setPeople] = useState<Sampled<Person[]> | null>(null);
   useEffect(() => {
     let on = true;
     listPeople().then((p) => on && setPeople(p));
     return () => { on = false; };
-  }, [mode]);
+  }, [version]);
   return (
     <Screen title="People" right={<SampleTag show={people?.sample ?? false} />}>
       <T v="small" style={{ marginBottom: 6 }}>How you talk with each person, against how you talk with everyone else you have tagged. Never against other people’s numbers.</T>
