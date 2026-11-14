@@ -57,7 +57,7 @@ MODELS: dict[str, ModelSpec] = {
                   "CC BY 4.0 (NVIDIA NeMo)"),
     )
 }
-DEFAULT_MODEL = "wespeaker-resnet34-lm"
+DEFAULT_MODEL = "titanet-small"
 
 
 class Embedder(Protocol):

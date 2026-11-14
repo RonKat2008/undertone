@@ -83,8 +83,11 @@ class Match:
 
 @dataclass(frozen=True)
 class VoiceConfig:
-    """Tuning. Similarity thresholds are cosine on L2-normalised embeddings; calibrated by
-    scripts/eval_voices.py for the chosen model (see backend/README.md)."""
+    """Tuning. Similarity thresholds are cosine on L2-normalised embeddings, calibrated with
+    scripts/eval_voices.py for NeMo TitaNet-small (the default model; backend/README.md).
+    On the synthetic set, conversation-cluster centroids of one speaker scored 0.79-0.96 and of
+    different speakers 0.01-0.35: the match and wearer thresholds sit in that gap, well above
+    the different-speaker ceiling, leaving room for real voices that sound more alike."""
 
     min_embed_s: float = 1.0  # shorter spans are not embedded on their own
     max_span_s: float = 6.0  # a word span is cut at this length
@@ -92,14 +95,14 @@ class VoiceConfig:
     pool_gap_s: float = 1.0  # short neighbours of one label closer than this are pooled
     window_s: float = 3.0  # turn windows (no word timings)
     pad_s: float = 0.05  # audio padding around a span when slicing
-    cluster_sim: float = 0.5  # agglomerative clustering stops below this average similarity
+    cluster_sim: float = 0.3  # agglomerative clustering stops below this average span similarity
     label_bonus: float = 0.05  # same Deepgram label: a small tie-break in clustering
     min_cluster_s: float = 2.0  # smaller clusters are absorbed into the nearest larger one
-    match_sim: float = 0.5  # a cluster matches a stored voice at or above this ...
-    match_margin: float = 0.08  # ... and this far above the second-best voice
+    match_sim: float = 0.55  # a cluster matches a stored voice at or above this ...
+    match_margin: float = 0.1  # ... and this far above the second-best voice
     wearer_sim: float = 0.5  # a cluster is the wearer at or above this
     exemplar_cap: int = 20
-    outlier_sim: float = 0.3  # an exemplar this far from the rest is left out of the centroid
+    outlier_sim: float = 0.25  # an exemplar below this similarity to the centroid is not used
     min_print_s: float = 3.0  # a cluster needs this much speech to create or update a voiceprint
     bootstrap_confirmations: int = 3  # conversations before a bootstrapped wearer print is trusted
 

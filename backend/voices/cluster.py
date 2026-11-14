@@ -70,6 +70,26 @@ def _absorb_small(groups: list[list[int]], sim: np.ndarray, seconds: Sequence[fl
     return list(out.values())
 
 
+REFINE_ITERS = 3
+
+
+def _refine(groups: list[list[int]], vecs: np.ndarray, seconds: Sequence[float]) -> list[list[int]]:
+    """A few k-means passes: each span moves to the nearest seconds-weighted centroid, which
+    cleans up spans that average linkage attached to the wrong speaker early on."""
+    w = np.asarray([float(s) for s in seconds], dtype=np.float64)
+    for _ in range(REFINE_ITERS):
+        if len(groups) < 2:
+            return groups
+        cents = np.stack([normalize((vecs[g] * w[g, None]).sum(axis=0)) for g in groups])
+        nearest = np.argmax(vecs @ cents.T, axis=1)
+        moved = [[i for i in range(len(vecs)) if nearest[i] == k] for k in range(len(groups))]
+        moved = [g for g in moved if g]
+        if sorted(map(sorted, moved)) == sorted(map(sorted, groups)):
+            return groups
+        groups = moved
+    return groups
+
+
 def cluster_spans(embeddings: np.ndarray, seconds: Sequence[float],
                   labels: Sequence[int | None], cfg: VoiceConfig) -> list[int]:
     """Average-linkage clustering on cosine similarity; cluster index per span, 0 = most speech."""
@@ -82,6 +102,7 @@ def cluster_spans(embeddings: np.ndarray, seconds: Sequence[float],
     sim = vecs @ vecs.T
     groups = _agglomerate(sim, seconds, labels, cfg.cluster_sim, cfg.label_bonus)
     groups = _absorb_small(groups, sim, seconds, cfg.min_cluster_s)
+    groups = _refine(groups, vecs, seconds)
     order = sorted(groups, key=lambda g: (-sum(float(seconds[m]) for m in g), min(g)))
     assign = [0] * n
     for k, g in enumerate(order):

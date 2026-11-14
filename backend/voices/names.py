@@ -32,12 +32,16 @@ GREETINGS = r"(?:hi|hey|hello|thanks|thank you|cheers|bye|goodbye|morning|good m
 VOCATIVE_RE = re.compile(rf"\b(?i:{GREETINGS}),?\s+{NAME_RE}\s*[.!?,]")
 INTRO_RE = re.compile(rf"\b(?i:i'm|i am|my name is|my name's|this is|call me)\s+{NAME_RE}\b")
 TRAILING_VOCATIVE_RE = re.compile(rf",\s+{NAME_RE}\s*[.!?]\s*$")
+LEADING_VOCATIVE_RE = re.compile(rf"^\s*{NAME_RE},\s+(?:[a-z]|I\b)")  # "Priya, have you..."; not "Lisbon, Porto"
 NOT_NAMES: frozenset[str] = frozenset({
     "sorry", "sure", "here", "fine", "good", "great", "glad", "just", "back", "done", "okay", "right",
     "everyone", "guys", "man", "mate", "buddy", "dude", "sir", "madam", "there", "all", "both", "you",
     "going", "not", "so", "really", "afraid", "happy", "excited", "tired", "late", "new", "well", "thanks",
     "today", "tomorrow", "yesterday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
     "sunday", "honestly", "actually", "still", "also", "very", "pretty", "kind", "doing", "working", "busy",
+    "yeah", "yes", "no", "hey", "hi", "hello", "look", "listen", "anyway", "basically", "maybe", "then", "now",
+    "first", "second", "finally", "plus", "but", "and", "because", "sounds", "perfect", "exactly", "totally",
+    "absolutely", "cool", "nice", "awesome", "wow", "oh", "um", "uh", "hmm", "alright", "please", "sorry",
 })
 
 
@@ -102,6 +106,7 @@ def names_for_me(turns: Sequence[TurnFinalEvent]) -> set[str]:
 def _vocatives(text: str) -> list[str]:
     hits = [m.group(1) for m in VOCATIVE_RE.finditer(text)]
     hits += [m.group(1) for m in TRAILING_VOCATIVE_RE.finditer(text.strip())]
+    hits += [m.group(1) for m in LEADING_VOCATIVE_RE.finditer(text)]
     return [n for n in (_clean(h) for h in hits) if n]
 
 

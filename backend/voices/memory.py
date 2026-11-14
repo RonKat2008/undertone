@@ -58,6 +58,19 @@ def _sims(clusters: Sequence[SpeakerCluster], centroid: np.ndarray) -> dict[int,
     return {c.index: cosine(c.centroid, centroid) for c in clusters}
 
 
+EXTRA_WEARER_SIM = 0.1
+
+
+def wearer_clusters(clusters: Sequence[SpeakerCluster], sims: dict[int, float], threshold: float) -> frozenset[int]:
+    """The best-matching cluster, when it clears threshold. A second cluster is also the wearer
+    (the wearer's voice split in two) only when it clears threshold + EXTRA_WEARER_SIM: a different
+    voice can sit just above the plain threshold, so 'above threshold' alone is not enough."""
+    best = max(sims, key=lambda i: sims[i]) if sims else None
+    if best is None or sims[best] < threshold:
+        return frozenset()
+    return frozenset({best} | {i for i, s in sims.items() if s >= threshold + EXTRA_WEARER_SIM})
+
+
 def decide_wearer(clusters: Sequence[SpeakerCluster], wearer: VoiceRow | None, cfg: VoiceConfig) -> WearerDecision:
     if not clusters:
         return WearerDecision(frozenset(), None, "none", False)
@@ -66,7 +79,7 @@ def decide_wearer(clusters: Sequence[SpeakerCluster], wearer: VoiceRow | None, c
         picked = frozenset({loud}) if loud is not None else frozenset()
         return WearerDecision(picked, None, "bootstrap" if picked else "none", False)
     sims = _sims(clusters, wearer.voiceprint.centroid)
-    hits = frozenset(i for i, s in sims.items() if s >= cfg.wearer_sim)
+    hits = wearer_clusters(clusters, sims, cfg.wearer_sim)
     best = max(sims.values())
     if wearer.wearer_state in TRUSTED_STATES:
         return WearerDecision(hits, round(best, 3), wearer.wearer_state or "enrolled", bool(hits), bool(hits))

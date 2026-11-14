@@ -32,6 +32,8 @@ def turn(speaker: str, text: str, i: int = 0) -> TurnFinalEvent:
     ([("other", "Thanks, Alex."), ("me", "Thanks, Alex.")], None),  # Alex is what OTHER calls ME
     ([("me", "Hi, Dylan."), ("me", "Thanks, Sam.")], None),  # two different names: no guess
     ([("me", "Did Sarah send the deck?")], None),  # a person talked about, not addressed
+    ([("me", "Priya, have you got a minute?")], "Priya"),  # leading vocative
+    ([("me", "Lisbon, Porto, then Madrid.")], None),  # a list of places is not a vocative
 ])
 def test_rule_name(lines: list[tuple[str, str]], expected: str | None) -> None:
     got = rule_name([turn(s, t, i) for i, (s, t) in enumerate(lines)])
