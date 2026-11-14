@@ -50,6 +50,7 @@ def missing_sessions(db: DB, limit: int) -> list[str]:
     ensure_table(db)
     rows = db.query(
         "SELECT s.session_id FROM sessions s LEFT JOIN session_topics t ON t.session_id = s.session_id "
-        "WHERE s.ended_at IS NOT NULL AND t.session_id IS NULL ORDER BY s.started_at DESC LIMIT ?",
+        "WHERE s.ended_at IS NOT NULL AND (s.kept IS NULL OR s.kept = 1) AND t.session_id IS NULL "
+        "ORDER BY s.started_at DESC LIMIT ?",
         (limit,))
     return [r["session_id"] for r in rows]

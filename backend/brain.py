@@ -13,13 +13,16 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from backend import debrief as debrief_pkg
+from backend.capture import store as capture_store
+from backend.capture.media import recordings_dir
 from backend import growth, haptics_port, judge, studio
 from backend.config import Settings
 from backend.contracts import (
     BookmarkEvent, BookmarkSource, CoachActivatedEvent, CoachSpec, Debrief, DebriefEvent,
-    HapticCommand, JudgeEvent, MetricsEvent, MotionEvent, MotionSnapshot, NudgeEvent, NudgePolicy,
+    HapticCommand, JudgeEvent, Metrics, MetricsEvent, MotionEvent, MotionSnapshot, NudgeEvent, NudgePolicy,
     NudgeSnoozedEvent, SessionEndedEvent, SessionMode, SessionStartedEvent, SessionSummary,
     SignalEvent, StatusReplyEvent, TranscriptPartialEvent, TurnContext, TurnFinalEvent,
 )
@@ -129,7 +132,10 @@ class Brain:
             self.app.db.end_session(session.session_id, datetime.now(timezone.utc).isoformat(),
                                     session.duration_s, metrics, None)
             log.info("session %s ended quietly (%d turns, no debrief)", session.session_id, len(session.turns))
+            await self._classify(session, quiet=True)  # rules only: no API call, nothing to wait for
             return None
+        # one Decisions call, alongside the debrief (it does not delay it)
+        self._keep_task = asyncio.create_task(self._classify(session, quiet=False))
         timeline = self.metrics.timeline()
         last = self._last_summary()
         try:
@@ -153,6 +159,19 @@ class Brain:
         self._safe(lambda: growth.update_profile(db, session, metrics), "update_profile")
         self._safe(lambda: growth.mission_for_today(db), "mission_for_today")
         return event
+
+    async def _classify(self, session: SessionState, quiet: bool) -> None:
+        """Is this capture worth keeping? Stored on the session; a session that is not kept
+        leaves the habit profile, so it is rebuilt. Never raises."""
+        db = self.app.db
+        try:
+            verdict = await capture_store.classify_session(db, recordings_dir(Path(db.path)),
+                                                           session.session_id, quiet)
+        except Exception:
+            log.exception("keep classification failed for %s", session.session_id)
+            return
+        if verdict is not None and not verdict.kept and not quiet:
+            self._safe(lambda: growth.update_profile(db, session, Metrics()), "update_profile")
 
     async def _debrief_audio(self, session_id: str, data: Debrief) -> None:
         """Speak the recap, then re-publish the debrief with its audio. Never raises."""

@@ -5,6 +5,10 @@
  */
 import type { DailyMission, Debrief, Person, SessionSummary, Streak, WeeklyReport } from '@/bus/contracts';
 import { SAMPLE_DEBRIEF, SAMPLE_MISSION, SAMPLE_PEOPLE, SAMPLE_SESSIONS, SAMPLE_STREAK, SAMPLE_WEEKLY } from '@/bus/sample';
+import { sampleTranscript } from './sample-transcript';
+import { parseTranscript, type SessionListItem, type SessionTranscript } from './transcript';
+
+export type { SessionListItem, SessionTranscript, TranscriptTurn } from './transcript';
 
 export interface Sampled<T> { data: T; sample: boolean }
 export interface AppInfo { app_id: string; name: string; origin: string | null; status: 'pending' | 'approved' | 'revoked'; created_at: number; last_used: number | null; buzzes: number }
@@ -15,6 +19,12 @@ export function setApi(next: { url: string; token: string } | null): void { api 
 export const isMock = () => api === null;
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** A non-2xx reply from the laptop; `status` lets a screen tell "not found" from "unreachable". */
+export class HttpError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) { super(message); this.status = status; }
+}
 
 async function http<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   if (!api) throw new Error('not paired');
@@ -28,7 +38,7 @@ async function http<T>(path: string, method = 'GET', body?: unknown): Promise<T>
     throw new Error('Cannot reach the laptop.');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error?.message ?? `HTTP ${res.status}`);
+  if (!res.ok) throw new HttpError(data?.error?.message ?? `HTTP ${res.status}`, res.status);
   return data as T;
 }
 
@@ -53,15 +63,46 @@ export const getStreak = () => sampled<Streak>('/streak', SAMPLE_STREAK, (v) => 
 export const listPeople = () => sampled<Person[]>('/people', SAMPLE_PEOPLE, (v) => Array.isArray(v) && v.length > 0);
 // The always-on demo adds each finished demo conversation here, so it appears in History by itself.
 // Still canned data: it comes back with `sample: true`, labelled like the rest.
-let mockSessions: SessionSummary[] = [];
+let mockSessions: SessionListItem[] = [];
 export function addMockSession(summary: SessionSummary): void {
   mockSessions = [summary, ...mockSessions.filter((s) => s.session_id !== summary.session_id)].slice(0, 20);
 }
 export function clearMockSessions(): void { mockSessions = []; }
 
-export const listSessions = () => sampled<SessionSummary[]>('/sessions', [...mockSessions, ...SAMPLE_SESSIONS], (v) => Array.isArray(v) && v.length > 0);
+/** GET /sessions lists only kept conversations; a row that still says `kept: false` is dropped anyway. */
+export const listSessions = () =>
+  sampled<SessionListItem[]>('/sessions', [...mockSessions, ...SAMPLE_SESSIONS], (v) => Array.isArray(v) && v.length > 0)
+    .then((r) => ({ ...r, data: r.data.filter((s) => s.kept !== false) }));
 export const getWeeklyReport = () => sampled<WeeklyReport>('/report/weekly', SAMPLE_WEEKLY, (v) => Array.isArray(v?.trend) && v.trend.length > 0);
 export const getDebrief = (id: string) => sampled<DebriefPayload>(`/sessions/${encodeURIComponent(id)}/debrief`, { session_id: 's-sample', data: SAMPLE_DEBRIEF, audio_url: null }, (v) => Boolean(v?.data));
+
+export type TranscriptResult =
+  | { kind: 'ok'; data: SessionTranscript; sample: boolean; dropped: number }
+  | { kind: 'not-found' }
+  | { kind: 'unreachable'; message: string };
+
+/**
+ * GET /sessions/{id}/transcript. Unlike the other reads this never swaps in canned data for a real
+ * session: a fake script under a real conversation's name would mislead. Unpaired (demo) it returns
+ * the sample script, labelled sample.
+ */
+export async function getTranscript(id: string): Promise<TranscriptResult> {
+  if (!api) {
+    await wait(120);
+    const known = [...mockSessions, ...SAMPLE_SESSIONS].find((s) => s.session_id === id);
+    return { kind: 'ok', data: sampleTranscript(id, known), sample: true, dropped: 0 };
+  }
+  let raw: unknown;
+  try {
+    raw = await http<unknown>(`/sessions/${encodeURIComponent(id)}/transcript`);
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 404) return { kind: 'not-found' };
+    return { kind: 'unreachable', message: e instanceof Error ? e.message : 'Cannot reach the laptop.' };
+  }
+  const parsed = parseTranscript(raw);
+  if (!parsed) return { kind: 'unreachable', message: 'The laptop sent a transcript this app cannot read.' };
+  return { kind: 'ok', data: parsed.transcript, sample: false, dropped: parsed.dropped };
+}
 
 export async function chooseMission(focus_rule_id: string): Promise<DailyMission> {
   if (api) return http<DailyMission>('/mission/choose', 'POST', { focus_rule_id });

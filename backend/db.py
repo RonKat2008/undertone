@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 """
 
+# Columns added after the first release; added in place on older databases.
+#   kept / kept_reason / kept_source: is this capture worth keeping (backend/capture/verdict.py).
+#     NULL kept = not classified yet (or classified before the feature existed): counts as kept.
+#   audio_offset_s / audio_s: the conversation's recording (backend/capture/recorder.py).
+SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("kept", "INTEGER"), ("kept_reason", "TEXT"), ("kept_source", "TEXT"),
+    ("audio_offset_s", "REAL"), ("audio_s", "REAL"),
+)
+KEPT_SQL = "(kept IS NULL OR kept = 1)"
+
 
 def _dump(model: BaseModel) -> str:
     return model.model_dump_json(by_alias=True)
@@ -76,7 +86,14 @@ class DB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
+        self._add_missing_columns()
         self.conn.commit()
+
+    def _add_missing_columns(self) -> None:
+        have = {r["name"] for r in self.conn.execute("PRAGMA table_info(sessions)")}
+        for name, kind in SESSION_COLUMNS:  # constants above, never user input
+            if name not in have:
+                self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} {kind}")
 
     # ---- generic ----
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
@@ -108,9 +125,19 @@ class DB:
     def set_session_person(self, session_id: str, person_id: str | None) -> None:
         self.execute("UPDATE sessions SET person_id = ? WHERE session_id = ?", (person_id, session_id))
 
-    def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
-        rows = self.query("SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?", (limit,))
+    def list_sessions(self, limit: int = 50, kept_only: bool = False) -> list[dict[str, Any]]:
+        where = f"WHERE {KEPT_SQL} " if kept_only else ""
+        rows = self.query(f"SELECT * FROM sessions {where}ORDER BY started_at DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows]
+
+    def set_verdict(self, session_id: str, kept: bool, reason: str, source: str) -> None:
+        self.execute("UPDATE sessions SET kept = ?, kept_reason = ?, kept_source = ? WHERE session_id = ?",
+                     (1 if kept else 0, reason, source, session_id))
+
+    def set_recording(self, session_id: str, offset_s: float | None, duration_s: float | None) -> None:
+        """Recording metadata; (None, None) clears it."""
+        self.execute("UPDATE sessions SET audio_offset_s = ?, audio_s = ? WHERE session_id = ?",
+                     (offset_s, duration_s, session_id))
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         rows = self.query("SELECT * FROM sessions WHERE session_id = ?", (session_id,))

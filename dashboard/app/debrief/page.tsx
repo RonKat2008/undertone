@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Glyph } from '@/components/glyph';
 import { LINES_PER_PAGE, cite, layout, lineAt } from '@/components/lines';
+import { conversationHref } from '@/lib/conversations/links';
 import { clock } from '@/components/shell';
 import { SampleTag } from '@/components/sample-tag';
 import { Spark } from '@/components/spark';
@@ -31,7 +33,7 @@ export default function DebriefPage() {
   if (!payload) return <p className="display-m caret pt-16 text-ink-3">Fetching the debrief</p>;
   // The transcript and marks on the bus belong to this debrief only if no newer session replaced them.
   const own = live !== null && state.session?.id === live.session_id;
-  return <DebriefView d={payload.data} audio={mediaUrl(payload.audio_url)} sample={live ? state.status === 'mock' : fallback?.sample ?? true}
+  return <DebriefView sessionId={requested ?? payload.session_id} d={payload.data} audio={mediaUrl(payload.audio_url)} sample={live ? state.status === 'mock' : fallback?.sample ?? true}
     turns={own ? state.turns : []} marks={own ? state.marks : []} coach={state.coach} baseline={state.metrics?.baseline_wpm ?? null} />;
 }
 
@@ -42,8 +44,8 @@ function talkTarget(coach: CoachSpec | null): number | null {
   return Number.isFinite(n) && n > 0 && n < 1 ? n : null;
 }
 
-function DebriefView({ d, audio, sample, turns, marks, coach, baseline }: {
-  d: Debrief; audio: string | null; sample: boolean; turns: TurnView[]; marks: Mark[]; coach: CoachSpec | null; baseline: number | null;
+function DebriefView({ sessionId, d, audio, sample, turns, marks, coach, baseline }: {
+  sessionId: string; d: Debrief; audio: string | null; sample: boolean; turns: TurnView[]; marks: Mark[]; coach: CoachSpec | null; baseline: number | null;
 }) {
   const n = d.numbers;
   const { lines, first } = useMemo(() => layout(turns), [turns]);
@@ -59,7 +61,10 @@ function DebriefView({ d, audio, sample, turns, marks, coach, baseline }: {
 
   return (
     <article className="pt-8">
-      <div className="mb-6 flex items-center gap-3"><span className="label">Debrief</span><SampleTag show={sample} /></div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3"><span className="label">Debrief</span><SampleTag show={sample} /></div>
+        <Link href={conversationHref(sessionId)} className="link text-s">Transcript and recording</Link>
+      </div>
       <div className="grid gap-x-6 gap-y-12 xl:grid-cols-12">
         <div className="xl:col-span-8">
           <h1 className="display-l max-w-[22ch]">{d.headline_fact}</h1>

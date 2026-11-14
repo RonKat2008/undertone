@@ -1,10 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { getWeeklyReport, listPeople, listSessions, type Sampled } from '@/api/client';
+import { getWeeklyReport, listPeople, listSessions, type Sampled, type SessionListItem } from '@/api/client';
 import type { Debrief, Person, SessionSummary, WeeklyReport } from '@/bus/contracts';
 import { useListVersion } from '@/bus/use-bus';
-import { Rule, SampleTag, Screen, T, clock } from '@/ui/kit';
+import { Rule, SampleTag, Screen, StateMark, T, clock } from '@/ui/kit';
 import { C, S } from '@/ui/theme';
 
 type Metric = keyof Debrief['numbers'];
@@ -30,7 +30,7 @@ const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const [sessions, setSessions] = useState<Sampled<SessionSummary[]> | null>(null);
+  const [sessions, setSessions] = useState<Sampled<SessionListItem[]> | null>(null);
   const [report, setReport] = useState<Sampled<WeeklyReport> | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const version = useListVersion(); // a session ended, its debrief arrived, or the phone reconnected
@@ -82,28 +82,48 @@ export default function HistoryScreen() {
         const who = name(s.person_id);
         const picks: Metric[] = s.mode === 'practice' ? ['fillers_per_min', 'wpm'] : ['talk_ratio', 'wpm'];
         return (
-          <Pressable key={s.session_id} onPress={() => router.push({ pathname: '/debrief', params: { id: s.session_id } })} accessibilityRole="button"
-            style={({ pressed }) => ({ borderBottomWidth: 1, borderBottomColor: C.rule, paddingVertical: S[5], opacity: pressed ? 0.55 : 1 })}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <T v="numS" color={C.fg2}>{`${SHORT_DAYS[d.getDay()]} ${d.getDate()} ${SHORT_MONTHS[d.getMonth()]}`}  <T v="numS" color={C.fg3}>{clock(s.duration_s)}</T></T>
-              <T v="small">{s.mode === 'practice' ? 'Practice' : s.coach_name}{who ? `, with ${who}` : ''}</T>
-            </View>
-            <T v="displayS" style={{ marginTop: S[2] }}>{s.headline_fact}</T>
-            <View style={{ flexDirection: 'row', gap: S[6], marginTop: S[3] }}>
-              {picks.map((k) => {
-                const ref = usual(k, s.mode);
-                return (
-                  <View key={k}>
-                    <T v="numM">{METRIC[k].fmt(s.numbers[k])}<T v="small" color={C.fg2}> {METRIC[k].short}</T></T>
-                    {ref !== null ? <T v="small" color={C.fg3}>usual {METRIC[k].fmt(ref)}</T> : null}
-                  </View>
-                );
-              })}
-            </View>
-          </Pressable>
+          <View key={s.session_id} style={{ borderBottomWidth: 1, borderBottomColor: C.rule, paddingVertical: S[5] }}>
+            <Pressable onPress={() => router.push({ pathname: '/debrief', params: { id: s.session_id } })} accessibilityRole="button"
+              style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', columnGap: S[3], rowGap: S[1] }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: S[3] }}>
+                  <T v="numS" color={C.fg2}>{`${SHORT_DAYS[d.getDay()]} ${d.getDate()} ${SHORT_MONTHS[d.getMonth()]}`}  <T v="numS" color={C.fg3}>{clock(s.duration_s)}</T></T>
+                  {s.audio_url ? <RecMark /> : null}
+                </View>
+                <T v="small">{s.mode === 'practice' ? 'Practice' : s.coach_name}{who ? `, with ${who}` : ''}</T>
+              </View>
+              <T v="displayS" style={{ marginTop: S[2] }}>{s.headline_fact}</T>
+              <View style={{ flexDirection: 'row', gap: S[6], marginTop: S[3] }}>
+                {picks.map((k) => {
+                  const ref = usual(k, s.mode);
+                  return (
+                    <View key={k}>
+                      <T v="numM">{METRIC[k].fmt(s.numbers[k])}<T v="small" color={C.fg2}> {METRIC[k].short}</T></T>
+                      {ref !== null ? <T v="small" color={C.fg3}>usual {METRIC[k].fmt(ref)}</T> : null}
+                    </View>
+                  );
+                })}
+              </View>
+            </Pressable>
+            <Pressable onPress={() => router.push({ pathname: '/transcript', params: { id: s.session_id, headline: s.headline_fact } })} accessibilityRole="link"
+              accessibilityLabel={s.audio_url ? 'What was said: transcript and recording' : 'What was said: transcript'} hitSlop={8}
+              style={({ pressed }) => ({ alignSelf: 'flex-start', marginTop: S[3], paddingVertical: S[1], opacity: pressed ? 0.55 : 1 })}>
+              <T v="body" style={{ textDecorationLine: 'underline' }}>{s.audio_url ? 'What was said, and listen →' : 'What was said →'}</T>
+            </Pressable>
+          </View>
         );
       })}
       {sessions && list.length === 0 ? <T v="small" style={{ marginTop: S[4] }}>No conversations yet.</T> : null}
     </Screen>
+  );
+}
+
+/** A recording of this conversation was kept: a neutral state mark (§2.4), never a pattern hue. */
+function RecMark() {
+  return (
+    <View accessible accessibilityLabel="Recording kept" style={{ flexDirection: 'row', alignItems: 'center', gap: S[1] }}>
+      <StateMark kind="on" size={10} color={C.fg2} />
+      <T v="label" size={13}>rec</T>
+    </View>
   );
 }

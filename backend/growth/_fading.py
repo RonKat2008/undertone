@@ -3,7 +3,7 @@ and the 1-based index of the upcoming session. Pure reads; all queries are param
 
 from __future__ import annotations
 
-from backend.db import DB
+from backend.db import DB, KEPT_SQL
 from backend.growth._store import StoredSession, _from_row
 
 FADE_HISTORY = 3  # nudge.policy.next_policy looks at the last 3 rates
@@ -18,7 +18,7 @@ def focus_rates(db: DB, coach_id: str, rule_id: str, limit: int = FADE_HISTORY) 
     """Firing rates of `rule_id` over the last `limit` finished regular sessions with this coach,
     oldest to newest."""
     rows = db.query(
-        "SELECT * FROM sessions WHERE ended_at IS NOT NULL AND mode = 'regular' AND coach_id = ? "
+        f"SELECT * FROM sessions WHERE ended_at IS NOT NULL AND {KEPT_SQL} AND mode = 'regular' AND coach_id = ? "
         "ORDER BY started_at DESC LIMIT ?", (coach_id, limit))
     newest_first = [_from_row(db, dict(r)) for r in rows]
     return [firing_rate(s, rule_id) for s in reversed(newest_first)]
@@ -26,5 +26,5 @@ def focus_rates(db: DB, coach_id: str, rule_id: str, limit: int = FADE_HISTORY) 
 
 def next_session_index(db: DB) -> int:
     """1-based index of the session about to start: finished sessions so far, plus this one."""
-    rows = db.query("SELECT COUNT(*) AS n FROM sessions WHERE ended_at IS NOT NULL")
+    rows = db.query(f"SELECT COUNT(*) AS n FROM sessions WHERE ended_at IS NOT NULL AND {KEPT_SQL}")
     return int(rows[0]["n"]) + 1

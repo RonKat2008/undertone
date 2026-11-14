@@ -334,6 +334,14 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
   .caret::after { animation: none !important; opacity: 0.8; }
 }
 
+/* ---------- conversations: transcript script ---------- */
+.filler { text-decoration: underline var(--ochre); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.turn { transition: background-color 160ms ease-out, box-shadow 160ms ease-out; }
+.turn:focus { outline: none; }
+.turn:focus-visible { box-shadow: inset 0 0 0 2px var(--ink); }
+.turn.is-active { background: var(--well); box-shadow: inset 3px 0 0 var(--ink); }
+.turn.is-active:focus-visible { box-shadow: inset 3px 0 0 var(--ink), inset 0 0 0 2px var(--ink); }
+
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 input[type="range"] { accent-color: var(--ink); }

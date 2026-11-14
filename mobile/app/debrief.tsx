@@ -1,13 +1,14 @@
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import Svg, { Line, Polygon, Polyline, Rect } from 'react-native-svg';
-import { getDebrief, listPeople, listSessions, mediaUrl, tagPerson, type DebriefPayload, type Sampled } from '@/api/client';
+import Svg, { Line, Polyline, Rect } from 'react-native-svg';
+import { getDebrief, getTranscript, listPeople, listSessions, mediaUrl, tagPerson, type DebriefPayload, type Sampled, type TranscriptResult } from '@/api/client';
+import { usePlayback } from '@/audio/player';
 import type { Debrief, HapticPattern, Person, SessionSummary, TimelinePoint } from '@/bus/contracts';
 import { useBus } from '@/bus/use-bus';
 import { Glyph, glyphWidth } from '@/ui/Glyph';
 import { Header } from '@/ui/Header';
+import { PlayerBar } from '@/ui/PlayerBar';
 import { Label, Rule, SampleTag, Screen, T, clock } from '@/ui/kit';
 import { C, F, R, S } from '@/ui/theme';
 
@@ -59,31 +60,48 @@ export default function DebriefScreen() {
   );
 }
 
+/** The coach's summary, read aloud by a synthetic voice. Not the conversation itself. */
 function Recap({ url }: { url: string }) {
-  const player = useAudioPlayer(url);
-  const status = useAudioPlayerStatus(player);
-  const toggle = () => {
-    if (status.playing) return player.pause();
-    if (status.duration && status.currentTime >= status.duration - 0.2) void player.seekTo(0);
-    player.play();
-  };
-  const frac = status.duration ? Math.min(1, status.currentTime / status.duration) : 0;
+  const pb = usePlayback(url);
   return (
-    <Pressable onPress={toggle} accessibilityRole="button" accessibilityLabel={status.playing ? 'Pause the spoken recap' : 'Play the spoken recap'}
-      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: S[4], borderWidth: 1, borderColor: C.ruleStrong, borderRadius: R.key, backgroundColor: pressed ? C.rule : C.well, padding: S[4], marginTop: S[6] })}>
-      <View style={{ width: 48, height: 48, borderRadius: R.key, backgroundColor: C.fg, alignItems: 'center', justifyContent: 'center' }}>
-        <Svg width={16} height={18}>
-          {status.playing
-            ? <><Rect x={2} y={1} width={4} height={16} fill={C.bg} /><Rect x={10} y={1} width={4} height={16} fill={C.bg} /></>
-            : <Polygon points="2,1 16,9 2,17" fill={C.bg} />}
-        </Svg>
-      </View>
-      <View style={{ flex: 1 }}>
-        <T v="displayS">Spoken recap</T>
-        <View style={{ height: 2, backgroundColor: C.rule, marginTop: S[2] }}><View style={{ height: 2, width: `${frac * 100}%`, backgroundColor: C.fg }} /></View>
-      </View>
-    </Pressable>
+    <View style={{ borderWidth: 1, borderColor: C.ruleStrong, borderRadius: R.key, backgroundColor: C.well, padding: S[4], marginTop: S[6] }}>
+      <PlayerBar pb={pb} title="Spoken recap" subtitle="The coach’s summary, read aloud. Not your conversation." what="the spoken recap" />
+    </View>
   );
+}
+
+/** The real audio of the conversation, and the way into its transcript. */
+function Recording({ sessionId, headline }: { sessionId: string; headline: string }) {
+  const router = useRouter();
+  const [t, setT] = useState<TranscriptResult | null>(null);
+  useEffect(() => { let on = true; getTranscript(sessionId).then((r) => on && setT(r)); return () => { on = false; }; }, [sessionId]);
+  const url = t?.kind === 'ok' ? mediaUrl(t.data.audio_url) : null;
+  const open = () => router.push({ pathname: '/transcript', params: { id: sessionId, headline } });
+  const note = !t ? 'Checking the laptop for a recording…'
+    : t.kind === 'not-found' ? 'The laptop has no record of what was said in this one.'
+      : t.kind === 'unreachable' ? 'Cannot reach the laptop to check for a recording.'
+        : 'No recording was kept for this one.';
+  return (
+    <View style={{ borderTopWidth: 1, borderTopColor: C.rule, paddingTop: S[4], marginTop: S[5] }}>
+      {url ? <RecordingPlayer url={url} /> : (
+        <View>
+          <T v="displayS" color={C.fg2}>Recording</T>
+          <T v="small" style={{ marginTop: S[1] }}>{note}</T>
+        </View>
+      )}
+      {t?.kind === 'not-found' ? null : (
+        <Pressable onPress={open} accessibilityRole="link" accessibilityLabel="What was said: open the transcript" hitSlop={8}
+          style={({ pressed }) => ({ marginTop: S[3], paddingVertical: S[2], alignSelf: 'flex-start', opacity: pressed ? 0.55 : 1 })}>
+          <T v="body" style={{ textDecorationLine: 'underline' }}>What was said →</T>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function RecordingPlayer({ url }: { url: string }) {
+  const pb = usePlayback(url);
+  return <PlayerBar pb={pb} title="Recording" subtitle="Your actual conversation, as the band heard it." what="the recording" />;
 }
 
 const NUMBERS: { k: Metric; what: string; fmt: (v: number) => string }[] = [
@@ -117,9 +135,10 @@ function Body({ d, audio, sessionId, usual, nudges, baseline }: { d: Debrief; au
       {audio ? <Recap url={audio} /> : (
         <View style={{ borderTopWidth: 1, borderTopColor: C.rule, paddingTop: S[4], marginTop: S[6] }}>
           <T v="displayS" color={C.fg2}>Spoken recap</T>
-          <T v="small" style={{ marginTop: S[1] }}>No recording for this conversation. It plays on the laptop when the voice is switched on.</T>
+          <T v="small" style={{ marginTop: S[1] }}>No spoken recap for this one. The laptop reads the coach’s summary aloud when its voice is switched on.</T>
         </View>
       )}
+      <Recording sessionId={sessionId} headline={d.headline_fact} />
 
       {/* five numbers, each with its own reference inline: never a bare stat tile */}
       <View style={{ marginTop: S[7] }}>

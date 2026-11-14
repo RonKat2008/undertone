@@ -22,6 +22,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend import debrief, graph, growth, studio
 from backend.brain import Brain
+from backend.capture import routes as capture_routes
 from backend.bus import Bus, to_wire
 from backend.config import MEDIA_DIR, settings
 from backend.contracts import BookmarkSource, SessionMode, parse_event
@@ -104,6 +105,7 @@ app.include_router(growth.router)
 app.include_router(debrief.router)
 app.include_router(haptics.router)
 app.include_router(graph.router)
+app.include_router(capture_routes.router)
 
 
 # ---------- error envelope: {"ok": false, "error": {"code", "message", "details"?}} ----------

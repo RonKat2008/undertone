@@ -12,6 +12,7 @@ import { BusProvider, useBus, useNow } from '@/lib/bus/use-bus';
 
 const NAV = [
   { href: '/', label: 'Graph' },
+  { href: '/conversations', label: 'Conversations' },
   { href: '/studio', label: 'Studio' },
   { href: '/debrief', label: 'Debrief' },
   { href: '/pair', label: 'Pair' },

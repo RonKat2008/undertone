@@ -395,6 +395,7 @@ Both run on a mock event feed until Claude Code swaps in the real source (sectio
 - `volume_db` is dBFS. The tolerance band applies only to pace against the wearer's baseline; fixed limits are used as written.
 - Demo policy (`DEMO_POLICY=1`): every enabled rule may buzz, 10 s apart, budget 8.
 - REST types for history and growth: `HabitProfile`, `SessionSummary`, `DailyMission`, `Streak`, `Person`, `WeeklyReport`.
+- Recordings and keep verdicts: `SessionSummary` gains optional `kept`, `kept_reason` (`keep` | `trivial` | `noise` | `sensitive`) and `audio_url`. New REST types `TranscriptTurn` and `SessionTranscript` (`GET /sessions/{id}/transcript`); `GET /sessions/{id}/audio` serves the WAV with Range; `POST /sessions/{id}/keep {kept}` is the user's override; `GET /sessions?include=all` lists sessions that are not kept too. No new bus events.
 
 `.env.example` adds `VEXO_BAND_NUMBER` and `BAND_TRANSPORT` and drops `USE_MOCK_BAND`.
 
