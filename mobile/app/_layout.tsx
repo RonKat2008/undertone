@@ -1,6 +1,10 @@
-import { Geist_400Regular, Geist_500Medium } from '@expo-google-fonts/geist';
-import { GeistMono_400Regular } from '@expo-google-fonts/geist-mono';
-import { InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic } from '@expo-google-fonts/instrument-serif';
+import { IBMPlexMono_400Regular } from '@expo-google-fonts/ibm-plex-mono/400Regular';
+import { IBMPlexMono_400Regular_Italic } from '@expo-google-fonts/ibm-plex-mono/400Regular_Italic';
+import { IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono/500Medium';
+import { Newsreader_300Light } from '@expo-google-fonts/newsreader/300Light';
+import { Newsreader_300Light_Italic } from '@expo-google-fonts/newsreader/300Light_Italic';
+import { Newsreader_400Regular } from '@expo-google-fonts/newsreader/400Regular';
+import { Newsreader_400Regular_Italic } from '@expo-google-fonts/newsreader/400Regular_Italic';
 import { useFonts } from 'expo-font';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -11,11 +15,18 @@ import { PATTERN_ORDER, PATTERNS } from '@/bus/patterns';
 import { BusProvider, useBus } from '@/bus/use-bus';
 import { Glyph } from '@/ui/Glyph';
 import { Btn, T } from '@/ui/kit';
-import { C } from '@/ui/theme';
+import { C, R, S } from '@/ui/theme';
 
 export default function RootLayout() {
-  const [loaded] = useFonts({ Geist_400Regular, Geist_500Medium, GeistMono_400Regular, InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic });
-  if (!loaded) return <View style={{ flex: 1, backgroundColor: C.ink }} />;
+  const [loaded] = useFonts({
+    Newsreader_300Light, Newsreader_300Light_Italic, Newsreader_400Regular, Newsreader_400Regular_Italic,
+    IBMPlexMono_400Regular, IBMPlexMono_400Regular_Italic, IBMPlexMono_500Medium,
+    // Ronzino (Collletttivo, SIL OFL 1.1), self-hosted: assets/fonts/Ronzino-OFL.txt
+    Ronzino_400: require('../assets/fonts/Ronzino-Regular.otf'),
+    Ronzino_500: require('../assets/fonts/Ronzino-Medium.otf'),
+    Ronzino_400_Oblique: require('../assets/fonts/Ronzino-Oblique.otf'),
+  });
+  if (!loaded) return <View style={{ flex: 1, backgroundColor: C.bg }} />;
   return (
     <SafeAreaProvider>
       <BusProvider>
@@ -45,30 +56,36 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (mode === 'loading') return <View style={{ flex: 1, backgroundColor: C.ink }} />;
+  if (mode === 'loading') return <View style={{ flex: 1, backgroundColor: C.bg }} />;
   return (
-    <View style={{ flex: 1, backgroundColor: C.ink }} onTouchStart={(e) => { if (e.nativeEvent.touches.length === 3) setDirector(true); }}>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.ink }, animation: 'fade' }} />
+    <View style={{ flex: 1, backgroundColor: C.bg }} onTouchStart={(e) => { if (e.nativeEvent.touches.length === 3) setDirector(true); }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg }, animation: 'fade' }} />
       <Director open={director} onClose={() => setDirector(false)} />
     </View>
   );
 }
 
+/** Rehearsal panel: one of the two things allowed to sit above the page (§4.5). */
 function Director({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { send, mode } = useBus();
   const Group = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <View style={{ marginBottom: 16 }}>
-      <T v="caps" style={{ marginBottom: 8 }}>{title}</T>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{children}</View>
+    <View style={{ marginBottom: S[5] }}>
+      <T v="label" style={{ marginBottom: S[2] }}>{title}</T>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: S[2] }}>{children}</View>
     </View>
   );
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel="Close the director panel" />
-      <View style={{ backgroundColor: C.well, borderTopWidth: 1, borderTopColor: C.paper, padding: 20, paddingBottom: 36, maxHeight: '78%' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
-          <T v="serif" size={28}>Director</T>
-          <T v="caps">{mode === 'mock' ? 'mock feed' : 'live backend'}</T>
+      <View style={{
+        backgroundColor: C.well, borderTopWidth: 1, borderTopColor: C.ruleStrong, padding: 20, paddingBottom: 36, maxHeight: '78%',
+        shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 16, shadowOffset: { width: 0, height: -4 },
+      }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: S[4] }}>
+          <T v="displayM">Director</T>
+          <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: C.ruleStrong, paddingHorizontal: 6, paddingBottom: 2 }}>
+            <T v="label" size={13}>{mode === 'mock' ? 'mock feed' : 'live backend'}</T>
+          </View>
         </View>
         <ScrollView>
           <Group title="Session">
@@ -80,8 +97,8 @@ function Director({ open, onClose }: { open: boolean; onClose: () => void }) {
           <Group title="Nudge">
             {PATTERN_ORDER.filter((p) => PATTERNS[p].group === 'nudge').map((p) => (
               <Pressable key={p} onPress={() => send({ cmd: 'nudge', pattern: p })} accessibilityRole="button" accessibilityLabel={`Fire ${p}`}
-                style={({ pressed }) => ({ height: 40, paddingHorizontal: 12, borderWidth: 1, borderColor: C.paper, borderRadius: 3, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.6 : 1 })}>
-                <Glyph pattern={p} size={14} maxWidth={40} /><T v="small" color={C.paper}>{p}</T>
+                style={({ pressed }) => ({ height: 48, paddingHorizontal: 12, borderWidth: 1, borderColor: C.ruleStrong, borderRadius: R.key, backgroundColor: pressed ? C.rule : C.bg, flexDirection: 'row', alignItems: 'center', gap: 8 })}>
+                <Glyph pattern={p} size={18} maxWidth={44} /><T v="numS" color={C.fg}>{p}</T>
               </Pressable>
             ))}
           </Group>
