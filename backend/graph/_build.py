@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from backend.contracts import GraphEdge, GraphNode, GraphStats, KnowledgeGraph
-from backend.graph._rows import Conversation, GraphInput, Promise
+from backend.graph._due import due_day
+from backend.graph._rows import CommitmentState, Conversation, GraphInput, Promise
 from backend.graph._topics import slugify
 from backend.growth._store import rule_label
 
@@ -103,17 +104,34 @@ def commitment_label(p: Promise) -> str:
     return label if len(label) <= MAX_COMMITMENT_LABEL else label[: MAX_COMMITMENT_LABEL - 1].rstrip() + "…"
 
 
-def _commitments(inp: GraphInput) -> Part:
+def promise_due(c: Conversation, p: Promise) -> date | None:
+    made = c.started_ts + p.ts
+    return due_day(p.text, made) or due_day(p.follow_up, made)
+
+
+def is_overdue(state: CommitmentState, due: date | None, now: float) -> bool:
+    return state.open and due is not None and datetime.fromtimestamp(now, tz=timezone.utc).date() > due
+
+
+def _commitments(inp: GraphInput, now: float) -> Part:
     nodes, edges = [], []
     for c in inp.conversations:
         for p in c.promises:
             cid = f"commitment:{p.bookmark_id}"
-            # No completion tracking exists yet, so every promise is open.
+            state = inp.commitment(p.bookmark_id)
+            due = promise_due(c, p)
             nodes.append(GraphNode(id=cid, kind="commitment", label=commitment_label(p), weight=1,
                                    last_seen=c.started_ts + p.ts,
-                                   meta={"open": True, "quote": p.text or None, "session_id": c.session_id}))
+                                   meta={"open": state.open, "quote": p.text or None, "session_id": c.session_id,
+                                         "person_id": c.person_id, "closed_by": state.closed_by,
+                                         "closed_at": state.closed_at,
+                                         "closed_session_id": state.closed_session_id,
+                                         "due_day": due.isoformat() if due else None,
+                                         "overdue": is_overdue(state, due, now)}))
             edges.append(GraphEdge(source=ME, target=cid, kind="promised", weight=1))
             edges.append(GraphEdge(source=conversation_id(c.session_id), target=cid, kind="promised", weight=1))
+            if c.person_id:
+                edges.append(GraphEdge(source=cid, target=f"person:{c.person_id}", kind="promised", weight=1))
     return Part(tuple(nodes), tuple(edges))
 
 
@@ -145,7 +163,7 @@ def build_graph(inp: GraphInput, now: float) -> KnowledgeGraph:
     """The full, uncapped graph for the loaded window."""
     names = dict(inp.people)
     convs = Part(tuple(_conversation_node(c, names) for c in inp.conversations), ())
-    parts = (_people(inp), _topics(inp), _commitments(inp), _habits(inp), convs)
+    parts = (_people(inp), _topics(inp), _commitments(inp, now), _habits(inp), convs)
     nodes = sorted([_me(inp), *(n for p in parts for n in p.nodes)], key=node_order)
     edges = sorted((e for p in parts for e in p.edges), key=_edge_order)
     return KnowledgeGraph(nodes=nodes, edges=edges, stats=_stats(inp, parts), generated_at=now, sample=False)

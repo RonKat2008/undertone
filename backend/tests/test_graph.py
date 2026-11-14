@@ -66,7 +66,7 @@ def _seed(db: DB) -> None:
     _write(db, "s2", 3, "alex", ("roadmap",), (("interrupt", False),))
     _write(db, "s3", 5, "priya", ("climbing",))
     _write(db, "s5", 1.5, None, ())
-    _write(db, "s4", 40, None, ("old topic",))
+    _write(db, "s4", 40, None, ("lisbon trip",))
 
 
 @pytest.fixture
@@ -94,17 +94,17 @@ def _edges(graph: KnowledgeGraph) -> set[tuple[str, str, str, float]]:
     return {(e.source, e.target, e.kind, e.weight) for e in graph.edges}
 
 
-def test_empty_database_returns_sample_graph(tmp_path: Path) -> None:
+def test_empty_database_returns_a_real_empty_graph(tmp_path: Path) -> None:
     db = DB(tmp_path / "empty.db")
-    body = _client(db).get("/graph").json()
-    graph = KnowledgeGraph.model_validate(body)
-    assert graph.sample is True
-    assert [n.id for n in graph.nodes].count("me") == 1
-    assert {n.kind for n in graph.nodes} == {"me", "person", "topic", "commitment", "habit", "conversation"}
-    assert all(n.meta.get("sample") is True for n in graph.nodes)
-    assert graph.stats.conversations == 3 and graph.stats.open_commitments == 1
-    detail = _client(db).get("/graph/node/person:example-alex").json()
-    assert detail["node"]["label"] == "Alex (example)" and detail["conversations"]
+    client = _client(db)
+    graph = KnowledgeGraph.model_validate(client.get("/graph").json())
+    assert graph.sample is False
+    assert [n.id for n in graph.nodes] == ["me"] and graph.edges == []
+    assert graph.nodes[0].weight == 0 and graph.nodes[0].last_seen is None
+    assert graph.stats.model_dump() == {"conversations": 0, "people": 0, "topics": 0, "minutes_spoken": 0.0,
+                                        "open_commitments": 0}
+    assert client.get("/graph/node/me").json()["conversations"] == []
+    assert client.get("/graph/node/person:example-alex").status_code == 404
     db.close()
 
 
@@ -126,6 +126,10 @@ def test_seeded_graph_nodes_edges_and_weights(client: TestClient) -> None:
     c = commitments[0]
     assert c.label == "Send Alex the deck" and c.meta["open"] is True
     assert c.meta["quote"] == "I'll send you the deck tonight."
+    assert c.meta["person_id"] == "alex" and c.meta["closed_by"] is None
+    made = datetime.fromtimestamp(nodes["conversation:s1"].last_seen + 300.0, tz=timezone.utc).date()
+    assert c.meta["due_day"] == made.isoformat()  # "tonight"
+    assert c.meta["overdue"] is True  # made a day ago, due that night, still open
     conv = nodes["conversation:s1"]
     assert conv.meta["duration_s"] == 600 and conv.meta["coach_id"] == "listener"
     assert conv.meta["headline"] == "headline s1" and conv.meta["wpm"] == 150 and conv.meta["talk_ratio"] == 0.6
@@ -135,6 +139,7 @@ def test_seeded_graph_nodes_edges_and_weights(client: TestClient) -> None:
     assert ("conversation:s1", "person:alex", "talked_with", 1) in edges
     assert ("conversation:s1", "topic:hiring", "about", 1) in edges
     assert ("conversation:s1", c.id, "promised", 1) in edges
+    assert (c.id, "person:alex", "promised", 1) in edges
     assert ("conversation:s1", "habit:interrupt", "showed", 2) in edges
     assert graph.stats.conversations == 4 and graph.stats.people == 2 and graph.stats.topics == 3
     assert graph.stats.open_commitments == 1 and graph.stats.minutes_spoken > 0
@@ -151,7 +156,7 @@ def test_window_filter(client: TestClient) -> None:
     short = KnowledgeGraph.model_validate(client.get("/graph?days=2").json())
     assert {n.id for n in short.nodes if n.kind == "conversation"} == {"conversation:s1", "conversation:s5"}
     wide = KnowledgeGraph.model_validate(client.get("/graph?days=60").json())
-    assert "topic:old-topic" in _by_id(wide) and wide.stats.conversations == 5
+    assert "topic:lisbon-trip" in _by_id(wide) and wide.stats.conversations == 5
     assert client.get("/graph?days=0").status_code == 422
 
 
@@ -228,8 +233,10 @@ def test_get_graph_lazily_fills_missing_topics(db: DB, client: TestClient) -> No
 def test_post_refresh(db: DB, client: TestClient) -> None:
     _write(db, "s7", 0.5, None, None)
     body = client.post("/graph/refresh").json()
-    assert body == {"refreshed": 1, "remaining": 0}
-    assert client.post("/graph/refresh").json() == {"refreshed": 0, "remaining": 0}
+    assert body["refreshed"] == 1 and body["remaining"] == 0
+    again = client.post("/graph/refresh").json()
+    assert again["refreshed"] == 0 and again["remaining"] == 0
+    assert again["labels_consolidated"] == 0 and again["commitments_closed"] == 0  # no LLM in tests
 
 
 def test_build_is_pure(db: DB) -> None:

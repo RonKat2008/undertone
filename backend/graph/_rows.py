@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from backend.contracts import SessionSummary, Speaker
 
@@ -49,6 +50,7 @@ class Conversation:
     promises: tuple[Promise, ...]
     lines: tuple[Line, ...]
     summary: SessionSummary
+    if_then: str = ""  # the debrief's if-then plan, "" if none
 
     @property
     def minutes_spoken(self) -> float:
@@ -58,7 +60,25 @@ class Conversation:
 
 
 @dataclass(frozen=True)
+class CommitmentState:
+    """Stored done/open state of one promise. No stored row = open, closed_by None."""
+
+    bookmark_id: int
+    open: bool
+    closed_by: Literal["manual", "auto"] | None = None
+    closed_at: float | None = None  # unix seconds
+    closed_session_id: str | None = None  # the later conversation that closed it (auto only)
+    evidence: str | None = None  # the wearer's words that closed it (auto only)
+    manual: bool = False  # a manual state is stored (the automatic check leaves it alone)
+
+
+@dataclass(frozen=True)
 class GraphInput:
     conversations: tuple[Conversation, ...]  # newest first
     people: tuple[tuple[str, str], ...]  # (person_id, name) from the people store
     has_any_session: bool  # anything stored at all, in or out of the window
+    commitments: tuple[CommitmentState, ...] = ()  # stored promise states (others are open)
+
+    def commitment(self, bookmark_id: int) -> CommitmentState:
+        return next((s for s in self.commitments if s.bookmark_id == bookmark_id),
+                    CommitmentState(bookmark_id=bookmark_id, open=True))
