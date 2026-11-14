@@ -21,6 +21,14 @@
   --amber-ink: oklch(0.5 0.12 62);
   --ochre-ink: oklch(0.47 0.1 88);
   --mic: oklch(0.58 0.2 255);
+
+  /* knowledge graph: one colour per node kind, always paired with its own shape */
+  --k-person: oklch(0.55 0.1 42);
+  --k-topic: oklch(0.5 0.075 240);
+  --k-commitment: var(--green);
+  --k-habit: var(--ochre);
+  --k-habit-ink: var(--ochre-ink);
+  --k-conversation: var(--ink-2);
 }
 
 @theme inline {
@@ -102,6 +110,14 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 @keyframes rise { 0% { opacity: 0; transform: translateY(6px); } 100% { opacity: 1; transform: translateY(0); } }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .anim-rise { animation: rise 260ms ease-out both; }
+@keyframes node-in { 0% { opacity: 0; transform: scale(0.4); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes sheet-up { 0% { transform: translateY(100%); } 100% { transform: translateY(0); } }
+.anim-node { animation: node-in 420ms cubic-bezier(.2,.8,.2,1) both; transform-box: fill-box; transform-origin: center; }
+.anim-sheet { animation: sheet-up 240ms cubic-bezier(.2,.8,.2,1) both; }
+.graph-node { transition: opacity 160ms ease-out; }
+.graph-edge { transition: opacity 160ms ease-out, stroke 160ms ease-out; }
+.graph-node:focus { outline: none; }
+.graph-node:focus-visible .focus-ring { opacity: 1; }
 .live-dot { animation: blink 1.6s ease-in-out infinite; }
 .caret::after { content: ""; display: inline-block; width: 0.5em; height: 1em; margin-left: 2px; vertical-align: -0.12em; background: currentColor; opacity: 0.5; animation: blink 1s steps(2) infinite; }
 

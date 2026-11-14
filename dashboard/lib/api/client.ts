@@ -13,6 +13,9 @@ import {
   SAMPLE_PROFILE, SAMPLE_SESSIONS, SAMPLE_STREAK, SAMPLE_WEEKLY,
 } from '@/lib/bus/sample';
 import { apiBase } from '@/lib/config';
+import { isKnowledgeGraph, isNodeDetail } from '@/lib/graph/model';
+import { sampleGraph, sampleNodeDetail } from '@/lib/graph/sample';
+import type { GraphNodeDetail, KnowledgeGraph } from '@/lib/graph/types';
 
 export interface Sampled<T> {
   data: T;
@@ -240,6 +243,63 @@ export async function chooseMission(focus_rule_id: string): Promise<DailyMission
   await wait(150);
   const pick = SAMPLE_MISSION.suggestions.find((s) => s.focus_rule_id === focus_rule_id);
   return pick ? { ...SAMPLE_MISSION, focus_rule_id, text: pick.text, progress: 0 } : SAMPLE_MISSION;
+}
+
+// ---------- knowledge graph ----------
+/**
+ * Where a graph on screen came from. Anything but 'live' is the built-in sample and is
+ * labelled "sample"; 'unreachable' and 'invalid' also say why.
+ */
+export type GraphSource = 'live' | 'mock' | 'backend-sample' | 'unreachable' | 'invalid';
+
+export interface GraphResult {
+  data: KnowledgeGraph;
+  sample: boolean;
+  source: GraphSource;
+  error: string | null;
+}
+
+export async function getGraph(days: number): Promise<GraphResult> {
+  const fallback = (source: GraphSource, error: string | null = null): GraphResult => ({ data: sampleGraph(days), sample: true, source, error });
+  if (isMock()) {
+    await wait(220);
+    return fallback('mock');
+  }
+  try {
+    const body = await http<unknown>(`/graph?days=${encodeURIComponent(String(days))}`);
+    if (!isKnowledgeGraph(body)) return fallback('invalid', 'The backend answered /graph with something that is not a graph.');
+    if (body.sample) return fallback('backend-sample');
+    return { data: body, sample: false, source: 'live', error: null };
+  } catch (e) {
+    return fallback('unreachable', e instanceof Error ? e.message : 'Cannot reach the backend.');
+  }
+}
+
+/**
+ * Detail for one node. When the graph on screen is the sample, the detail comes from the
+ * sample too; otherwise from GET /graph/node/{id}, and a failure is thrown for the panel to show.
+ */
+export async function getGraphNode(id: string, shown: GraphResult): Promise<Sampled<GraphNodeDetail>> {
+  if (shown.sample) {
+    await wait(120);
+    const detail = sampleNodeDetail(shown.data, id);
+    if (!detail) throw new ApiError('That node is not in the sample graph.', 404);
+    return { data: detail, sample: true };
+  }
+  const body = await http<unknown>(`/graph/node/${encodeURIComponent(id)}`);
+  if (!isNodeDetail(body)) throw new ApiError('The backend answered with something that is not a node.', 0);
+  return { data: body, sample: false };
+}
+
+/** GET /band/status. Only the optional `always_on` flag is read here; the rest comes over the bus. */
+export async function getBandAlwaysOn(): Promise<boolean | null> {
+  if (isMock()) return null;
+  try {
+    const body = await http<{ always_on?: unknown }>('/band/status');
+    return typeof body?.always_on === 'boolean' ? body.always_on : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function tagPerson(session_id: string, name: string, person_id?: string): Promise<Person> {

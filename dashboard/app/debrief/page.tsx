@@ -11,16 +11,19 @@ import { useBus } from '@/lib/bus/use-bus';
 export default function DebriefPage() {
   const { state } = useBus();
   const [fallback, setFallback] = useState<Sampled<DebriefPayload> | null>(null);
-  const live = state.debrief;
+  // ?session=<id> (linked from the graph) asks for one stored conversation, not the latest.
+  const [requested] = useState<string | null>(() => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('session')));
+  const live = state.debrief && (!requested || state.debrief.session_id === requested) ? state.debrief : null;
   useEffect(() => {
     if (live) return;
     let on = true;
-    // No debrief on the bus yet: show the most recent stored one, or the sample.
-    listSessions()
-      .then((s) => getDebrief(s.sample ? 'latest' : s.data[0].session_id))
-      .then((r) => on && setFallback(r));
+    // No matching debrief on the bus: show the requested stored one, else the most recent, or the sample.
+    const pick = requested
+      ? getDebrief(requested)
+      : listSessions().then((s) => getDebrief(s.sample ? 'latest' : s.data[0].session_id));
+    pick.then((r) => on && setFallback(r));
     return () => { on = false; };
-  }, [live]);
+  }, [live, requested]);
   const payload = live ?? fallback?.data ?? null;
   if (!payload) return <p className="serif pt-16 text-[32px] text-ink-3">Fetching the debrief…</p>;
   // The transcript and marks on the bus belong to this debrief only if no newer session replaced them.
