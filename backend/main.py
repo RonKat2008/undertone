@@ -28,6 +28,7 @@ from backend.contracts import BookmarkSource, SessionMode, parse_event
 from backend.db import DB
 from backend.deps import get_app_state, get_brain
 from backend.state import AppState
+from backend.snapshot import Snapshot
 
 from backend import haptics  # noqa: E402
 
@@ -70,6 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state = AppState(bus=Bus(), db=db, active_coach=_initial_coach(db))
     app.state.app = state
     app.state.brain = Brain(state, settings)
+    app.state.snapshot = Snapshot(state.bus)  # catch-up for late /ws joiners (backend/snapshot.py)
     # Person C: phones and third-party apps. The hub registers itself as the Brain's haptics sender.
     haptics.install(app)
     # Person A: the band. Off unless BAND_TRANSPORT is set (ble | serial | sim | laptop-mic).
@@ -227,6 +229,9 @@ async def ws(websocket: WebSocket) -> None:
     await websocket.accept()
     stream = st.bus.subscribe()
     try:
+        snap = getattr(websocket.app.state, "snapshot", None)
+        for event in (snap.events() if snap is not None else []):  # late joiners catch up first
+            await websocket.send_json(to_wire(event))
         async for event in stream:
             await websocket.send_json(to_wire(event))
     except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
