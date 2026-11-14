@@ -89,7 +89,7 @@
     },
     {
       "id": "bury_the_answer",
-      "when": "judge.bottom_line_first.score <= 2",
+      "when": "judge.bottom_line_first.score <= 3",
       "haptic": "tap",
       "message": "Lead with the answer",
       "cooldown_s": 90,

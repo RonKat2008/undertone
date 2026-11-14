@@ -91,7 +91,7 @@
     },
     {
       "id": "no_acknowledgement",
-      "when": "judge.listening_depth.score <= 1",
+      "when": "judge.listening_depth.score <= 2",
       "haptic": "tap",
       "message": "Reflect back first",
       "cooldown_s": 90,

@@ -63,7 +63,7 @@ _EXAMPLE = {
     "nudge_rules": [
         {"id": "missing_result", "when": "judge.missing_result.p >= 0.8", "haptic": "tap",
          "message": "Finish with the result", "cooldown_s": 90, "enabled": True},
-        {"id": "bury_the_answer", "when": "judge.bottom_line_first.score <= 2", "haptic": "tap",
+        {"id": "bury_the_answer", "when": "judge.bottom_line_first.score <= 3", "haptic": "tap",
          "message": "Lead with the answer", "cooldown_s": 90, "enabled": True},
         {"id": "fillers", "when": "metrics.fillers_per_min > 6", "haptic": "filler",
          "message": "Pause instead of 'like'", "cooldown_s": 60, "enabled": True},
@@ -136,7 +136,7 @@ Paths:
 {core}
 {metrics}
 - motion.fidget_while_other_s: seconds the wearer has fidgeted while the other person talks.
-Good: "judge.missing_result.p >= 0.8", "judge.bottom_line_first.score <= 2",
+Good: "judge.missing_result.p >= 0.8", "judge.bottom_line_first.score <= 3",
 "judge.tone.probabilities.nervous >= 0.8", "metrics.monologue_s > 60", "metrics.wpm > 185".
 Bad (never write these): "judge.missing_result >= 0.8" (no field), "judge.tone == 'nervous'"
 (no strings), "metrics.fillers > 3" (unknown metric), "judge.x.p >= 0.8 and metrics.wpm > 180"
