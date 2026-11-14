@@ -215,9 +215,19 @@ class Hearing:
         if not key:
             raise RuntimeError("DEEPGRAM_API_KEY is not set in .env")
         src, nova_sink, flux_sink = _build_processors(self.pcm_q, self._on_nova, self._on_interim, self._on_flux_end)
-        nova = DeepgramSTTService(api_key=key, sample_rate=SAMPLE_RATE, settings=DeepgramSTTService.Settings(
+        class NovaWithFillers(DeepgramSTTService):
+            """Deepgram SDK 7's connect() has no `filler_words` argument, and Pipecat passes
+            Settings.extra straight through as keyword arguments, which made every connection
+            fail. Send it as an additional query parameter instead."""
+
+            def _build_connect_kwargs(self) -> dict:
+                kwargs = super()._build_connect_kwargs()
+                kwargs["request_options"] = {"additional_query_parameters": {"filler_words": "true"}}
+                return kwargs
+
+        nova = NovaWithFillers(api_key=key, sample_rate=SAMPLE_RATE, settings=DeepgramSTTService.Settings(
             model="nova-3", diarize=True, interim_results=True, smart_format=True,
-            keyterm=self.keyterms, extra={"filler_words": True}))
+            keyterm=self.keyterms))
         if self.use_flux:
             from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
             flux = DeepgramFluxSTTService(api_key=key, sample_rate=SAMPLE_RATE,

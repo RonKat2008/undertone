@@ -427,7 +427,31 @@ def build_router(ctl: SessionController):
     async def band_status():
         return band_status_body(ctl)
 
+    @r.get("/band/diag")
+    async def band_diag():
+        return band_diag_body(ctl)
+
     return r
+
+
+def band_diag_body(ctl: SessionController) -> dict:
+    """GET /band/diag: is sound arriving and is speech-to-text alive? For checking by hand."""
+    band = ctl.band
+    secs = float(band.audio_seconds)
+    recent = band.loudness.mean_db(max(0.0, secs - 5.0), secs) if secs > 0 else None
+    hearing = ctl.hearing
+    return {
+        "connected": bool(band.status_event().get("connected")),
+        "mic_on": bool(band.mic_on),
+        "audio_seconds": round(secs, 1),
+        "recent_level_db": None if recent is None else round(recent, 1),
+        "queued_chunks": band.pcm_q.qsize(),
+        "dropped_chunks": band.dropped_chunks,
+        "stt": ctl.stt,
+        "stt_running": bool(hearing is not None and getattr(hearing, "running", True)),
+        "session_id": ctl.session_id,
+        "always_on": ctl.always_on is not None,
+    }
 
 
 def band_status_body(ctl: SessionController) -> dict:
@@ -534,6 +558,10 @@ def build_band_router(ctl: SessionController):
     @r.get("/band/status")
     async def band_status():
         return band_status_body(ctl)
+
+    @r.get("/band/diag")
+    async def band_diag():
+        return band_diag_body(ctl)
 
     @r.post("/calibration/motion")
     async def calibration_motion():
