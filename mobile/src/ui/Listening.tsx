@@ -1,15 +1,11 @@
-/** Always-on: the Live tab between conversations. Says plainly what is listening and what is not. */
+/** Keeping the screen awake during a conversation. */
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect } from 'react';
-import { Pressable, View } from 'react-native';
-import type { ListenState, PhoneState } from '@/bus/phone-state';
-import { Rule, StateMark, T, clock } from './kit';
-import { C, F, S } from './theme';
 
 /**
  * Hold the screen awake while `active`. Unlike mounting `useKeepAwake()`, this survives flipping
- * quickly (e.g. `always_on` arriving just after the Live tab opens): it releases only a lock that
- * finished activating, and never lets a release error escape (on web that error is uncaught).
+ * quickly: it releases only a lock that finished activating, and never lets a release error escape
+ * (on web that error is uncaught).
  */
 export function useKeepAwakeWhile(active: boolean, tag: string): void {
   useEffect(() => {
@@ -22,91 +18,4 @@ export function useKeepAwakeWhile(active: boolean, tag: string): void {
       .catch(() => { /* wake lock unavailable (some browsers): the screen may sleep */ });
     return () => { released = true; if (activated) release(); };
   }, [active, tag]);
-}
-
-export const LISTEN_LABEL: Record<ListenState, string> = {
-  connecting: 'Connecting to the laptop',
-  offline: 'Laptop unreachable',
-  'no-band': 'Band not connected',
-  'mic-off': 'Band mic off',
-  listening: 'Listening',
-  'in-conversation': 'In a conversation',
-};
-
-const HEADLINE: Record<Exclude<ListenState, 'in-conversation'>, string> = {
-  connecting: 'Connecting…',
-  offline: 'Not listening.',
-  'no-band': 'Band not connected.',
-  'mic-off': 'The mic is off.',
-  listening: 'Listening.',
-};
-
-const EXPLAIN: Record<Exclude<ListenState, 'in-conversation'>, string> = {
-  connecting: 'Finding the laptop on this Wi-Fi.',
-  offline: 'The phone cannot reach the laptop, so nothing is being heard or coached. It keeps retrying; check the laptop and the Wi-Fi.',
-  'no-band': 'The laptop is up but the band is not talking to it. Nothing is being heard.',
-  'mic-off': 'The band is connected but its microphone is off. Nothing is being heard.',
-  listening: 'A conversation opens by itself when someone talks to you, and closes when it ends. No tap needed.',
-};
-
-/** The §2.4 mark for each state: neutral shapes, never a pattern hue. Nothing being heard is a fault. */
-export function listenMark(s: ListenState): 'listening' | 'on' | 'off' | 'fault' {
-  if (s === 'listening' || s === 'in-conversation') return 'listening';
-  if (s === 'connecting') return 'off';
-  return 'fault'; // offline, no band, mic off
-}
-
-function Line({ label, value, ok }: { label: string; value: string; ok: boolean | null }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: S[3] }}>
-      <T v="label" style={{ width: 72 }}>{label}</T>
-      <View style={{ marginRight: S[2] }}><StateMark kind={ok === null ? 'off' : ok ? 'on' : 'fault'} size={10} /></View>
-      <T v="small" color={C.fg} style={[{ flex: 1 }, ok === false ? { fontFamily: F.sansMedium } : null]}>{value}</T>
-    </View>
-  );
-}
-
-interface Props {
-  state: PhoneState;
-  listen: ListenState;
-  /** The last conversation ended long enough ago that its debrief is not coming. */
-  debriefLate: boolean;
-  onOpenDebrief: () => void;
-}
-
-export function ListeningIdle({ state, listen, debriefLate, onOpenDebrief }: Props) {
-  const idle = listen === 'in-conversation' ? 'listening' : listen;
-  const reachable = listen !== 'offline' && listen !== 'connecting';
-  const band = state.band;
-  // when the laptop is unreachable, the band and mic values are stale: say so instead of showing them
-  const bandValue = !reachable ? 'unknown (laptop unreachable)' : !band ? 'no word from the band yet'
-    : band.connected ? ['connected', typeof band.transport === 'string' ? band.transport : null, typeof band.battery_pct === 'number' && Number.isFinite(band.battery_pct) ? `${Math.round(band.battery_pct)}%` : null].filter(Boolean).join(' · ') : 'not connected';
-  const micValue = !reachable || !band ? 'unknown' : band.mic_on ? 'on, listening' : 'off';
-  const last = state.session?.endedAt ? state.session : null;
-  const ready = !!last && state.debrief?.session_id === last.id;
-  return (
-    <View>
-      <T v="displayL" color={idle === 'listening' ? C.fg : C.fg2}>{HEADLINE[idle]}</T>
-      <T v="small" style={{ marginTop: S[2] }}>{EXPLAIN[idle]}</T>
-      <View style={{ marginTop: S[5] }}>
-        <Line label="Laptop" value={listen === 'offline' ? 'unreachable, retrying' : listen === 'connecting' ? 'connecting…' : 'connected'} ok={listen === 'connecting' ? null : listen !== 'offline'} />
-        <Line label="Band" value={bandValue} ok={!reachable || !band ? null : band.connected} />
-        <Line label="Mic" value={micValue} ok={!reachable || !band ? null : band.mic_on} />
-        <Rule />
-      </View>
-      {last ? (
-        // no left bar (§4.4): a small-caps label over an underlined link
-        <Pressable onPress={onOpenDebrief} disabled={!ready} accessibilityRole="link" accessibilityLabel={ready ? 'Read the debrief of the last conversation' : debriefLate ? 'The last conversation, no debrief' : 'The last conversation, debrief being written'}
-          style={({ pressed }) => ({ marginTop: S[5], opacity: pressed ? 0.55 : 1 })}>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: S[2] }}>
-            <T v="label">Last conversation</T>
-            <T v="numS" color={C.fg3}>{clock(((last.endedAt ?? last.startedAt) - last.startedAt) / 1000)}</T>
-          </View>
-          <T v="body" color={ready ? C.fg : C.fg2} style={{ marginTop: S[1], textDecorationLine: ready ? 'underline' : 'none' }}>
-            {ready ? 'Read the debrief' : debriefLate ? 'No debrief for this one. Very short ones close quietly, without one.' : 'Debrief on its way. Very short ones close quietly, without one.'}
-          </T>
-        </Pressable>
-      ) : null}
-    </View>
-  );
 }
