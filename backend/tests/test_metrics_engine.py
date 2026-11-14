@@ -225,3 +225,13 @@ def test_whole_fixture_gives_plausible_end_values() -> None:
     points = e.timeline()
     assert len(points) == int(last // 5) + 1
     assert points[0].wpm == 0.0 and points[-1].wpm > 0.0
+
+
+def test_live_pace_wins_while_fresh_then_falls_back():
+    from backend.metrics import LIVE_PACE_FRESH_S, MetricsEngine
+    m = MetricsEngine(None, None, ["um"])
+    m.add_live_pace(212.0, 10.0)
+    assert m.snapshot(11.0).wpm == 212.0
+    assert m.snapshot(10.0 + LIVE_PACE_FRESH_S + 0.5).wpm == 0.0  # stale: back to turn-based (no turns)
+    m.add_live_pace(float("nan"), 12.0)  # ignored
+    assert m.snapshot(14.5).wpm == 0.0
