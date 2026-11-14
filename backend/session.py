@@ -286,18 +286,23 @@ class SessionController:
         return self.thresholds.__dict__
 
 
+from pydantic import BaseModel  # noqa: E402  (module level, so FastAPI can resolve the annotations)
+
+
+class BookmarkIn(BaseModel):
+    text: Optional[str] = None
+
+
+class TapIn(BaseModel):
+    kind: str  # "double" | "single"
+
+
 def build_router(ctl: SessionController):
-    """FastAPI router for B to include in main.py."""
+    """Standalone router (only when main.py does NOT own /session/*). With the Brain, use
+    attach_band() + build_band_router() instead."""
     from fastapi import APIRouter
-    from pydantic import BaseModel
 
     r = APIRouter()
-
-    class BookmarkIn(BaseModel):
-        text: Optional[str] = None
-
-    class TapIn(BaseModel):
-        kind: str  # "double" | "single"
 
     @r.post("/session/start")
     async def session_start():
@@ -308,7 +313,8 @@ def build_router(ctl: SessionController):
         return {"session_id": await ctl.stop_session()}
 
     @r.post("/session/bookmark")
-    async def session_bookmark(body: BookmarkIn = BookmarkIn()):
+    async def session_bookmark(body: Optional[BookmarkIn] = None):
+        body = body or BookmarkIn()
         return await ctl.bookmark(body.text)
 
     @r.post("/session/tap")  # dev helper: pretend tap when the band is not at hand
