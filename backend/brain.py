@@ -18,13 +18,13 @@ from backend import debrief as debrief_pkg
 from backend import growth, haptics_port, judge, studio
 from backend.config import Settings
 from backend.contracts import (
-    BookmarkEvent, BookmarkSource, CoachActivatedEvent, CoachSpec, Debrief, DebriefEvent, HabitProfile,
-    HapticCommand, JudgeEvent, MetricsEvent, MotionEvent, MotionSnapshot, NudgeEvent,
+    BookmarkEvent, BookmarkSource, CoachActivatedEvent, CoachSpec, Debrief, DebriefEvent,
+    HapticCommand, JudgeEvent, MetricsEvent, MotionEvent, MotionSnapshot, NudgeEvent, NudgePolicy,
     NudgeSnoozedEvent, SessionEndedEvent, SessionMode, SessionStartedEvent, SessionSummary,
     SignalEvent, StatusReplyEvent, TranscriptPartialEvent, TurnContext, TurnFinalEvent,
 )
 from backend.metrics import MetricsEngine
-from backend.nudge import NudgeEngine
+from backend.nudge import NudgeEngine, next_policy
 from backend.state import AppState, SessionState
 
 log = logging.getLogger("undertone.brain")
@@ -75,16 +75,14 @@ class Brain:
     async def start_session(self, coach_id: str | None = None, mode: SessionMode = "regular") -> str:
         if self.app.session is not None:
             await self.end_session()
-        profile = self.app.db.load_profile() or HabitProfile()
+        profile = growth.current_profile(self.app.db)
         if mode == "practice" and coach_id is None:
             coach = studio.build_personal_coach(profile)
         else:
             coach = self.find_coach(coach_id)
             if coach is None:
                 raise ValueError(f"unknown coach {coach_id}")
-        policy = coach.nudge_policy
-        if self.settings.demo_policy:
-            policy = policy.model_copy(update={"min_gap_s": DEMO_MIN_GAP_S, "budget_per_session": DEMO_BUDGET})
+        policy = self._policy_for(coach, mode)
         sid = f"s-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
         session = SessionState(session_id=sid, coach=coach, mode=mode, policy=policy)
         self.metrics = MetricsEngine(profile.baseline_wpm, profile.baseline_volume_db, coach.filler_words)
@@ -98,6 +96,21 @@ class Brain:
         self._ticker = asyncio.create_task(self._tick_loop(session))
         log.info("session %s started (coach=%s mode=%s)", sid, coach.id, mode)
         return sid
+
+    def _policy_for(self, coach: CoachSpec, mode: SessionMode) -> NudgePolicy:
+        """Demo override wins; otherwise regular sessions fade the budget as the focus habit
+        improves and every fifth session is silent (nudge.next_policy). Never raises."""
+        policy = coach.nudge_policy
+        if self.settings.demo_policy:
+            return policy.model_copy(update={"min_gap_s": DEMO_MIN_GAP_S, "budget_per_session": DEMO_BUDGET})
+        if mode != "regular":
+            return policy
+        try:
+            rates = growth.focus_rates(self.app.db, coach.id, policy.focus_rule_id)
+            return next_policy(policy, rates, growth.next_session_index(self.app.db))
+        except Exception:
+            log.exception("fading policy failed for coach %s; using the coach's policy", coach.id)
+            return policy
 
     async def end_session(self) -> DebriefEvent | None:
         session = self.app.session

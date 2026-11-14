@@ -6,6 +6,11 @@ FINAL PUBLIC INTERFACE (do not change signatures; private modules live inside ba
         # called by brain after each debrief; persists and returns the new profile
     def mission_for_today(db: DB) -> DailyMission     # creates + stores today's if missing
     def streak(db: DB) -> Streak
+    def current_profile(db: DB) -> HabitProfile       # stored profile, or an empty one
+    def focus_rates(db: DB, coach_id: str, rule_id: str, limit: int = 3) -> list[float]
+        # the focus rule's firing rate (buzzed + quiet, per wearer minute) for the last finished
+        # regular sessions with that coach, oldest to newest (input to nudge.next_policy)
+    def next_session_index(db: DB) -> int             # 1-based index of the session about to start
     router: APIRouter   # backend/growth/routes.py:
         GET /profile, GET /mission/today, POST /mission/choose, GET /streak, GET /report/weekly,
         GET /people, POST /sessions/{id}/person, GET /sessions
@@ -17,6 +22,7 @@ Everything is deterministic maths over stored (finished) sessions:
     _streak.py   practice days, one freeze, no broken-streak wording
     _report.py   weekly trend against the wearer's own baseline
     _people.py   person cards (own behaviour with them vs own average) and tagging
+    _fading.py   focus-rule firing rates and session index for the fading policy
     _writer.py / _sample.py   writing sessions for tests and scripts/seed_sample.py
 """
 
@@ -24,10 +30,11 @@ from __future__ import annotations
 
 from backend.contracts import DailyMission, HabitProfile, Metrics, Streak
 from backend.db import DB
-from backend.growth import _mission, _profile, _streak
+from backend.growth import _fading, _mission, _profile, _streak
 from backend.state import SessionState
 
-__all__ = ["mission_for_today", "router", "streak", "update_profile"]
+__all__ = ["current_profile", "focus_rates", "mission_for_today", "next_session_index", "router", "streak",
+           "update_profile"]
 
 
 def update_profile(db: DB, session: SessionState, metrics: Metrics) -> HabitProfile:
@@ -42,6 +49,19 @@ def mission_for_today(db: DB) -> DailyMission:
 
 def streak(db: DB) -> Streak:
     return _streak.streak_for(db)
+
+
+def current_profile(db: DB) -> HabitProfile:
+    """The stored habit profile, or an empty one before the first finished session."""
+    return db.load_profile() or HabitProfile()
+
+
+def focus_rates(db: DB, coach_id: str, rule_id: str, limit: int = _fading.FADE_HISTORY) -> list[float]:
+    return _fading.focus_rates(db, coach_id, rule_id, limit)
+
+
+def next_session_index(db: DB) -> int:
+    return _fading.next_session_index(db)
 
 
 from backend.growth.routes import router  # noqa: E402
