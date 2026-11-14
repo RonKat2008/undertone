@@ -53,12 +53,12 @@ export default function ConnectedApps() {
       {/* Pending requests lead the list, with the `approve` glyph: that is what it means. */}
       {pending.map((a) => (
         <View key={a.app_id} style={{ borderTopWidth: 2, borderTopColor: C.fg, paddingTop: S[4], marginTop: S[6] }}>
-          <T v="body">Wants to tap you</T>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: S[2], marginTop: S[1] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: S[2] }}>
             <Glyph pattern="approve" size={34} playKey={a.app_id} />
             <T v="small" color={TONE.rose.text} style={{ marginBottom: 2 }}>waiting for you</T>
           </View>
           <T v="displayM" style={{ marginTop: S[2] }}>{a.name}</T>
+          <T v="body">Wants to tap you</T>
           <T v="numS" color={C.fg3} style={{ marginTop: S[1] }}>{a.origin ?? 'unknown origin'}</T>
           <T v="small" style={{ marginTop: 2 }}>Asked {ago(a.created_at)}</T>
           <View style={{ flexDirection: 'row', gap: S[3], marginTop: S[4] }}>

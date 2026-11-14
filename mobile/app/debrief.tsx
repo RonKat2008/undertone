@@ -47,7 +47,7 @@ export default function DebriefScreen() {
   const others = past.filter((s) => s.mode === 'regular' && s.session_id !== payload?.session_id);
   const usual: Usual = {};
   (['talk_ratio', 'interruptions', 'questions', 'fillers_per_min', 'wpm'] as Metric[]).forEach((k) => { usual[k] = median(others.map((s) => s.numbers[k])); });
-  if (fromBus && state.metrics?.baseline_wpm) usual.wpm = state.metrics.baseline_wpm;
+  if (state.metrics?.baseline_wpm) usual.wpm = state.metrics.baseline_wpm; // the wearer's own baseline, when the bus has it
   const nudges = fromBus ? state.marks.filter((m) => m.kind === 'nudge' && m.pattern).map((m) => ({ ts: m.ts, pattern: m.pattern as HapticPattern })) : [];
 
   return (
@@ -126,7 +126,7 @@ function Body({ d, audio, sessionId, usual, nudges, baseline }: { d: Debrief; au
         {NUMBERS.map(({ k, what, fmt }) => {
           const ref = usual[k];
           return (
-            <View key={k} style={{ flexDirection: 'row', alignItems: 'baseline', borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: S[3] }}>
+            <View key={k} style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.rule, paddingVertical: S[3] }}>
               <T v="numL" style={{ width: 118 }}>{fmt(d.numbers[k])}</T>
               <View style={{ flex: 1 }}>
                 <T v="body">{what}</T>
@@ -238,9 +238,9 @@ function Traces({ points, bookmarks, nudges, baseline }: { points: TimelinePoint
       })}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: S[1] }}>
         <T v="numS" color={C.fg3}>{clock(t0)}</T>
-        <T v="small" color={C.fg3}>dashed: bookmarks; shaded: your usual range</T>
         <T v="numS" color={C.fg3}>{clock(t1)}</T>
       </View>
+      <T v="small" color={C.fg3} style={{ marginTop: S[1] }}>Dashed: bookmarks. Shaded: your usual range.</T>
     </View>
   );
 }

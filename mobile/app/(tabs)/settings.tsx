@@ -35,7 +35,9 @@ export default function SettingsScreen() {
         <T v="displayS">{mode === 'mock' ? 'Demo pairing' : connected ? 'Connected to the laptop' : 'Laptop unreachable'}</T>
         {mode !== 'mock' && !connected ? <T v="body" style={{ fontFamily: F.sansMedium }}>Offline</T> : null}
       </View>
-      <T v="numS" color={C.fg2} style={{ marginTop: S[2], marginLeft: 14 + S[3] }}>{pairing ? `${pairing.server_url}\n${pairing.device_id}` : mode === 'mock' ? 'A scripted conversation, on a loop. No network.' : process.env.EXPO_PUBLIC_BUS_URL ?? ''}</T>
+      {mode === 'mock'
+        ? <T v="small" style={{ marginTop: S[1], marginLeft: 14 + S[3] }}>A scripted conversation, on a loop. No network.</T>
+        : <T v="numS" color={C.fg2} style={{ marginTop: S[2], marginLeft: 14 + S[3] }}>{pairing ? `${pairing.server_url}\n${pairing.device_id}` : process.env.EXPO_PUBLIC_BUS_URL ?? ''}</T>}
       <T v="small" style={{ marginTop: S[4] }}>Buzzes only arrive while Undertone is open on screen. The Live tab keeps the screen awake.</T>
       <Btn label={mode === 'mock' ? 'Pair with a laptop' : 'Unpair this phone'} onPress={() => void unpair()} style={{ marginTop: S[5] }} />
       <T v="small" color={C.fg3} style={{ marginTop: S[6] }}>Three fingers on the screen opens the rehearsal panel.</T>
