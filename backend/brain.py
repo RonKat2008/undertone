@@ -93,6 +93,8 @@ class Brain:
         self.app.session = session
         self.app.db.create_session(sid, coach.id, coach.name, mode, session.started_at_iso)
         await self.app.bus.publish(SessionStartedEvent(session_id=sid, coach_id=coach.id, mode=mode, policy=policy))
+        # First Decisions call is slow (cold connection); warm it without delaying the session.
+        self._warm_task = asyncio.create_task(judge.warm_up())
         self._ticker = asyncio.create_task(self._tick_loop(session))
         log.info("session %s started (coach=%s mode=%s)", sid, coach.id, mode)
         return sid
