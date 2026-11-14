@@ -1,15 +1,20 @@
 /**
- * Quiet Ink primitives. Pages are built from these; do not hand-roll a button, a row, a
+ * Lamplight primitives. Pages are built from these; do not hand-roll a button, a row, a
  * dialog or a heading style. See DESIGN.md for when to use each, and /styleguide (dev only)
  * to see them in every state and both themes.
  */
 export { Page, type PageProps } from './page';
 export { Section, type SectionProps } from './section';
+export { Panel, CoachNote, type PanelProps, type CoachNoteProps } from './panel';
+export { Avatar, initials, type AvatarProps } from './avatar';
+export { KindDot, KindChip, KINDS, KIND_ICON, KIND_LABEL, kindColor, type Kind, type KindChipProps } from './kind';
+export { ListeningMark, type ListeningMarkProps, type ListeningState } from './listening-mark';
+export { ShareBar, PaceBar, type ShareBarProps, type PaceBarProps } from './bar';
 export { Prose, type ProseProps } from './prose';
 export { Button, type ButtonProps, type ButtonLinkProps, type ButtonVariant } from './button';
 export { TextLink, type TextLinkProps } from './text-link';
 export { Input, Textarea, type InputProps, type TextareaProps } from './field';
-export { List, ListRow, type ListRowProps } from './list-row';
+export { List, ListRow, type ListRowProps, type ListProps } from './list-row';
 export { EmptyState, type EmptyStateProps } from './empty-state';
 export { InlineStat, type InlineStatProps } from './inline-stat';
 export { StatusWord, type StatusWordProps, type StatusTone } from './status-word';

@@ -1,8 +1,8 @@
 import type { CSSProperties } from 'react';
 
 export interface SkeletonProps {
-  /** 'text' is one line of body text; 'block' takes the given height. */
-  shape?: 'text' | 'block';
+  /** 'text' is one line of body text; 'block' takes the given height; 'circle' stands in for an avatar. */
+  shape?: 'text' | 'block' | 'circle';
   /** CSS width, e.g. '60%' or 240. */
   width?: CSSProperties['width'];
   height?: CSSProperties['height'];
@@ -10,7 +10,7 @@ export interface SkeletonProps {
 
 /** Placeholder while content loads. Mirror the real layout's lines; never a spinner for page content. */
 export function Skeleton({ shape = 'text', width = '100%', height }: SkeletonProps) {
-  return <span className="qi-skeleton" data-shape={shape} style={{ width, height: shape === 'block' ? height ?? 64 : undefined }} aria-hidden />;
+  return <span className="qi-skeleton" data-shape={shape} style={{ width: shape === 'circle' ? height ?? 36 : width, height: shape === 'text' ? undefined : height ?? (shape === 'circle' ? 36 : 64) }} aria-hidden />;
 }
 
 /** A few text-line skeletons, the last one shorter, announced once as loading. */

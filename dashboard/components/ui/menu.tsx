@@ -1,7 +1,7 @@
 'use client';
 
 import { Menu as BaseMenu } from '@base-ui/react/menu';
-import { MoreHorizontal } from 'lucide-react';
+import { Ellipsis, type LucideIcon } from 'lucide-react';
 import { Fragment } from 'react';
 import { ICON } from './icon';
 
@@ -11,6 +11,8 @@ export interface MenuAction {
   /** Destructive: shown in the danger colour, listed last after a separator. Confirm it in a Dialog. */
   danger?: boolean;
   disabled?: boolean;
+  /** Optional lucide icon before the label. */
+  icon?: LucideIcon;
 }
 
 export interface MenuProps {
@@ -26,7 +28,7 @@ export function Menu({ actions, label }: MenuProps) {
   return (
     <BaseMenu.Root>
       <BaseMenu.Trigger className="qi-btn" data-variant="ghost" data-size="small" data-icon-only aria-label={label}>
-        <MoreHorizontal {...ICON} aria-hidden />
+        <Ellipsis {...ICON} aria-hidden />
       </BaseMenu.Trigger>
       <BaseMenu.Portal>
         <BaseMenu.Positioner sideOffset={6} align="end" className="z-50">
@@ -44,6 +46,7 @@ export function Menu({ actions, label }: MenuProps) {
 function Item({ action }: { action: MenuAction }) {
   return (
     <BaseMenu.Item className="qi-menu-item" data-tone={action.danger ? 'danger' : undefined} disabled={action.disabled} onClick={action.onSelect}>
+      {action.icon ? <action.icon {...ICON} size={16} aria-hidden /> : null}
       {action.label}
     </BaseMenu.Item>
   );

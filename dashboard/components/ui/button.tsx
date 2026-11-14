@@ -6,8 +6,8 @@ export type ButtonVariant = 'primary' | 'quiet' | 'ghost' | 'danger';
 interface CommonProps {
   /**
    * primary: the one main action on a page (accent fill; at most one per view).
-   * quiet: every other action (hairline border).
-   * ghost: icon-only or low-stakes inline actions (no border).
+   * quiet: every other action (raised neutral fill).
+   * ghost: icon-only or low-stakes inline actions (no fill).
    * danger: destructive actions; confirm them in a Dialog.
    */
   variant?: ButtonVariant;

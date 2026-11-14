@@ -1,6 +1,7 @@
 'use client';
 
 import { m } from 'motion/react';
+import { Feather, House, MessagesSquare, Settings2, Waypoints, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -9,21 +10,24 @@ import { MotionProvider } from '@/components/ui/motion-provider';
 import { Toaster } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { BusProvider } from '@/lib/bus/use-bus';
-import { DURATION, EASE } from '@/lib/motion';
+import { ICON } from '@/components/ui/icon';
+import { SPRING } from '@/lib/motion';
 
 interface Destination {
   href: string;
   label: string;
+  icon: LucideIcon;
   /** Older routes that belong to this destination until the page builders redirect them. */
   also: string[];
 }
 
-/** Four destinations. Nothing else goes in the navigation. */
+/** Five destinations. Nothing else goes in the navigation. */
 const NAV: Destination[] = [
-  { href: '/', label: 'Home', also: [] },
-  { href: '/conversations', label: 'Conversations', also: ['/debrief'] },
-  { href: '/coach', label: 'Coach', also: ['/studio', '/live'] },
-  { href: '/settings', label: 'Settings', also: ['/pair', '/calibration'] },
+  { href: '/', label: 'Home', icon: House, also: [] },
+  { href: '/insights', label: 'Insights', icon: Waypoints, also: [] },
+  { href: '/conversations', label: 'Conversations', icon: MessagesSquare, also: ['/debrief'] },
+  { href: '/coach', label: 'Coach', icon: Feather, also: ['/studio', '/live'] },
+  { href: '/settings', label: 'Settings', icon: Settings2, also: ['/pair', '/calibration'] },
 ];
 
 /** How long the Rehearse page holds a nudge on screen. Kept here for components/live until it is rebuilt. */
@@ -63,8 +67,9 @@ export function Shell({ children }: { children: ReactNode }) {
 }
 
 /**
- * Below 640 px: wordmark and status on the first row, the four destinations on the second.
- * From 640 px: one row. Chrome stays muted; only the current destination is full contrast.
+ * Below 640 px: wordmark and status on the first row, the five destinations on the second, where
+ * only the current one shows its label (the others are icons with an accessible name).
+ * From 640 px: one row, every destination with icon and label. Chrome stays muted; the current destination sits on a soft pill with a teal icon.
  */
 function Masthead() {
   const path = usePathname();
@@ -74,7 +79,7 @@ function Masthead() {
         Undertone
       </Link>
       <nav aria-label="Main" className="col-span-2 col-start-1 row-start-2 -mx-2 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:mx-0">
-        <ul className="flex items-center gap-1 sm:gap-2">
+        <ul className="flex items-center gap-1 sm:gap-1.5">
           {NAV.map((d) => (
             <NavItem key={d.href} destination={d} active={isActive(path, d)} />
           ))}
@@ -88,24 +93,26 @@ function Masthead() {
 }
 
 function NavItem({ destination, active }: { destination: Destination; active: boolean }) {
+  const Icon = destination.icon;
   return (
     <li className="relative">
       <Link
         href={destination.href}
         aria-current={active ? 'page' : undefined}
-        className={`relative flex h-11 items-center rounded-[4px] px-2 text-[15px] leading-6 transition-colors duration-150 ${
+        className={`relative flex h-10 min-w-10 items-center justify-center gap-2 rounded-[10px] px-2.5 text-[15px] font-medium leading-6 transition-colors duration-150 ${
           active ? 'text-fg' : 'text-muted hover:text-fg'
         }`}
       >
-        {destination.label}
         {active ? (
           <m.span
             layoutId="nav-current"
             aria-hidden
-            className="absolute inset-x-2 bottom-1.5 h-px bg-fg"
-            transition={{ duration: DURATION.slow, ease: EASE.inOut }}
+            className="absolute inset-0 rounded-[10px] bg-[color-mix(in_oklch,var(--text)_8%,transparent)] shadow-[inset_0_0_0_1px_var(--line)]"
+            transition={SPRING}
           />
         ) : null}
+        <Icon {...ICON} size={active ? 16 : 18} aria-hidden className={`relative sm:size-4 ${active ? 'text-accent' : ''}`} />
+        <span className={`relative ${active ? '' : 'max-sm:sr-only'}`}>{destination.label}</span>
       </Link>
     </li>
   );

@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 export interface TabItem {
   value: string;
   label: ReactNode;
+  /** Optional lucide icon element before the label; turns teal on the active tab. */
+  icon?: ReactNode;
   content: ReactNode;
 }
 
@@ -20,8 +22,8 @@ export interface TabsProps {
 }
 
 /**
- * Switches between views of the same thing (Transcript / Debrief / Audio). Words only, two to
- * four tabs, underline indicator that slides. For a filter or a setting use SegmentedControl.
+ * Switches between views of the same thing (Transcript / Debrief / Audio). Two to four tabs; the
+ * current one sits on a raised pill that springs between them. For a filter or a setting use SegmentedControl.
  */
 export function Tabs({ items, defaultValue, value, onValueChange, label }: TabsProps) {
   return (
@@ -32,7 +34,7 @@ export function Tabs({ items, defaultValue, value, onValueChange, label }: TabsP
     >
       <BaseTabs.List className="qi-tabs-list" aria-label={label}>
         {items.map((t) => (
-          <BaseTabs.Tab key={t.value} value={t.value} className="qi-tab">{t.label}</BaseTabs.Tab>
+          <BaseTabs.Tab key={t.value} value={t.value} className="qi-tab">{t.icon}{t.label}</BaseTabs.Tab>
         ))}
         <BaseTabs.Indicator className="qi-tabs-indicator" />
       </BaseTabs.List>

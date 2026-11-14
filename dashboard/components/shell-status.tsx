@@ -7,6 +7,7 @@
  * "listening all day".
  */
 import { useEffect, useState } from 'react';
+import { ListeningMark } from '@/components/ui/listening-mark';
 import { TextLink } from '@/components/ui/text-link';
 import { Popover } from '@/components/ui/tooltip';
 import { getBandAlwaysOn } from '@/lib/api/client';
@@ -56,11 +57,11 @@ export function ShellStatus() {
       trigger={
         <button
           type="button"
-          className="flex h-11 items-center gap-2 rounded-[4px] px-1 text-[13px] leading-[18px] text-muted transition-colors duration-150 hover:text-fg"
+          className="flex h-10 items-center gap-1.5 rounded-[10px] pl-1.5 pr-3 text-[13px] font-medium leading-[18px] text-muted transition-colors duration-150 hover:bg-[var(--hover)] hover:text-fg"
           aria-label={`${word}. Band and phone details`}
         >
-          <Mark summary={summary} />
-          <span className={summary === 'offline' ? 'text-warn' : undefined}>{word}</span>
+          <ListeningMark state={summary === 'listening' ? 'listening' : summary === 'offline' ? 'offline' : 'idle'} />
+          <span className={summary === 'offline' ? 'text-warn' : summary === 'listening' ? 'text-fg' : undefined}>{word}</span>
         </button>
       }
     >
@@ -76,9 +77,3 @@ export function ShellStatus() {
   );
 }
 
-/** A 7 px circle: filled when listening, a ring otherwise, warn-coloured ring when offline. */
-function Mark({ summary }: { summary: Summary }) {
-  const filled = summary === 'listening';
-  const tone = summary === 'offline' ? 'border-warn' : filled ? 'border-fg bg-fg' : 'border-muted';
-  return <span aria-hidden className={`size-[7px] shrink-0 rounded-full border ${tone}`} />;
-}

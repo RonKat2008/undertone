@@ -1,8 +1,8 @@
 /* ==========================================================================
-   LEGACY ALIASES (Tempo -> Quiet Ink). Temporary.
+   LEGACY ALIASES (Tempo -> Lamplight). Temporary.
 
-   The pages that predate Quiet Ink still use the Tempo names below. Each name
-   now points at a Quiet Ink token so those pages compile and look calm until
+   The pages that predate Lamplight still use the Tempo names below. Each name
+   now points at a Lamplight token so those pages compile and look calm until
    they are rebuilt from components/ui. Nothing new may use anything in this
    file. When a page is rebuilt, remove the names it used; when nothing uses a
    name (grep app/ components/), delete it here. Delete the file at the end.
@@ -35,10 +35,9 @@
 
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px;
   --s-6: 32px; --s-7: 48px; --s-8: 64px; --s-9: 96px;
-  --r-key: var(--radius);
+  --r-key: var(--radius-control);
   --r-0: 0;
   --r-note: 50%;
-  --shadow-panel: var(--shadow-float);
 
   --ease-enter: var(--ease-out);
   --ease-exit: var(--ease-out);
@@ -52,12 +51,12 @@
   --margin-l: 0px;
   --margin-r: 0px;
 
-  --k-person: var(--muted);
-  --k-topic: var(--muted);
-  --k-commitment: var(--text);
-  --k-habit: var(--bg);
-  --k-habit-ink: var(--text);
-  --k-conversation: var(--muted);
+  --k-person: var(--kind-person);
+  --k-topic: var(--kind-topic);
+  --k-commitment: var(--kind-promise);
+  --k-habit: var(--surface);
+  --k-habit-ink: var(--kind-habit);
+  --k-conversation: var(--kind-conversation);
 }
 
 @theme inline {
@@ -123,7 +122,7 @@
   /* controls: Tempo buttons render as the new quiet/primary buttons */
   .btn {
     display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px;
-    border: 1px solid var(--line-strong); border-radius: var(--radius); background: transparent; color: var(--text);
+    border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--text);
     font-size: var(--fs-body); font-weight: 500; white-space: nowrap;
     transition: background-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out);
   }
@@ -137,9 +136,9 @@
   .btn-sm { height: 32px; padding: 0 10px; font-size: var(--fs-caption); gap: 6px; }
   .link { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; text-decoration-thickness: 1px; }
   .link:hover { text-decoration-color: currentColor; }
-  .field { background: transparent; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 7px 12px; width: 100%; color: var(--text); }
+  .field { background: transparent; border: 1px solid var(--line-strong); border-radius: var(--radius-control); padding: 7px 12px; width: 100%; color: var(--text); }
   .field:focus { outline: none; border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
-  .chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius); font-size: var(--fs-caption); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-control); font-size: var(--fs-caption); }
 
   .state { position: relative; display: inline-block; width: 8px; height: 8px; flex-shrink: 0; }
   .state::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--state-off); }
