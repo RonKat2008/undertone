@@ -1,219 +1,256 @@
-"""Haptics Connector core (plan.md 4.8): paired phones, third-party apps, and the fan-out of
-HapticCommands. No web framework here; router.py wraps it.
+"""Haptics hub: paired phones, third-party apps, and delivery of HapticCommands.
 
-    hub = attach_haptics(state)        # in main.py's lifespan: wires the Brain's haptics_port to the phones
-    qr = hub.pair("Ash's iPhone", "http://10.0.0.5:8000")       -> {server_url, device_id, device_token}
-    hub.attach(device_id, token, send)                  # phone's WebSocket; send(dict) is async
-    await hub.on_bus_event(ev)                          # nudge / status.reply / app.request -> HapticCommand
-    app = hub.register_app("Slide timer")               -> {app_id, app_key, name, approved}
-    hub.approve(app_id); hub.delete_app(app_id)
-    await hub.buzz_from_app(bearer, pattern, intensity, label)  -> number of phones reached
+State lives in memory and (when a DB is attached) in the kv table under `haptics.devices` /
+`haptics.apps`, so a phone stays paired across a backend restart.
 
-The phone is the haptic output: the band has no motor and iOS Safari cannot vibrate.
-Tokens and app keys are random, compared in constant time, and never logged.
+Delivery paths, all ending in `Hub.deliver`:
+- the brain calls `haptics_port.send` for every buzzed nudge and every tap reply;
+- `nudge` / `status.reply` events seen on the bus (e.g. injected by scripts/replay.py);
+- `POST /v1/haptics` from an approved third-party app.
+The first two describe the same buzz, so `deliver_once` drops a repeat inside DEDUPE_S.
 """
+
 from __future__ import annotations
 
-import asyncio
-import hmac
 import logging
 import secrets
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+import time
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal, Protocol
 
-from backend.contracts import HAPTIC_PATTERNS, HapticCommand
+from backend.contracts import AppRequestEvent, DeviceStatusEvent, HapticCommand
 
 log = logging.getLogger("undertone.haptics")
-Send = Callable[[dict], Awaitable[None]]
-KV_KEY = "haptics"
-INTENSITY = {"success": 0.7, "tap": 0.5, "approve": 0.6, "filler": 0.8, "still": 0.6, "slow_down": 0.7}
+
+DEDUPE_S = 1.5
+RATE_WINDOW_S = 10.0
+RATE_MAX = 30  # buzzes per app per window
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I
+KV_DEVICES = "haptics.devices"
+KV_APPS = "haptics.apps"
+
+AppStatus = Literal["pending", "approved", "revoked"]
 
 
-class HapticsError(Exception):
-    def __init__(self, status: int, message: str) -> None:
-        super().__init__(message)
-        self.status = status
-        self.message = message
+class Socket(Protocol):
+    async def send_json(self, data: Any) -> None: ...
 
 
-def command(pattern: str, label: str = "", intensity: Optional[float] = None, source_app: str = "undertone") -> dict:
-    """A contract HapticCommand dict. Raises HapticsError(400) on an unknown pattern or bad intensity."""
-    if pattern not in HAPTIC_PATTERNS:
-        raise HapticsError(400, "unknown pattern %r (known: %s)" % (pattern, ", ".join(sorted(HAPTIC_PATTERNS))))
-    if intensity is None:
-        intensity = INTENSITY.get(pattern, 1.0)
-    try:
-        intensity = float(intensity)
-    except (TypeError, ValueError):
-        raise HapticsError(400, "intensity must be a number from 0 to 1")
-    if not 0 <= intensity <= 1:
-        raise HapticsError(400, "intensity must be from 0 to 1")
-    cmd = {"type": "haptic", "pattern": pattern, "intensity": intensity, "label": str(label or "")[:120],
-           "source_app": source_app}
-    HapticCommand.model_validate(cmd)
-    return cmd
+class KV(Protocol):
+    def kv_get(self, key: str, default: Any = None) -> Any: ...
+    def kv_set(self, key: str, value: Any) -> None: ...
 
 
-def command_for_event(ev: dict) -> Optional[dict]:
-    """Which bus events buzz the phone: every nudge and every status.reply, plus a tick when a
-    third-party app is waiting for approval."""
-    t = ev.get("type")
-    if t == "nudge":
-        return command(ev["haptic"], ev["message"])
-    if t == "status.reply":
-        label = {"good": "Good", "talking_too_much": "Talking too much", "ask_question": "Ask a question"}
-        return command(ev["haptic"], label.get(ev["verdict"], ""), 1.0)
-    if t == "app.request":
-        return command("approve", "%s wants to buzz this phone" % ev["name"])
-    return None
+@dataclass
+class Device:
+    device_id: str
+    device_token: str
+    code: str
+    name: str = "iPhone"
+    created_at: float = field(default_factory=time.time)
+    last_seen: float | None = None
+
+    def public(self, connected: bool) -> dict[str, Any]:
+        return {"device_id": self.device_id, "name": self.name, "connected": connected,
+                "paired": self.last_seen is not None, "last_seen": self.last_seen}
 
 
-class HapticsHub:
-    def __init__(self, emit: Optional[Callable[[dict], Any]] = None, store: Any = None) -> None:
-        self.emit = emit
-        self.store = store
-        self.devices: Dict[str, dict] = {}       # device_id -> {name, token}
-        self.apps: Dict[str, dict] = {}          # app_id -> {name, key, approved}
-        self._conns: Dict[str, List[Send]] = {}
-        self.sent: List[dict] = []               # last commands, for tests and the replay script
-        if store is not None:
-            saved = store.kv_get(KV_KEY) or {}
-            self.devices = saved.get("devices", {})
-            self.apps = saved.get("apps", {})
+@dataclass
+class App:
+    app_id: str
+    app_key: str
+    name: str
+    origin: str | None = None
+    status: AppStatus = "pending"
+    created_at: float = field(default_factory=time.time)
+    last_used: float | None = None
+    buzzes: int = 0
+
+    def public(self) -> dict[str, Any]:
+        return {"app_id": self.app_id, "name": self.name, "origin": self.origin, "status": self.status,
+                "created_at": self.created_at, "last_used": self.last_used, "buzzes": self.buzzes}
+
+
+class RateLimited(Exception):
+    pass
+
+
+class Hub:
+    def __init__(self) -> None:
+        self.devices: dict[str, Device] = {}
+        self.apps: dict[str, App] = {}
+        self.bus: Any = None
+        self._kv: KV | None = None
+        self._sockets: dict[str, set[Socket]] = {}
+        self._recent: dict[tuple[str, str], float] = {}
+        self._rate: dict[str, list[float]] = {}
+
+    # ---------- wiring ----------
+    def attach(self, bus: Any = None, kv: KV | None = None) -> None:
+        """Connect to the event bus and the kv store. Safe to call with neither (tests)."""
+        self.bus, self._kv = bus, kv
+        if kv is not None:
+            try:
+                self.devices = {d["device_id"]: Device(**d) for d in kv.kv_get(KV_DEVICES, []) or []}
+                self.apps = {a["app_id"]: App(**a) for a in kv.kv_get(KV_APPS, []) or []}
+            except Exception:
+                log.exception("could not load saved haptics state; starting empty")
+        if bus is not None:
+            bus.on("nudge", self._on_nudge)
+            bus.on("status.reply", self._on_status_reply)
 
     def _save(self) -> None:
-        if self.store is not None:
-            self.store.kv_set(KV_KEY, {"devices": self.devices, "apps": self.apps})
-
-    async def _emit(self, ev: dict) -> None:
-        if self.emit is None:
+        if self._kv is None:
             return
-        r = self.emit(ev)
-        if asyncio.iscoroutine(r):
-            await r
+        try:
+            self._kv.kv_set(KV_DEVICES, [asdict(d) for d in self.devices.values()])
+            self._kv.kv_set(KV_APPS, [asdict(a) for a in self.apps.values()])
+        except Exception:
+            log.exception("could not save haptics state")
+
+    async def _publish(self, event: Any) -> None:
+        if self.bus is None:
+            return
+        try:
+            await self.bus.publish(event)
+        except Exception:
+            log.exception("bus publish failed: %s", getattr(event, "type", "?"))
 
     # ---------- devices ----------
-
-    def pair(self, name: str, server_url: str) -> dict:
-        """New phone. The return value is the QR payload."""
-        device_id = "d_" + secrets.token_hex(4)
-        token = secrets.token_urlsafe(24)
-        self.devices[device_id] = {"name": (name or "iPhone").strip()[:60] or "iPhone", "token": token}
+    def create_pairing(self, name: str | None = None) -> Device:
+        code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(6))
+        device = Device(device_id=f"d-{secrets.token_hex(4)}", device_token=secrets.token_urlsafe(24),
+                        code=code, name=name or "iPhone")
+        self.devices[device.device_id] = device
         self._save()
-        return {"server_url": server_url.rstrip("/"), "device_id": device_id, "device_token": token}
+        return device
 
-    def device_ok(self, device_id: str, token: Optional[str]) -> bool:
-        d = self.devices.get(device_id)
-        return bool(d and token and hmac.compare_digest(d["token"], token))
+    def claim(self, code: str) -> Device | None:
+        wanted = code.strip().upper().replace("-", "").replace(" ", "")
+        matches = [d for d in self.devices.values() if d.code == wanted]
+        return max(matches, key=lambda d: d.created_at) if matches else None
 
-    def device_for_token(self, token: Optional[str]) -> Optional[str]:
+    def device_for_token(self, token: str | None) -> Device | None:
         if not token:
             return None
-        return next((i for i, d in self.devices.items() if hmac.compare_digest(d["token"], token)), None)
+        return next((d for d in self.devices.values() if secrets.compare_digest(d.device_token, token)), None)
 
-    def connected(self, device_id: str) -> bool:
-        return bool(self._conns.get(device_id))
+    def is_connected(self, device_id: str) -> bool:
+        return bool(self._sockets.get(device_id))
 
-    def list_devices(self) -> List[dict]:
-        """`device.status` shaped rows (no tokens)."""
-        return [{"type": "device.status", "device_id": i, "name": d["name"], "connected": self.connected(i)}
-                for i, d in self.devices.items()]
+    def list_devices(self) -> list[dict[str, Any]]:
+        return [d.public(self.is_connected(d.device_id))
+                for d in sorted(self.devices.values(), key=lambda d: d.created_at)]
 
-    async def attach(self, device_id: str, token: Optional[str], send: Send) -> None:
-        if not self.device_ok(device_id, token):
-            raise HapticsError(401, "unknown device or wrong token")
-        self._conns.setdefault(device_id, []).append(send)
-        await self._emit({"type": "device.status", "device_id": device_id, "name": self.devices[device_id]["name"],
-                          "connected": True})
-
-    async def detach(self, device_id: str, send: Send) -> None:
-        conns = self._conns.get(device_id, [])
-        if send in conns:
-            conns.remove(send)
-        if device_id in self.devices:
-            await self._emit({"type": "device.status", "device_id": device_id, "name": self.devices[device_id]["name"],
-                              "connected": self.connected(device_id)})
-
-    async def send_all(self, cmd: dict) -> int:
-        """Send one HapticCommand to every connected phone. Returns how many got it."""
-        self.sent.append(cmd)
-        del self.sent[:-200]
-        n = 0
-        for device_id, conns in list(self._conns.items()):
-            for send in list(conns):
+    async def remove_device(self, device_id: str) -> bool:
+        device = self.devices.pop(device_id, None)
+        if device is None:
+            return False
+        for ws in list(self._sockets.pop(device_id, set())):
+            close = getattr(ws, "close", None)
+            if close is not None:
                 try:
-                    await send(cmd)
-                    n += 1
-                except Exception:  # noqa: BLE001
-                    await self.detach(device_id, send)
-        return n
+                    await close(code=4401)
+                except Exception:
+                    pass
+        self._save()
+        await self._publish(DeviceStatusEvent(device_id=device_id, name=device.name, connected=False))
+        return True
 
-    async def on_bus_event(self, ev: dict) -> None:
-        cmd = command_for_event(ev)
-        if cmd is not None:
-            await self.send_all(cmd)
+    async def connect(self, device: Device, ws: Socket, name: str | None = None) -> None:
+        if name:
+            device.name = name[:40]
+        device.last_seen = time.time()
+        self._sockets.setdefault(device.device_id, set()).add(ws)
+        self._save()
+        await self._publish(DeviceStatusEvent(device_id=device.device_id, name=device.name, connected=True))
+
+    async def disconnect(self, device: Device, ws: Socket) -> None:
+        sockets = self._sockets.get(device.device_id, set())
+        sockets.discard(ws)
+        device.last_seen = time.time()
+        if not sockets and device.device_id in self.devices:
+            await self._publish(DeviceStatusEvent(device_id=device.device_id, name=device.name, connected=False))
+
+    # ---------- delivery ----------
+    async def deliver(self, cmd: HapticCommand, device_id: str | None = None) -> int:
+        """Send to one phone, or to every connected phone. Returns how many sockets got it."""
+        payload = cmd.model_dump(mode="json")
+        targets = [device_id] if device_id else list(self._sockets)
+        sent = 0
+        for did in targets:
+            for ws in list(self._sockets.get(did, set())):
+                try:
+                    await ws.send_json(payload)
+                    sent += 1
+                except Exception:
+                    log.info("dropping dead socket for %s", did)
+                    self._sockets.get(did, set()).discard(ws)
+        log.info("haptic %s (%s) from %s -> %d phone(s)", cmd.pattern, cmd.label, cmd.source_app, sent)
+        return sent
+
+    async def deliver_once(self, cmd: HapticCommand) -> int:
+        """Deliver unless the same pattern + label went out a moment ago (brain and bus overlap)."""
+        now = time.monotonic()
+        key = (cmd.pattern, cmd.label)
+        self._recent = {k: t for k, t in self._recent.items() if now - t < DEDUPE_S}
+        if key in self._recent:
+            return 0
+        self._recent[key] = now
+        return await self.deliver(cmd)
+
+    async def port_sender(self, cmd: HapticCommand) -> None:
+        """Registered with backend.haptics_port: the brain's buzzes arrive here."""
+        await self.deliver_once(cmd)
+
+    async def _on_nudge(self, event: Any) -> None:
+        await self.deliver_once(HapticCommand(pattern=event.haptic, label=event.message))
+
+    async def _on_status_reply(self, event: Any) -> None:
+        await self.deliver_once(HapticCommand(pattern=event.haptic, label=event.verdict))
 
     # ---------- third-party apps ----------
-
-    async def register_app(self, name: str) -> dict:
-        name = (name or "").strip()[:60]
-        if not name:
-            raise HapticsError(400, "name is required")
-        if name.lower() == "undertone":
-            raise HapticsError(400, "that name is reserved")
-        app_id = "app_" + secrets.token_hex(4)
-        key = "ut_" + secrets.token_urlsafe(24)
-        self.apps[app_id] = {"name": name, "key": key, "approved": False}
+    async def register_app(self, name: str, origin: str | None = None) -> App:
+        app = App(app_id=f"app-{secrets.token_hex(4)}", app_key=f"ut_{secrets.token_urlsafe(24)}",
+                  name=name.strip()[:60] or "Unnamed app", origin=origin)
+        self.apps[app.app_id] = app
         self._save()
-        await self._emit({"type": "app.request", "app_id": app_id, "name": name})
-        await self.send_all(command("approve", "%s wants to buzz this phone" % name))
-        return {"app_id": app_id, "app_key": key, "name": name, "approved": False}
+        await self._publish(AppRequestEvent(app_id=app.app_id, name=app.name))
+        # the phone taps twice: something is waiting for approval
+        await self.deliver(HapticCommand(pattern="approve", label=f"{app.name} wants to buzz you",
+                                         source_app="undertone"))
+        return app
 
-    def list_apps(self) -> List[dict]:
-        return [{"app_id": i, "name": a["name"], "approved": a["approved"]} for i, a in self.apps.items()]
-
-    def approve(self, app_id: str) -> dict:
-        a = self.apps.get(app_id)
-        if a is None:
-            raise HapticsError(404, "unknown app")
-        a["approved"] = True
-        self._save()
-        return {"app_id": app_id, "name": a["name"], "approved": True}
-
-    def delete_app(self, app_id: str) -> None:
-        if self.apps.pop(app_id, None) is None:
-            raise HapticsError(404, "unknown app")
-        self._save()
-
-    def app_for_key(self, bearer: Optional[str]) -> dict:
-        """`bearer` is the Authorization header value or the bare key."""
-        key = (bearer or "").strip()
-        if key.lower().startswith("bearer "):
-            key = key[7:].strip()
+    def app_for_key(self, key: str | None) -> App | None:
         if not key:
-            raise HapticsError(401, "missing Authorization: Bearer <app_key>")
-        for app_id, a in self.apps.items():
-            if hmac.compare_digest(a["key"], key):
-                if not a["approved"]:
-                    raise HapticsError(403, "waiting for approval on the phone")
-                return dict(a, app_id=app_id)
-        raise HapticsError(401, "unknown app key")
+            return None
+        return next((a for a in self.apps.values() if secrets.compare_digest(a.app_key, key)), None)
 
-    async def buzz_from_app(self, bearer: Optional[str], pattern: str, intensity: Optional[float] = None,
-                            label: str = "") -> int:
-        app = self.app_for_key(bearer)
-        return await self.send_all(command(pattern, label, intensity, source_app=app["name"]))
+    def set_app_status(self, app_id: str, status: AppStatus) -> App | None:
+        app = self.apps.get(app_id)
+        if app is None:
+            return None
+        app.status = status
+        self._save()
+        return app
 
+    def remove_app(self, app_id: str) -> bool:
+        removed = self.apps.pop(app_id, None) is not None
+        if removed:
+            self._save()
+        return removed
 
-def attach_haptics(app_state) -> HapticsHub:
-    """Register the hub as the Brain's haptics sender (backend/haptics_port.py). The Brain
-    already sends every nudge and status reply through the port, so the hub does not listen
-    to the bus for those (that would buzz twice)."""
-    from backend import haptics_port
+    def list_apps(self) -> list[dict[str, Any]]:
+        return [a.public() for a in sorted(self.apps.values(), key=lambda a: a.created_at)]
 
-    hub = HapticsHub(emit=app_state.bus.publish, store=app_state.db)
-
-    async def sender(cmd: HapticCommand) -> None:
-        await hub.send_all(cmd.model_dump(mode="json"))
-
-    haptics_port.register_sender(sender)
-    return hub
+    async def app_buzz(self, app: App, cmd: HapticCommand, device_id: str | None = None) -> int:
+        now = time.monotonic()
+        stamps = [t for t in self._rate.get(app.app_id, []) if now - t < RATE_WINDOW_S]
+        if len(stamps) >= RATE_MAX:
+            self._rate[app.app_id] = stamps
+            raise RateLimited(app.app_id)
+        self._rate[app.app_id] = [*stamps, now]
+        app.last_used = time.time()
+        app.buzzes += 1
+        self._save()
+        return await self.deliver(cmd.model_copy(update={"source_app": app.name}), device_id)

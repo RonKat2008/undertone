@@ -29,7 +29,7 @@ from backend.db import DB
 from backend.deps import get_app_state, get_brain
 from backend.state import AppState
 
-from backend.haptics import attach_haptics, build_router as haptics_router  # noqa: E402
+from backend import haptics  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("undertone.main")
@@ -70,9 +70,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state = AppState(bus=Bus(), db=db, active_coach=_initial_coach(db))
     app.state.app = state
     app.state.brain = Brain(state, settings)
-    # Person C: phones and third-party apps. The hub becomes the Brain's haptics sender.
-    app.state.haptics = attach_haptics(state)
-    app.include_router(haptics_router(app.state.haptics))
+    # Person C: phones and third-party apps. The hub registers itself as the Brain's haptics sender.
+    haptics.install(app)
     # Person A: the band. Off unless BAND_TRANSPORT is set (ble | serial | sim | laptop-mic).
     band = await _attach_band(app, state)
     log.info("undertone up: %s", settings)
@@ -101,6 +100,7 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 app.include_router(studio.router)
 app.include_router(growth.router)
 app.include_router(debrief.router)
+app.include_router(haptics.router)
 
 
 # ---------- error envelope: {"ok": false, "error": {"code", "message", "details"?}} ----------

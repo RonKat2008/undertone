@@ -53,7 +53,7 @@ Start with Phase 0: show me the scaffold and the four smoke tests, then run them
 | 10 | Judge may send the audio clip | **Text only.** Free tier is 50K tokens/min; audio would burn it | Google rate-limit page |
 | 11 | Four owners (A–D) | **Three people**, with the UI look handed to Antigravity | Team size |
 | 12 | MCP server, native Core Haptics, memory graph | Cut. One stretch at most (section 8) | Time |
-| 13 | Nudge whenever a rule fires (up to 4 a minute) | **One focus habit per conversation, a budget of 5 buzzes, at least 60 s apart, only outside the wearer's own tolerance band** (section 4.0) | Teaching research |
+| 13 | Nudge whenever a rule fires (up to 4 a minute) | **Regular mode buzzes for one thing only: talking too fast.** At most 3 buzzes a conversation, at least 2 min apart, only outside the wearer's own pace band. Everything else is tracked silently for the debrief. **Practice mode** is the strict drill that buzzes on your own crutch words (section 4.5) | Teaching research; team decision 14 Nov: nudging mid-conversation throws people off, so only pace buzzes live |
 | 14 | Debrief = fact, numbers, one fix | Debrief = fact against the goal, one real strength, one fix, and the fix as an if-then plan; plus notes, bookmark review, and a pace / volume / hand-energy timeline | Teaching research; team feature list |
 | 15 | — | Added from the team feature list: volume, hand energy, "checked out" and "nerves" signals, regular and practice modes, daily mission, streaks, history, people | Team feature list |
 
@@ -227,13 +227,13 @@ The team asked for the coaching to rest on research into how people actually imp
 
 | Rule | Evidence | Strength |
 |---|---|---|
-| **One focus habit per conversation.** Everything is tracked; only one habit buzzes | One if-then plan changed behaviour, three did not (Verhoeven et al. 2013). Conversation already uses most of your attention (Strayer & Johnston 2001) | Moderate |
-| **Buzz budget: 5 per conversation, at least 60 s apart** | Frequent feedback creates dependence (Salmoni, Schmidt & Walter 1984); 50% feedback beat 100% at retention (Winstein & Schmidt 1990); sparse cues beat continuous ones for speakers (Tanveer et al. 2015, Rhema) | Extrapolated |
+| **One live nudge in a real conversation: talking too fast.** Everything else is tracked and saved for the debrief; nothing else buzzes. Pace is the one slip you can fix mid-sentence without losing your train of thought | One if-then plan changed behaviour, three did not (Verhoeven et al. 2013). Conversation already uses most of your attention (Strayer & Johnston 2001) | Moderate |
+| **Buzz budget: 3 per conversation, at least 2 min apart, none in the first 60 s** (practice mode has its own, larger budget) | Frequent feedback creates dependence (Salmoni, Schmidt & Walter 1984); 50% feedback beat 100% at retention (Winstein & Schmidt 1990); sparse cues beat continuous ones for speakers (Tanveer et al. 2015, Rhema) | Extrapolated |
 | **Buzz only outside a personal tolerance band** (30% past your own baseline) | Bandwidth feedback (Sherwood 1988; Lee & Carnahan 1990) | Extrapolated |
 | **Fade the buzzes as you improve**, and schedule some no-buzz sessions | Guidance hypothesis; filler-word gains relapse without boosters (Spieler & Miltenberger 2017) | Extrapolated |
-| **You choose the focus** from 2–3 suggestions | Autonomy supports motivation (Ryan & Deci 2000). The learning benefit of choice itself is near zero (McKay et al. 2022) | Strong for motivation only |
+| **You choose the focus for practice** from 2–3 suggestions (regular mode's live nudge is always pace) | Autonomy supports motivation (Ryan & Deci 2000). The learning benefit of choice itself is near zero (McKay et al. 2022) | Strong for motivation only |
 | **Each buzz means one action** ("pause", "ask"), never a verdict on you | Feedback that pulls attention to the self hurts performance; over a third of feedback interventions made things worse (Kluger & DeNisi 1996) | Strong |
-| **A rare "good" buzz** after a clear success, as information, not a reward | Informational feedback supports competence; controlling rewards undermine it (Deci, Koestner & Ryan 1999) | Strong |
+| **A rare "good" buzz in practice mode** after a clear success, as information, not a reward (never in regular mode) | Informational feedback supports competence; controlling rewards undermine it (Deci, Koestner & Ryan 1999) | Strong |
 | **Debrief in three beats:** a fact against the goal, one fix, a plan for next time | Feed-up / feedback / feed-forward (Hattie & Timperley 2007) | Strong as a framework |
 | **Describe behaviour, never the person.** "Your turns ran long," not "you ramble" | Kluger & DeNisi 1996 | Strong |
 | **The fix is an if-then plan:** "When you hit 30 seconds, end with a question" | Implementation intentions, d ≈ .27–.66 (Gollwitzer & Sheeran 2006; Sheeran et al. 2024) | Strong; smaller than often quoted |
@@ -275,7 +275,7 @@ Thresholds come from a 15-second calibration (still 5 s, gesture 5 s, fidget 5 s
 
 Voice and body together (`backend/motion/fusion.py`):
 
-- Fidget while the other person speaks for more than 8 s → `still` nudge.
+- Fidget while the other person speaks for more than 8 s → logged as `signal: fidget` for the debrief. **No buzz in regular mode**; the `still` pattern is used only in practice drills that target fidgeting.
 - **Checked out:** still hands and no question from the wearer during a long stretch of the other person talking → `signal: checked_out`.
 - **Nerves:** hands freeze and pace jumps more than 25% above baseline in the same 10 s → `signal: nerves`.
 - Gesturing while the wearer speaks is positive and feeds the debrief's strength line.
@@ -292,22 +292,31 @@ Talk ratio by speaking time, interruptions, questions, fillers per minute (coach
 ### 4.5 Nudge engine — `backend/nudge/`
 Evaluates the coach's `nudge_rules` and `motion_rules` against `judge.*`, `metrics.*` and `motion.*`. Rule conditions use a tiny safe evaluator (comparison of one dotted path to a number), never `eval`. Each `nudge` event carries `latency_ms` (end of the wearer's turn → nudge sent) and `budget_left`. Target: slip → phone buzz within 2 s.
 
-**Limiting buzzes** follows the coach's `nudge_policy` (section 4.0):
+**Limiting buzzes** follows the coach's `nudge_policy` (section 4.0). The two modes behave very differently on purpose.
 
-- Only the **focus rule** buzzes. Every other rule is still evaluated and logged for the debrief, and shown on the laptop as a quiet mark, with no buzz.
-- Budget of 5 per session, at least 60 s apart. When the budget is spent the coach goes quiet.
-- A metric rule fires only past the wearer's tolerance band (baseline × 1.3), so normal variation does not buzz.
-- Fading: when the focus habit has improved over 3 sessions, the next session's budget drops by one; every fifth session is a `silent` session that tracks without buzzing.
-- A `success` buzz is sent at most once per session, after a clear win on the focus habit.
+**Regular mode (real conversations): one live nudge, `slow_down`.**
 
-**Demo setting:** `min_gap_s` 10 and budget 8, so judges see several nudges in 50 seconds. Say so on stage; the default is the product's real behaviour.
+- The only rule that buzzes is **pace**: the wearer's average pace over the last 20 s is more than 25% above their own `baseline_wpm`, with a hard ceiling of 190 wpm as a backup. A short burst inside a story does not count.
+- Budget: **3 buzzes per session, at least 120 s apart, none in the first 60 s** (while the baseline settles).
+- Every other rule (interruptions, monologue length, questions, fillers, fidgeting, nerves, checked out) is still evaluated and logged for the debrief, and shown on the laptop as a quiet mark. **None of them buzz.**
+- No `success` buzz in regular mode.
+- Fading: when pace has stayed inside the band for 3 sessions, the next session's budget drops by one; every fifth session is a `silent` session that tracks without buzzing.
+- The single-tap "How am I doing?" reply (`status.reply`) is not a nudge: the wearer asked for it, so it does not use the budget.
 
-**Two modes:**
+**Practice mode (a drill, not a real conversation): strict on purpose.**
 
-| Mode | Coach | Behaviour |
-|---|---|---|
-| **Regular** | A prebuilt or custom coach | One focus habit, budgeted buzzes, as above |
-| **Practice** | The **personal coach**, built from your `HabitProfile` | Buzzes on your own crutch words and recurring issues. Tighter band and a larger budget, because it is a drill, not a real conversation |
+- Coach: the **personal coach**, built from the wearer's `HabitProfile` (section 4.7).
+- Buzzes **every time** the wearer says one of their own crutch words (`filler` pattern), within about 1 s of the word, from Deepgram partial results.
+- Optional drill rules from the coach, each with its own pattern: pace (`slow_down`), hands frozen (`still` used as "move your hands"), long answer (`wrap_up`).
+- Budget: no cap during a drill round; drills are 30–90 s each. One `success` buzz at most per round, after a clear improvement.
+- After each round: a round score ("6 crutch words → 2"), then the next drill, slightly harder.
+
+| Mode | Coach | What buzzes | Budget |
+|---|---|---|---|
+| **Regular** | A prebuilt or custom coach | Pace only (`slow_down`) | 3 per session, 120 s apart, none in the first 60 s |
+| **Practice** | The personal coach from your `HabitProfile` | Your crutch words (`filler`), plus any drill rules | No cap within a 30–90 s round |
+
+**Demo setting:** regular mode keeps its real rules except `min_gap_s` 30 and no 60 s warm-up, so the one pace nudge can fire on cue inside a 50-second conversation. Say so on stage. Practice mode needs no change.
 
 ### 4.6 Debrief — `backend/debrief/`
 On session end, send transcript, metrics, judge aggregates, motion summary, bookmarks, the focus habit and the last session's numbers to Gemini 3.8 Flash with the `Debrief` schema.
@@ -456,10 +465,12 @@ No new features. Rehearse the demo three times in the real room, record a backup
 
 ## 9. Demo script (2 minutes)
 
-1. **(10 s)** "Nobody tells you that you interrupt, ramble or fidget. Undertone does, in the moment."
-2. **(50 s)** A teammate wears band 13 and double-taps; the light goes blue. They talk with a judge, interrupt and monologue on purpose. The iPhone buzzes `interrupt`, then `wrap_up`; the screen shows the reason, the confidence and the latency. They fidget while the judge talks → `still`. One single tap: "How am I doing?" → two buzzes, talking too much.
-3. **(30 s)** Studio: "What do *you* want to get better at?" Type it, coach appears, activate, 15-second test, the custom nudge fires.
-4. **(15 s)** Double-tap to end. Spoken debrief: "You talked 68% of the time and asked one question. Your structure was clear. Next time: when you hit thirty seconds, end with a question." Tomorrow's mission appears on the phone.
+1. **(10 s)** "Nobody tells you how you come across. Undertone does, and it stays quiet until it matters."
+2. **(45 s) Real conversation, regular mode.** A teammate wears band 13 and double-taps; the light goes blue. They talk with a judge. The laptop's Live screen shows the talk-ratio bar, interruption marks, question counter and hand-energy meter updating **silently**. Mid-answer the teammate speeds up, as if nervous: the iPhone buzzes **once** (`slow_down`) and the screen shows "Slow down: 214 wpm, your normal is 160", with confidence and latency. One single tap: "How am I doing?" → two buzzes, talking too much.
+   Line to say: *"In a real conversation it only ever taps you for one thing: speed. Everything else waits for the debrief."*
+3. **(30 s) Practice mode.** Switch to practice. The coach shows the wearer's own crutch words from past sessions ("basically", "like"). Drill: "Tell me about yourself", 20 s. The phone buzzes on every crutch word and the screen marks each one. Round score: "5 crutch words." Second 20 s round: fewer buzzes, "5 → 2".
+   Line to say: *"Real conversations find your habits. Practice is where you break them."*
+4. **(20 s)** Double-tap to end the conversation from step 2 (or show its saved session). Spoken debrief: "You talked 68% of the time and asked one question. Your hands stayed animated, which read as confident. Next time: when you hit thirty seconds, end with a question." Tomorrow's mission appears on the phone.
 5. **(15 s)** Open the slide-timer page. It buzzes the same phone. "Any site or app can now nudge you by touch. The iPhone web cannot do that alone."
 
 ---
@@ -481,7 +492,7 @@ No new features. Rehearse the demo three times in the real room, record a backup
 | Laptop disk is nearly full (24 GB free on the build machine) | Clear space before installing Expo and Next.js dependencies |
 | API keys were pasted into a chat | Rotate both the Deepgram and Gemini keys after the event |
 | The feature list is larger than one day | Tiers in section 1. Phases 1–3 are the Must list; nothing in Phase 4 is allowed to start while a Must is broken |
-| The buzz budget makes the demo look quiet | Demo policy (10 s gap, budget 8), stated openly on stage |
+| The pace nudge does not fire on cue in the demo | The teammate rehearses a clearly fast answer; demo policy drops the 60 s warm-up and uses a 30 s gap. Backup: trigger it from the dashboard's test button, and say so |
 | Volume readings drift with room noise | Baseline in the real room during calibration; if unreliable, show volume but do not nudge on it |
 
 ---

@@ -1,154 +1,249 @@
+"""Haptics Connector: pairing, device socket, app approval, /v1/haptics, bus forwarding.
+
+Runs on a throwaway FastAPI app (router only) so it does not depend on backend.main.
+"""
+
+from __future__ import annotations
+
 import asyncio
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
 
-import pytest
+# Settings are read at import time; keep this file from touching the real database or .env
+# when it runs on its own (test_e2e sets the same variables when it is collected first).
+_TMP = Path(tempfile.mkdtemp(prefix="undertone-haptics-"))
+os.environ.setdefault("UNDERTONE_DB", str(_TMP / "haptics.db"))
+os.environ.setdefault("UNDERTONE_ENV_FILE", str(_TMP / "does-not-exist.env"))
 
-from backend.contracts import HapticCommand, parse_event as validate_event
-from backend.db import DB
-from backend.haptics.hub import HapticsError, HapticsHub, command, command_for_event
+import httpx  # noqa: E402
+import pytest  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-NUDGE = {"type": "nudge", "rule_id": "interrupt", "haptic": "interrupt", "message": "Let them finish", "reason": "r",
-         "confidence": 0.9, "latency_ms": 400, "budget_left": 4, "ts": 12.0}
-REPLY = {"type": "status.reply", "verdict": "talking_too_much", "haptic": "status_talking", "ts": 42.0}
-
-
-def run(coro):
-    return asyncio.run(coro)
-
-
-def test_every_nudge_and_status_reply_becomes_a_haptic_command():
-    c = command_for_event(NUDGE)
-    HapticCommand.model_validate(c)
-    assert c == {"type": "haptic", "pattern": "interrupt", "intensity": 1.0, "label": "Let them finish",
-                 "source_app": "undertone"}
-    r = command_for_event(REPLY)
-    assert r["pattern"] == "status_talking" and r["label"] == "Talking too much"
-    assert command_for_event({"type": "app.request", "app_id": "a", "name": "Timer"})["pattern"] == "approve"
-    assert command_for_event({"type": "metrics"}) is None
-    with pytest.raises(HapticsError):
-        command("earthquake")
-    with pytest.raises(HapticsError):
-        command("tap", intensity=3)
+from backend import haptics, haptics_port  # noqa: E402
+from backend.bus import Bus  # noqa: E402
+from backend.contracts import HapticCommand, NudgeEvent, StatusReplyEvent  # noqa: E402
+from backend.haptics.hub import DEDUPE_S, RATE_MAX, Hub  # noqa: E402
 
 
-def test_pair_attach_fan_out_and_device_status():
-    async def go():
-        events, got = [], []
-        hub = HapticsHub(emit=events.append)
-        qr = hub.pair("Ash's iPhone", "http://10.0.0.5:8000/")
-        assert set(qr) == {"server_url", "device_id", "device_token"} and qr["server_url"] == "http://10.0.0.5:8000"
-        assert hub.list_devices() == [{"type": "device.status", "device_id": qr["device_id"], "name": "Ash's iPhone",
-                                       "connected": False}]
+class FakeSocket:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
 
-        async def send(cmd):
-            got.append(cmd)
-        with pytest.raises(HapticsError) as e:
-            await hub.attach(qr["device_id"], "wrong", send)
-        assert e.value.status == 401
-        with pytest.raises(HapticsError):
-            await hub.attach("d_nope", qr["device_token"], send)
-        await hub.attach(qr["device_id"], qr["device_token"], send)
-        assert events[-1]["connected"] is True and hub.list_devices()[0]["connected"]
-        await hub.on_bus_event(NUDGE)
-        await hub.on_bus_event(REPLY)
-        await hub.on_bus_event({"type": "metrics"})
-        assert [c["pattern"] for c in got] == ["interrupt", "status_talking"]
-        await hub.detach(qr["device_id"], send)
-        assert events[-1]["connected"] is False
-        for ev in events:
-            validate_event(ev)
-        assert await hub.send_all(command("tap")) == 0
-    run(go())
+    async def send_json(self, data: Any) -> None:
+        self.sent.append(data)
 
 
-def test_a_dead_socket_is_dropped_not_fatal():
-    async def go():
-        hub = HapticsHub()
-        qr = hub.pair("p", "http://x")
+class FakeKV:
+    def __init__(self) -> None:
+        self.data: dict[str, Any] = {}
 
-        async def dead(cmd):
-            raise ConnectionError()
-        await hub.attach(qr["device_id"], qr["device_token"], dead)
-        assert await hub.send_all(command("tap")) == 0 and not hub.connected(qr["device_id"])
-    run(go())
+    def kv_get(self, key: str, default: Any = None) -> Any:
+        return self.data.get(key, default)
 
-
-def test_app_register_approve_buzz_delete():
-    async def go():
-        events, got = [], []
-        hub = HapticsHub(emit=events.append)
-        qr = hub.pair("p", "http://x")
-
-        async def send(cmd):
-            got.append(cmd)
-        await hub.attach(qr["device_id"], qr["device_token"], send)
-        app = await hub.register_app("Slide timer")
-        assert events[-1] == {"type": "app.request", "app_id": app["app_id"], "name": "Slide timer"}
-        validate_event(events[-1])
-        await hub.on_bus_event(events[-1])
-        assert got[-1]["pattern"] == "approve"
-        bearer = "Bearer " + app["app_key"]
-        for bad, status in ((None, 401), ("Bearer nope", 401), (bearer, 403)):      # 403: not approved yet
-            with pytest.raises(HapticsError) as e:
-                await hub.buzz_from_app(bad, "tap")
-            assert e.value.status == status
-        assert hub.approve(app["app_id"])["approved"] and hub.list_apps()[0]["approved"]
-        assert "key" not in hub.list_apps()[0] and "app_key" not in hub.list_apps()[0]
-        assert await hub.buzz_from_app(bearer, "wrap_up", 0.4, "2 minutes left") == 1
-        assert got[-1] == {"type": "haptic", "pattern": "wrap_up", "intensity": 0.4, "label": "2 minutes left",
-                           "source_app": "Slide timer"}
-        with pytest.raises(HapticsError) as e:
-            await hub.buzz_from_app(bearer, "nope")
-        assert e.value.status == 400
-        hub.delete_app(app["app_id"])
-        with pytest.raises(HapticsError) as e:
-            await hub.buzz_from_app(bearer, "tap")
-        assert e.value.status == 401
-        for fn in (lambda: hub.approve("app_x"), lambda: hub.delete_app("app_x")):
-            with pytest.raises(HapticsError) as e:
-                fn()
-            assert e.value.status == 404
-        with pytest.raises(HapticsError):
-            await hub.register_app("  ")
-        with pytest.raises(HapticsError):
-            await hub.register_app("Undertone")
-    run(go())
+    def kv_set(self, key: str, value: Any) -> None:
+        self.data[key] = value
 
 
-def test_registry_survives_a_restart():
-    async def go():
-        db = DB(":memory:")
-        hub = HapticsHub(store=db)
-        qr = hub.pair("p", "http://x")
-        app = await hub.register_app("Timer")
-        hub.approve(app["app_id"])
-        again = HapticsHub(store=db)
-        assert again.device_ok(qr["device_id"], qr["device_token"])
-        assert again.device_for_token(qr["device_token"]) == qr["device_id"] and again.device_for_token("x") is None
-        assert again.app_for_key(app["app_key"])["name"] == "Timer"
-    run(go())
+@pytest.fixture(autouse=True)
+def _reset_port() -> Any:
+    yield
+    haptics_port.reset_sender()
 
 
-def test_attach_haptics_routes_the_brain_port_to_phones(tmp_path):
-    from backend import haptics_port
-    from backend.bus import Bus
-    from backend.haptics import attach_haptics
-    from types import SimpleNamespace
+def _app() -> FastAPI:
+    app = FastAPI()
+    app.include_router(haptics.router)
+    return app
 
-    async def go():
-        db = DB(str(tmp_path / "h.db"))
-        state = SimpleNamespace(bus=Bus(), db=db)
-        hub = attach_haptics(state)
-        qr = hub.pair("iPhone", "http://x")
-        got = []
 
-        async def send(cmd):
-            got.append(cmd)
+def _nudge(**over: Any) -> NudgeEvent:
+    base: dict[str, Any] = dict(rule_id="pace", haptic="slow_down", message="Slow down",
+                                reason="214 wpm, your normal is 160", confidence=None, latency_ms=900.0,
+                                budget_left=2, ts=31.0)
+    return NudgeEvent(**{**base, **over})
 
-        await hub.attach(qr["device_id"], qr["device_token"], send)
-        await haptics_port.send(HapticCommand(pattern="wrap_up", label="Ask a question"))
-        haptics_port.reset_sender()
-        db.close()
-        return got
 
-    got = run(go())
-    assert got and got[-1]["pattern"] == "wrap_up" and got[-1]["source_app"] == "undertone"
+# ---------- HTTP + WebSocket through the router ----------
+def test_router_mounts_on_a_bare_app_and_pairs() -> None:
+    with TestClient(_app()) as c:
+        r = c.post("/pair", json={"name": "Demo phone"})
+        assert r.status_code == 200, r.text
+        p = r.json()
+        assert p["ok"] and p["device_id"].startswith("d-") and len(p["code"]) == 6
+        assert set(p) >= {"server_url", "device_id", "device_token", "code", "qr"}
+        assert p["device_token"] in p["qr"]
+
+        claimed = c.post("/pair/claim", json={"code": p["code"].lower()})
+        assert claimed.status_code == 200 and claimed.json()["device_token"] == p["device_token"]
+        assert c.post("/pair/claim", json={"code": "ZZZZZZ"}).status_code == 404
+
+        devices = c.get("/devices").json()["devices"]
+        assert devices == [{"device_id": p["device_id"], "name": "Demo phone", "connected": False,
+                            "paired": False, "last_seen": None}]
+
+
+def test_device_socket_rejects_a_bad_token() -> None:
+    with TestClient(_app()) as c:
+        p = c.post("/pair").json()
+        with c.websocket_connect(f"/ws/device/{p['device_id']}?token=nope") as ws:
+            with pytest.raises(Exception):
+                ws.receive_json()
+        assert c.get("/devices").json()["devices"][0]["connected"] is False
+
+
+def test_app_approval_flow_and_buzz_reaches_the_phone() -> None:
+    with TestClient(_app()) as c:
+        p = c.post("/pair").json()
+        with c.websocket_connect(f"/ws/device/{p['device_id']}?token={p['device_token']}&name=Ash") as phone:
+            assert c.get("/devices").json()["devices"][0] | {"last_seen": 0} == {
+                "device_id": p["device_id"], "name": "Ash", "connected": True, "paired": True, "last_seen": 0}
+
+            reg = c.post("/v1/apps", json={"name": "Slide timer"}).json()
+            key, app_id = reg["app_key"], reg["app_id"]
+            assert reg["status"] == "pending"
+            # the phone is told something is waiting
+            assert phone.receive_json()["pattern"] == "approve"
+
+            auth = {"Authorization": f"Bearer {key}"}
+            assert c.post("/v1/haptics", json={"pattern": "tap"}).status_code == 401
+            assert c.post("/v1/haptics", json={"pattern": "tap"},
+                          headers={"Authorization": "Bearer wrong"}).status_code == 401
+            assert c.post("/v1/haptics", json={"pattern": "tap"}, headers=auth).status_code == 403
+
+            # the phone approves with its device token
+            ok = c.post(f"/v1/apps/{app_id}/approve", headers={"X-Device-Token": p["device_token"]})
+            assert ok.status_code == 200 and ok.json()["status"] == "approved"
+            assert c.get(f"/v1/apps/{app_id}").json()["status"] == "approved"
+
+            assert c.post("/v1/haptics", json={"pattern": "nope"}, headers=auth).status_code == 422
+            r = c.post("/v1/haptics", json={"pattern": "wrap_up", "label": "2 minutes left", "intensity": 0.6},
+                       headers=auth)
+            assert r.status_code == 200 and r.json()["delivered"] == 1
+            assert phone.receive_json() == {"type": "haptic", "pattern": "wrap_up", "intensity": 0.6,
+                                            "label": "2 minutes left", "source_app": "Slide timer"}
+
+            listed = c.get("/v1/apps").json()["apps"]
+            assert listed[0]["buzzes"] == 1 and "app_key" not in listed[0]
+
+            # laptop-only test buzz, no key
+            assert c.post("/haptics/test", json={"pattern": "status_good"}).json()["delivered"] == 1
+            assert phone.receive_json()["pattern"] == "status_good"
+
+            assert c.delete(f"/v1/apps/{app_id}").json()["status"] == "revoked"
+            assert c.post("/v1/haptics", json={"pattern": "tap"}, headers=auth).status_code == 403
+        assert c.get("/devices").json()["devices"][0]["connected"] is False
+
+
+def test_only_the_phone_or_the_laptop_may_approve() -> None:
+    app = _app()
+    with TestClient(app, client=("203.0.113.9", 5000)) as outsider:
+        reg = outsider.post("/v1/apps", json={"name": "Stranger"}).json()
+        assert outsider.post(f"/v1/apps/{reg['app_id']}/approve").status_code == 403
+        assert outsider.post("/haptics/test", json={"pattern": "tap"}).status_code == 403
+
+
+# ---------- hub: bus forwarding, dedupe, persistence, rate limit ----------
+async def test_nudge_and_status_reply_on_the_bus_reach_the_phone_once() -> None:
+    bus, hub = Bus(), Hub()
+    hub.attach(bus)
+    haptics_port.register_sender(hub.port_sender)
+    phone = FakeSocket()
+    await hub.connect(hub.create_pairing(), phone)
+
+    nudge = _nudge()
+    # the brain does both of these for one buzz: publish on the bus and call the port
+    await asyncio.gather(bus.publish(nudge),
+                         haptics_port.send(HapticCommand(pattern=nudge.haptic, label=nudge.message)))
+    await bus.drain()
+    assert [m["pattern"] for m in phone.sent] == ["slow_down"]
+    assert phone.sent[0] == {"type": "haptic", "pattern": "slow_down", "intensity": 1.0,
+                             "label": "Slow down", "source_app": "undertone"}
+
+    # a nudge that only appears on the bus (fixture replay) is forwarded too
+    await bus.publish(_nudge(haptic="filler", message="Pause", rule_id="crutch"))
+    await bus.publish(StatusReplyEvent(verdict="talking_too_much", haptic="status_talking", ts=40.0))
+    await bus.drain()
+    assert [m["pattern"] for m in phone.sent] == ["slow_down", "filler", "status_talking"]
+
+
+async def test_same_buzz_is_allowed_again_after_the_dedupe_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    hub, phone = Hub(), FakeSocket()
+    await hub.connect(hub.create_pairing(), phone)
+    clock = [100.0]
+    monkeypatch.setattr("backend.haptics.hub.time.monotonic", lambda: clock[0])
+    cmd = HapticCommand(pattern="filler", label="Pause")
+    assert await hub.deliver_once(cmd) == 1
+    assert await hub.deliver_once(cmd) == 0
+    clock[0] += DEDUPE_S + 0.1
+    assert await hub.deliver_once(cmd) == 1
+
+
+async def test_device_status_and_app_request_are_published() -> None:
+    bus, hub = Bus(), Hub()
+    hub.attach(bus)
+    seen: list[Any] = []
+
+    async def collect(event: Any) -> None:
+        seen.append(event)
+
+    bus.on("*", collect)
+    device, phone = hub.create_pairing("Ash's iPhone"), FakeSocket()
+    await hub.connect(device, phone)
+    await hub.register_app("Slide timer")
+    await hub.disconnect(device, phone)
+    await bus.drain()
+    assert [(e.type, getattr(e, "connected", None)) for e in seen] == [
+        ("device.status", True), ("app.request", None), ("device.status", False)]
+    assert phone.sent[0]["pattern"] == "approve"
+
+
+async def test_pairings_and_apps_survive_a_restart() -> None:
+    kv = FakeKV()
+    first = Hub()
+    first.attach(None, kv)
+    device = first.create_pairing("Ash")
+    app = await first.register_app("Slide timer")
+    first.set_app_status(app.app_id, "approved")
+
+    second = Hub()
+    second.attach(None, kv)
+    assert second.device_for_token(device.device_token) is not None
+    restored = second.app_for_key(app.app_key)
+    assert restored is not None and restored.status == "approved"
+
+
+async def test_rate_limit_per_app() -> None:
+    app = _app()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        reg = (await c.post("/v1/apps", json={"name": "Chatty"})).json()
+        await c.post(f"/v1/apps/{reg['app_id']}/approve")
+        auth = {"Authorization": f"Bearer {reg['app_key']}"}
+        codes = [(await c.post("/v1/haptics", json={"pattern": "tap"}, headers=auth)).status_code
+                 for _ in range(RATE_MAX + 1)]
+        assert codes[:RATE_MAX] == [200] * RATE_MAX and codes[-1] == 429
+
+
+def test_mounted_on_the_real_app_uses_the_error_envelope() -> None:
+    """What Person B gets after `app.include_router(haptics.router)`."""
+    from backend.main import app as real
+
+    already = any(getattr(r, "path", "") == "/v1/haptics" for r in real.router.routes)
+    if not already:
+        real.include_router(haptics.router)
+    try:
+        with TestClient(real) as c:
+            r = c.post("/v1/haptics", json={"pattern": "tap"})
+            assert r.status_code == 401 and r.json()["ok"] is False and r.json()["error"]["code"] == "http_401"
+            p = c.post("/pair").json()
+            with c.websocket_connect(f"/ws/device/{p['device_id']}?token={p['device_token']}") as phone:
+                # a nudge published on the real bus reaches the phone
+                assert c.portal is not None
+                c.portal.call(real.state.app.bus.publish, _nudge())
+                assert phone.receive_json()["pattern"] == "slow_down"
+    finally:
+        if not already:
+            real.router.routes[:] = [r for r in real.router.routes
+                                     if getattr(r, "tags", None) != ["haptics"]]

@@ -95,10 +95,10 @@ export interface NudgeRule {
 
 /** How sparingly the coach buzzes. See plan.md section 4.0 and 4.5. */
 export interface NudgePolicy {
-  focus_rule_id: string; // the one habit coached in this conversation
-  budget_per_session: number; // default 5
-  min_gap_s: number; // default 60
-  tolerance: number; // default 0.3: buzz only beyond baseline * (1 + tolerance)
+  focus_rule_id: string; // regular mode: always the pace rule; practice mode: the drill focus
+  budget_per_session: number; // regular mode: 3 (pace only); practice mode: no cap within a round
+  min_gap_s: number; // regular mode: 120 (demo: 30)
+  tolerance: number; // regular mode pace: 0.25, buzz only beyond baseline_wpm * (1 + tolerance)
   silent: boolean; // a no-buzz session: tracked, not nudged
 }
 
