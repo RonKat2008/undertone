@@ -1,26 +1,73 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  --color-paper: var(--paper);
+  --color-paper-well: var(--paper-well);
+  --color-ink: var(--ink);
+  --color-ink-mid: var(--ink-mid);
+  --color-hairline: var(--hairline);
+  --color-other: var(--other);
+  
+  --color-p-interrupt: var(--p-interrupt);
+  --color-p-wrap-up: var(--p-wrap-up);
+  --color-p-filler: var(--p-filler);
+  --color-p-slow-down: var(--p-slow-down);
+  --color-p-still: var(--p-still);
+  --color-p-success: var(--p-success);
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --font-serif: var(--font-instrument-serif);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --paper: oklch(0.98 0.01 90);
+  --paper-well: oklch(0.96 0.01 90);
+  --ink: oklch(0.15 0.01 270);
+  --ink-mid: oklch(0.5 0 0);
+  --hairline: oklch(0.88 0.005 90);
+  --other: oklch(0.6 0.02 60);
+
+  --p-interrupt: oklch(0.6 0.2 25);
+  --p-wrap-up: oklch(0.7 0.18 70);
+  --p-filler: oklch(0.75 0.15 85);
+  --p-slow-down: oklch(0.6 0.15 250);
+  --p-still: oklch(0.6 0.15 300);
+  --p-success: oklch(0.65 0.15 150);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  position: relative;
+  margin: 0;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.15;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
