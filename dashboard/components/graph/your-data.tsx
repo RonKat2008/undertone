@@ -24,7 +24,7 @@ export function StatsStrip({ stats, days, loading }: { stats: GraphStats; days: 
       className={`grid grid-cols-2 gap-px border-y border-ink bg-rule sm:grid-cols-5 ${loading ? 'opacity-60' : ''} transition-opacity`}>
       {items.map((it, i) => (
         <div key={it.label} className={`bg-paper py-3 pr-2 ${i === 0 ? 'pl-0' : i % 2 === 1 ? 'pl-3 sm:pl-4' : 'pl-0 sm:pl-4'} ${i === 4 ? 'col-span-2 sm:col-span-1' : ''}`}>
-          <dt className="caps">{it.label}</dt>
+          <dt className="label">{it.label}</dt>
           <dd className={`num mt-0.5 text-[clamp(30px,3.4vw,44px)] leading-none ${it.strong ? 'text-[var(--k-commitment)]' : ''}`}>{it.value}</dd>
         </div>
       ))}
@@ -34,7 +34,7 @@ export function StatsStrip({ stats, days, loading }: { stats: GraphStats; days: 
 
 function SectionHead({ title, count, sample }: { title: string; count?: number; sample?: boolean }) {
   return (
-    <h2 className="caps flex items-center gap-2 border-b border-ink pb-2 !text-ink">
+    <h2 className="label flex items-center gap-2 border-b border-ink pb-2 !text-ink">
       {title}{count !== undefined && <span className="num text-ink-3">{count}</span>}<SampleTag show={sample ?? false} />
     </h2>
   );
@@ -54,19 +54,19 @@ export function RecentConversations({ sessions, now }: { sessions: Sampled<Sessi
               <span className="text-[12px] leading-tight text-ink-2">
                 <span className="block">{Number.isFinite(when) ? (now > 0 ? relativeDay(when, now) : s.started_at.slice(0, 10)) : '—'}</span>
                 <span className="num block">{duration(s.duration_s)}</span>
-                {s.mode === 'practice' && <span className="caps mt-1 block !text-[9px]">practice</span>}
+                {s.mode === 'practice' && <span className="label mt-1 block">practice</span>}
               </span>
               <span className="min-w-0">
                 <Link href={debriefHref(s.session_id)} className="block text-[14px] leading-snug hover:underline">{s.headline_fact}</Link>
                 <span className="num mt-1 block text-[11.5px] text-ink-2">{Math.round(s.numbers.talk_ratio * 100)}% you · {Math.round(s.numbers.wpm)} wpm · {s.coach_name}</span>
-                <Link href={conversationHref(s.session_id)} className="mt-1 inline-block text-[11.5px] text-ink-2 underline decoration-rule underline-offset-2 hover:text-ink hover:decoration-ink">Transcript and recording</Link>
+                <Link href={conversationHref(s.session_id)} className="link mt-1 inline-block text-[12px]">Transcript and recording</Link>
               </span>
             </li>
           );
         })}
       </ul>
       {sessions && sessions.data.length > 0 && (
-        <Link href={LIBRARY_HREF} className="caps mt-3 inline-block hover:text-ink">All conversations →</Link>
+        <Link href={LIBRARY_HREF} className="link text-s mt-3 inline-block">All conversations →</Link>
       )}
     </section>
   );
@@ -97,9 +97,9 @@ export function OpenPromises({ nodes, sample, now, onSelect }: { nodes: GraphNod
 }
 
 const TREND = {
-  better: { mark: '↓', text: 'easing', cls: 'text-green' },
+  better: { mark: '↓', text: 'easing', cls: 'text-ink' },
   same: { mark: '→', text: 'steady', cls: 'text-ink-2' },
-  worse: { mark: '↑', text: 'growing', cls: 'text-vermilion' },
+  worse: { mark: '↑', text: 'growing', cls: 'text-ink' },
 } as const;
 
 const METRIC_LABEL: Record<string, string> = { talk_ratio: 'Talk share', interruptions: 'Interruptions', questions: 'Questions', fillers_per_min: 'Fillers / min', wpm: 'Pace, wpm' };
@@ -122,7 +122,7 @@ export function TopHabits({ profile, weekly }: { profile: Sampled<HabitProfile> 
                 <span className={`num shrink-0 text-[12px] ${t.cls}`} aria-label={`${t.text}`}>{t.mark} {t.text}</span>
               </div>
               <div className="mt-2 h-1.5 w-full bg-well" aria-hidden>
-                <div className="h-full origin-left bg-[var(--k-habit)]" style={{ transform: `scaleX(${Math.min(1, h.rate)})` }} />
+                <div className="h-full origin-left bg-ink-2" style={{ transform: `scaleX(${Math.min(1, h.rate)})` }} />
               </div>
               <div className="num mt-1 text-[11.5px] text-ink-2">in {Math.round(h.rate * 100)}% of conversations</div>
             </li>
@@ -131,7 +131,7 @@ export function TopHabits({ profile, weekly }: { profile: Sampled<HabitProfile> 
       </ul>
       {profile && profile.data.crutch_words.length > 0 && (
         <p className="mt-3 text-[12.5px] text-ink-2">
-          <span className="caps mr-2">Crutch words</span>
+          <span className="label mr-2">Crutch words</span>
           {profile.data.crutch_words.map((w) => `“${w.word}” ${w.per_min.toFixed(1)}/min`).join(' · ')}
         </p>
       )}
@@ -139,7 +139,7 @@ export function TopHabits({ profile, weekly }: { profile: Sampled<HabitProfile> 
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 border-t border-rule pt-3">
           {weekly.data.trend.slice(0, 4).map((t) => (
             <div key={t.metric}>
-              <dt className="caps">{METRIC_LABEL[t.metric] ?? t.metric}</dt>
+              <dt className="label">{METRIC_LABEL[t.metric] ?? t.metric}</dt>
               <dd className="num text-[14px]">{fmt(t.metric, t.from)} <span className="text-ink-3">→</span> {fmt(t.metric, t.to)}</dd>
             </div>
           ))}

@@ -21,7 +21,7 @@ export function NodeList({ nodes, selectedId, now, onSelect }: NodeListProps) {
     <div className="grid gap-x-10 gap-y-8 md:grid-cols-2">
       {kinds.map((k) => (
         <section key={k} aria-labelledby={`list-${k}`}>
-          <h3 id={`list-${k}`} className="caps flex items-center gap-2 border-b border-ink pb-1.5 !text-ink">
+          <h3 id={`list-${k}`} className="label flex items-center gap-2 border-b border-ink pb-1.5 !text-ink">
             <KindSwatch kind={k} /> {KIND_LABEL[k].many} <span className="num text-ink-3">{groups[k].length}</span>
           </h3>
           <ul>
@@ -32,7 +32,7 @@ export function NodeList({ nodes, selectedId, now, onSelect }: NodeListProps) {
                   <button type="button" onClick={() => onSelect(n.id)} aria-pressed={selected}
                     className={`grid w-full grid-cols-[1fr_auto] items-baseline gap-x-3 border-b border-rule py-2 text-left hover:bg-well/70 ${selected ? 'bg-well' : ''}`}>
                     <span className="min-w-0">
-                      <span className={`block truncate text-[14px] ${selected ? 'font-semibold' : ''}`}>{n.label}</span>
+                      <span className={`block truncate text-[14px] ${selected ? 'font-medium' : ''}`}>{n.label}</span>
                       <span className="block text-[11.5px] text-ink-2">{describeNode(n, now)}</span>
                     </span>
                     <span className="num text-[12px] text-ink-2">{weightLabel(n)}</span>

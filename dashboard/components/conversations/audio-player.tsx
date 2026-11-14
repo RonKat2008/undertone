@@ -120,8 +120,8 @@ export function AudioPlayer({ src, turns, offset, durationHint, sample, onTime, 
 
   if (failed) {
     return (
-      <div role="alert" className="border-l-[3px] border-vermilion py-1 pl-3">
-        <div className="caps !text-vermilion">Recording</div>
+      <div role="alert" className="border-l-[3px] border-ink py-1 pl-3">
+        <div className="label flex items-center gap-2 !text-ink"><span className="state state-fault" aria-hidden />Recording</div>
         <p className="mt-1 text-[13px] text-ink-2">The recording could not be loaded. The transcript below is still complete.</p>
         <button type="button" className="btn btn-sm mt-2" onClick={() => { setFailed(false); audio.current?.load(); }}>Try again</button>
       </div>
@@ -147,7 +147,7 @@ export function AudioPlayer({ src, turns, offset, durationHint, sample, onTime, 
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="num text-[22px] leading-none" aria-hidden>{clockTime(time)}</span>
+            <span className="flex items-center gap-2"><span className={`state ${playing ? 'state-on' : ''}`} aria-hidden /><span className="num-m" aria-hidden>{clockTime(time)}</span></span>
             <span className="num text-[12px] text-ink-3" aria-hidden>{total !== null ? clockTime(total) : '–:––'}</span>
           </div>
           <div
@@ -193,7 +193,7 @@ export function AudioPlayer({ src, turns, offset, durationHint, sample, onTime, 
           <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-3 bg-them" aria-hidden />Them</span>
         </span>
       </div>
-      <p className="caps mt-2 !text-ink-3">
+      <p className="label mt-2 !text-ink-3">
         {sample ? 'Sample recording · tones stand in for voices' : 'Space plays or pauses · ← → skip 5 s'}
       </p>
     </section>

@@ -12,7 +12,7 @@ function FromQuery() {
 
 export default function ConversationPage() {
   return (
-    <Suspense fallback={<p className="serif pt-16 text-[32px] text-ink-3">Fetching the conversation…</p>}>
+    <Suspense fallback={<p className="display-m caret pt-16 text-ink-3">Fetching the conversation…</p>}>
       <FromQuery />
     </Suspense>
   );
