@@ -1,35 +1,68 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, TextInput, View } from 'react-native';
 import Svg, { Line, Polyline, Rect } from 'react-native-svg';
-import { getDebrief, getTranscript, listPeople, listSessions, mediaUrl, tagPerson, type DebriefPayload, type Sampled, type TranscriptResult } from '@/api/client';
+import { getDebrief, getTranscript, listPeople, listSessions, mediaUrl, tagPerson, type DebriefPayload, type DebriefView, type Load, type TranscriptResult } from '@/api/client';
+import { fmtInt, fmtOne, fmtPct, parseDebrief } from '@/api/parse';
 import { usePlayback } from '@/audio/player';
-import type { Debrief, Person, TimelinePoint } from '@/bus/contracts';
+import type { Person, TimelinePoint } from '@/bus/contracts';
 import { useBus } from '@/bus/use-bus';
 import { Header } from '@/ui/Header';
 import { PlayerBar } from '@/ui/PlayerBar';
-import { Rule, SampleTag, Screen, T, clock } from '@/ui/kit';
+import { Btn, Rule, Screen, T, clock } from '@/ui/kit';
+import { Failed, Fetching, Notice, NotPaired } from '@/ui/States';
 import { C, F, TONE } from '@/ui/theme';
+
+type Fetched = Load<DebriefPayload> | { kind: 'no-sessions' };
+
+/** No id: the latest conversation's debrief. A conversation that closed quietly has none. */
+async function readDebrief(id: string | undefined): Promise<Fetched> {
+  if (id) return getDebrief(id);
+  const list = await listSessions();
+  if (list.kind !== 'ok') return list;
+  const latest = list.data[0];
+  return latest ? getDebrief(latest.session_id) : { kind: 'no-sessions' };
+}
 
 export default function DebriefScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { state, mode } = useBus();
-  const [fetched, setFetched] = useState<Sampled<DebriefPayload> | null>(null);
-  const fromBus = !id && state.debrief ? state.debrief : null;
+  const [fetched, setFetched] = useState<Fetched | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const busCopy = state.debrief && (!id || id === state.debrief.session_id) ? state.debrief : null;
+  const fromBus = useMemo(() => {
+    const data = busCopy ? parseDebrief(busCopy.data) : null;
+    return busCopy && data ? { session_id: busCopy.session_id, data, audio_url: busCopy.audio_url || null } : null;
+  }, [busCopy]);
 
   useEffect(() => {
     if (fromBus) return;
     let on = true;
-    (id ? getDebrief(id) : listSessions().then((s) => getDebrief(s.sample ? 'latest' : s.data[0].session_id))).then((r) => on && setFetched(r));
+    setFetched(null);
+    readDebrief(id).then(
+      (r) => { if (on) setFetched(r); },
+      () => { if (on) setFetched({ kind: 'error', message: 'Cannot reach the laptop.', unreachable: true }); },
+    );
     return () => { on = false; };
-  }, [id, fromBus, mode]);
+  }, [id, fromBus, mode, attempt]);
 
-  const payload = fromBus ?? fetched?.data ?? null;
-  const sample = fromBus ? mode === 'mock' : fetched?.sample ?? true;
+  const retry = () => setAttempt((n) => n + 1);
+  const payload = fromBus ?? (fetched?.kind === 'ok' ? fetched.data : null);
+  const body = mode === 'unpaired' ? <NotPaired />
+    : payload ? <Body d={payload.data} audio={mediaUrl(payload.audio_url)} sessionId={payload.session_id} />
+      : !fetched ? <Fetching what="Fetching the debrief…" />
+        : fetched.kind === 'no-sessions' ? <Notice title="No conversations yet." body="A debrief appears here after a conversation ends." />
+          : fetched.kind === 'none' ? (
+            <Notice title="No debrief for this one." body="Very short or quiet conversations close without one. If it only just ended, it may still be on its way.">
+              <Btn small label="Check again" onPress={retry} style={{ marginTop: 16, alignSelf: 'flex-start' }} />
+            </Notice>
+          )
+            : fetched.kind === 'error' ? <Failed message={fetched.message} unreachable={fetched.unreachable} onRetry={retry} />
+              : <NotPaired />;
   return (
     <Screen>
-      <Header title="Debrief" right={<SampleTag show={sample} />} />
-      {payload ? <Body d={payload.data} audio={mediaUrl(payload.audio_url)} sessionId={payload.session_id} /> : <T v="serif" size={28} color={C.paper3}>Fetching the debrief…</T>}
+      <Header title="Debrief" />
+      {body}
     </Screen>
   );
 }
@@ -50,10 +83,10 @@ function Recording({ sessionId, headline }: { sessionId: string; headline: strin
   const [t, setT] = useState<TranscriptResult | null>(null);
   useEffect(() => { let on = true; getTranscript(sessionId).then((r) => on && setT(r)); return () => { on = false; }; }, [sessionId]);
   const url = t?.kind === 'ok' ? mediaUrl(t.data.audio_url) : null;
-  const open = () => router.push({ pathname: '/transcript', params: { id: sessionId, headline } });
+  const open = () => router.push({ pathname: '/transcript', params: headline ? { id: sessionId, headline } : { id: sessionId } });
   const note = !t ? 'Checking the laptop for a recording…'
     : t.kind === 'not-found' ? 'The laptop has no record of what was said in this one.'
-      : t.kind === 'unreachable' ? 'Cannot reach the laptop to check for a recording.'
+      : t.kind === 'unreachable' || t.kind === 'not-paired' ? 'Cannot reach the laptop to check for a recording.'
         : 'No recording was kept for this one.';
   return (
     <View style={{ borderWidth: 1, borderColor: C.rule, padding: 14, marginTop: 12 }}>
@@ -78,22 +111,32 @@ function RecordingPlayer({ url }: { url: string }) {
   return <PlayerBar pb={pb} title="Recording" subtitle="Your actual conversation, as the band heard it." what="the recording" />;
 }
 
-function Body({ d, audio, sessionId }: { d: Debrief; audio: string | null; sessionId: string }) {
+function Body({ d, audio, sessionId }: { d: DebriefView; audio: string | null; sessionId: string }) {
   const n = d.numbers;
   return (
     <View>
-      <T v="serif" size={36}>{d.headline_fact}</T>
+      <T v="serif" size={36} color={d.headline_fact ? undefined : C.paper3}>{d.headline_fact || 'No headline for this one.'}</T>
 
-      <T v="caps" style={{ marginTop: 24 }}>What worked</T>
-      <T v="body" style={{ marginTop: 4 }}>{d.strength}</T>
+      {d.strength ? (
+        <>
+          <T v="caps" style={{ marginTop: 24 }}>What worked</T>
+          <T v="body" style={{ marginTop: 4 }}>{d.strength}</T>
+        </>
+      ) : null}
 
-      <Rule strong style={{ marginTop: 24, height: 3 }} />
-      <T v="caps" color={C.paper} style={{ marginTop: 12 }}>One thing to fix</T>
-      <T v="body" size={19} style={{ marginTop: 6 }}>{d.one_fix}</T>
-      <View style={{ borderLeftWidth: 3, borderLeftColor: C.paper, paddingLeft: 16, marginTop: 18 }}>
-        <T v="serif" size={32} style={{ fontFamily: F.serifItalic }}>{d.if_then}</T>
-        <T v="caps" style={{ marginTop: 6 }}>Your plan for next time</T>
-      </View>
+      {d.one_fix || d.if_then ? <Rule strong style={{ marginTop: 24, height: 3 }} /> : null}
+      {d.one_fix ? (
+        <>
+          <T v="caps" color={C.paper} style={{ marginTop: 12 }}>One thing to fix</T>
+          <T v="body" size={19} style={{ marginTop: 6 }}>{d.one_fix}</T>
+        </>
+      ) : null}
+      {d.if_then ? (
+        <View style={{ borderLeftWidth: 3, borderLeftColor: C.paper, paddingLeft: 16, marginTop: 18 }}>
+          <T v="serif" size={32} style={{ fontFamily: F.serifItalic }}>{d.if_then}</T>
+          <T v="caps" style={{ marginTop: 6 }}>Your plan for next time</T>
+        </View>
+      ) : null}
 
       {audio ? <Recap url={audio} /> : (
         <View style={{ borderWidth: 1, borderColor: C.rule, padding: 14, marginTop: 22 }}>
@@ -104,11 +147,11 @@ function Body({ d, audio, sessionId }: { d: Debrief; audio: string | null; sessi
       <Recording sessionId={sessionId} headline={d.headline_fact} />
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 24, borderTopWidth: 1, borderTopColor: C.paper, paddingTop: 12 }}>
-        <Num v={`${Math.round(n.talk_ratio * 100)}%`} l="Talk ratio" big />
-        <Num v={String(n.interruptions)} l="Interruptions" />
-        <Num v={String(n.questions)} l="Questions" />
-        <Num v={n.fillers_per_min.toFixed(1)} l="Fillers / min" />
-        <Num v={String(Math.round(n.wpm))} l="Pace, wpm" />
+        <Num v={fmtPct(n.talk_ratio)} l="Talk ratio" big />
+        <Num v={fmtInt(n.interruptions)} l="Interruptions" />
+        <Num v={fmtInt(n.questions)} l="Questions" />
+        <Num v={fmtOne(n.fillers_per_min)} l="Fillers / min" />
+        <Num v={fmtInt(n.wpm)} l="Pace, wpm" />
       </View>
       {d.vs_last_time ? <T v="small" style={{ marginTop: 10 }}>Against your last time: {d.vs_last_time}</T> : null}
 
@@ -122,13 +165,13 @@ function Body({ d, audio, sessionId }: { d: Debrief; audio: string | null; sessi
             <T v="mono" size={14}>{clock(b.ts)}</T>
             <T v="caps" color={b.source === 'promise' ? TONE.green : C.paper2}>{b.source === 'promise' ? 'promise heard' : 'you tapped'}</T>
           </View>
-          <T v="serif" size={23} style={{ marginTop: 4 }}>“{b.snippet}”</T>
-          <T v="small" style={{ marginTop: 6 }}>{b.what_happened}</T>
+          {b.snippet ? <T v="serif" size={23} style={{ marginTop: 4 }}>“{b.snippet}”</T> : null}
+          {b.what_happened ? <T v="small" style={{ marginTop: 6 }}>{b.what_happened}</T> : null}
           {b.follow_up ? <T v="body" size={15} style={{ marginTop: 8 }}><T v="caps" color={TONE.green}>Follow up  </T>{b.follow_up}</T> : null}
         </View>
       ))}
 
-      <T v="caps" color={C.paper} style={{ marginTop: 28 }}>Notes</T>
+      {d.notes.length > 0 ? <T v="caps" color={C.paper} style={{ marginTop: 28 }}>Notes</T> : null}
       {d.notes.map((note, i) => (
         <View key={i} style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}><T v="mono" size={13} color={C.paper3}>{i + 1}</T><T v="body" size={15} style={{ flex: 1 }}>{note}</T></View>
       ))}
@@ -192,14 +235,36 @@ function Traces({ points, bookmarks }: { points: TimelinePoint[]; bookmarks: num
 function TagPerson({ sessionId }: { sessionId: string }) {
   const [people, setPeople] = useState<Person[]>([]);
   const [tagged, setTagged] = useState<string | null>(null);
-  useEffect(() => { let on = true; listPeople().then((p) => on && setPeople(p.data)); return () => { on = false; }; }, []);
+  const [newName, setNewName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { let on = true; listPeople().then((p) => { if (on && p.kind === 'ok') setPeople(p.data); }); return () => { on = false; }; }, []);
+  // The laptop creates the person on first tag; until it says yes, nothing is shown as tagged.
+  const tag = (name: string) => {
+    const clean = name.trim();
+    if (!clean) return;
+    setError(null);
+    setTagged(clean);
+    tagPerson(sessionId, clean).then(
+      () => setNewName(''),
+      (e: unknown) => { setTagged(null); setError(e instanceof Error ? e.message : 'That did not work.'); },
+    );
+  };
   return (
     <View style={{ marginTop: 32, borderTopWidth: 1, borderTopColor: C.paper, paddingTop: 14 }}>
       <T v="serif" size={28}>{tagged ? `Tagged: ${tagged}` : 'Who was this with?'}</T>
       <T v="small" style={{ marginTop: 4 }}>{tagged ? 'This conversation now counts toward your pattern with them.' : 'Tagging builds a brief for the next time you talk.'}</T>
+      {error ? <T v="small" color={TONE.vermilion} style={{ marginTop: 6 }}>{error}</T> : null}
+      {tagged ? null : (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginTop: 12 }}>
+          <TextInput value={newName} onChangeText={setNewName} placeholder="Their name" placeholderTextColor={C.paper3} autoCorrect={false} maxLength={40}
+            returnKeyType="done" onSubmitEditing={() => tag(newName)} accessibilityLabel="Name of the person this was with"
+            style={{ flex: 1, fontFamily: F.sans, color: C.paper, fontSize: 18, borderBottomWidth: 1, borderBottomColor: C.paper2, paddingVertical: 10 }} />
+          <Btn small label="Tag" onPress={() => tag(newName)} disabled={!newName.trim()} />
+        </View>
+      )}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
         {people.map((p) => (
-          <Pressable key={p.person_id} onPress={() => { setTagged(p.name); void tagPerson(sessionId, p.name).catch(() => undefined); }} accessibilityRole="button" accessibilityState={{ selected: tagged === p.name }}
+          <Pressable key={p.person_id} onPress={() => tag(p.name)} accessibilityRole="button" accessibilityState={{ selected: tagged === p.name }}
             style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: 18, justifyContent: 'center', borderWidth: 1, borderColor: C.paper, backgroundColor: tagged === p.name ? C.paper : 'transparent', opacity: pressed ? 0.6 : 1 })}>
             <T v="body" color={tagged === p.name ? C.ink : C.paper}>{p.name}</T>
           </Pressable>

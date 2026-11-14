@@ -18,7 +18,8 @@ function LinkRow({ title, note, onPress, badge }: { title: string; note: string;
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { mode, pairing, state, unpair, alwaysOnDemo, setAlwaysOnDemo } = useBus();
+  const { mode, pairing, state, unpair } = useBus();
+  const unpaired = mode === 'unpaired';
   const pending = state.appRequests.length;
   return (
     <Screen title="Settings">
@@ -27,18 +28,15 @@ export default function SettingsScreen() {
 
       <T v="caps" style={{ marginTop: 28 }}>This phone</T>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
-        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: mode === 'mock' ? C.paper3 : state.status === 'live' ? TONE.green : TONE.vermilion }} />
-        <T v="serif" size={26}>{mode === 'mock' ? 'Demo pairing' : state.status === 'live' ? 'Connected to the laptop' : 'Laptop unreachable'}</T>
+        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: unpaired ? C.paper3 : state.status === 'live' ? TONE.green : TONE.vermilion }} />
+        <T v="serif" size={26}>{unpaired ? 'Not paired' : state.status === 'live' ? 'Connected to the laptop' : 'Laptop unreachable'}</T>
       </View>
-      <T v="mono" size={12.5} color={C.paper2} style={{ marginTop: 6 }}>{pairing ? `${pairing.server_url}\n${pairing.device_id}` : mode === 'mock' ? 'A scripted conversation, on a loop. No network.' : process.env.EXPO_PUBLIC_BUS_URL ?? ''}</T>
+      <T v="mono" size={12.5} color={C.paper2} style={{ marginTop: 6 }}>{pairing ? `${pairing.server_url}\n${pairing.device_id}` : unpaired ? 'Pair with your laptop to see your conversations.' : process.env.EXPO_PUBLIC_BUS_URL ?? ''}</T>
       <T v="small" style={{ marginTop: 10 }}>{state.alwaysOn
         ? 'Always on: the band listens all day and conversations open by themselves. Buzzes only arrive while Undertone is open on screen; the screen stays awake during a conversation and may sleep between them. Open Undertone again to catch up.'
         : 'Buzzes only arrive while Undertone is open on screen. The Live tab keeps the screen awake.'}</T>
-      {mode === 'mock' ? (
-        <Btn small label={alwaysOnDemo ? 'Demo: always-on day (switch to tap to start)' : 'Demo: tap to start (switch to always-on day)'} onPress={() => setAlwaysOnDemo(!alwaysOnDemo)} style={{ marginTop: 14 }} />
-      ) : null}
-      <Btn label={mode === 'mock' ? 'Pair with a laptop' : 'Unpair this phone'} onPress={() => void unpair()} style={{ marginTop: 18 }} />
-      <T v="small" style={{ marginTop: 22, textAlign: 'center' }}>Three fingers on the screen opens the rehearsal panel.</T>
+      {unpaired ? <Btn label="Pair with your laptop" onPress={() => router.push('/pair')} style={{ marginTop: 18 }} />
+        : pairing ? <Btn label="Unpair this phone" onPress={() => void unpair()} style={{ marginTop: 18 }} /> : null}
     </Screen>
   );
 }

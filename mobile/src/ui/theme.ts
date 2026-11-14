@@ -42,5 +42,3 @@ export const F = {
   mono: 'GeistMono_400Regular',
 } as const;
 
-/** One switch for every "sample" label in the app. */
-export const SHOW_SAMPLE_LABELS = true;

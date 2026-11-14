@@ -6,7 +6,7 @@
  * `start`/`end` are seconds from the start of the conversation. A turn's position in the
  * recording is `turn.start + audio_offset_s`.
  */
-import type { SessionSummary, Speaker } from '@/bus/contracts';
+import type { Speaker } from '@/bus/contracts';
 
 export interface TranscriptTurn {
   turn_id: string;
@@ -26,13 +26,6 @@ export interface SessionTranscript {
   audio_offset_s: number;
   turns: TranscriptTurn[];
 }
-
-/** A History row. The kept/recording fields are optional: an older backend omits them, and a missing `kept` means kept. */
-export type SessionListItem = SessionSummary & {
-  kept?: boolean;
-  kept_reason?: string | null;
-  audio_url?: string | null;
-};
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';

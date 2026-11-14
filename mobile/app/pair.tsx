@@ -1,5 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, TextInput, View } from 'react-native';
 import { claimCode, parseQr } from '@/bus/socket-source';
@@ -26,6 +27,7 @@ function Corner({ pos }: { pos: 'tl' | 'tr' | 'bl' | 'br' }) {
 
 export default function PairScreen() {
   const { pair } = useBus();
+  const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
   const [manual, setManual] = useState(false);
@@ -69,7 +71,7 @@ export default function PairScreen() {
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
               <T v="serif" size={26} color={C.paper2} style={{ textAlign: 'center' }}>{native ? 'The code goes here' : 'Scanning needs the phone'}</T>
-              <T v="small" style={{ textAlign: 'center', marginTop: 6 }}>{native ? 'The camera is used only to read the pairing code.' : 'In a browser, enter the code or use the demo.'}</T>
+              <T v="small" style={{ textAlign: 'center', marginTop: 6 }}>{native ? 'The camera is used only to read the pairing code.' : 'In a browser, enter the code instead.'}</T>
             </View>
           )}
           <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
@@ -91,8 +93,8 @@ export default function PairScreen() {
           ) : (
             <Btn label="Enter code instead" onPress={() => { setManual(true); setScanning(false); }} />
           )}
-          <Btn label="Use demo pairing" onPress={() => void pair('demo')} color={C.paper2} />
-          <T v="small" style={{ textAlign: 'center' }}>The demo plays a scripted conversation. Nothing leaves the phone.</T>
+          <Btn label="Not now" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} color={C.paper2} />
+          <T v="small" style={{ textAlign: 'center' }}>Nothing shows until this phone is paired. You can pair from any tab.</T>
         </View>
       </KeyboardAvoidingView>
     </Screen>

@@ -10,11 +10,14 @@ import { isLive } from '@/bus/reducer';
 import { useBus, useNow } from '@/bus/use-bus';
 import { Glyph } from '@/ui/Glyph';
 import { LISTEN_LABEL, ListeningIdle, dotColor, useKeepAwakeWhile } from '@/ui/Listening';
-import { Btn, T, clock } from '@/ui/kit';
+import { Btn, Screen, T, clock } from '@/ui/kit';
+import { NotPaired } from '@/ui/States';
 import { C, F, TAKEOVER, TONE } from '@/ui/theme';
 
 const TAKEOVER_MS = 2800;
 const STATUS_MS = 5000;
+/** After this long with no debrief, a conversation that closed quietly is not getting one. */
+const DEBRIEF_WAIT_MS = 120000;
 
 /** The metronome: almost empty on purpose. It lives on the table during a conversation. */
 export default function LiveScreen() {
@@ -32,7 +35,9 @@ export default function LiveScreen() {
   // Tap-to-start: awake while this tab is open (as before). Always-on: the root layout holds it during a conversation only.
   useKeepAwakeWhile(!alwaysOn, 'undertone-live-tab');
   const statusDot = state.status === 'offline' ? TONE.vermilion : live ? C.mic : C.paper3;
-  const statusText = state.status === 'offline' ? 'Laptop unreachable' : live ? 'Listening' : mode === 'mock' ? 'Demo feed' : 'Connected';
+  const statusText = state.status === 'offline' ? 'Laptop unreachable' : state.status === 'connecting' ? 'Connecting to the laptop' : live ? 'Listening' : 'Connected';
+  const debriefReady = !!session && state.debrief?.session_id === session.id;
+  const debriefLate = !!session?.endedAt && !debriefReady && now - session.endedAt > DEBRIEF_WAIT_MS;
   // always-on idle shows 0:00: the last conversation's length lives in the "Last conversation" line
   const elapsed = session && (live || !state.alwaysOn) ? ((session.endedAt ?? now) - session.startedAt) / 1000 : 0;
 
@@ -57,9 +62,12 @@ export default function LiveScreen() {
   const policy = session?.policy;
   const budgetTotal = Math.min(policy?.budget_per_session ?? 3, 8);
   const budgetLeft = Math.min(state.budgetLeft ?? budgetTotal, budgetTotal);
-  const focus = state.coach?.nudge_rules.find((r) => r.id === policy?.focus_rule_id)?.haptic ?? 'slow_down';
-  const words = state.coach?.filler_words.slice(0, 3) ?? [];
-  const prompt = state.coach?.drill.prompts[0] ?? 'Tell me about yourself.';
+  const ruleHaptic = state.coach?.nudge_rules?.find((r) => r.id === policy?.focus_rule_id)?.haptic;
+  const focus: HapticPattern = ruleHaptic && PATTERNS[ruleHaptic] ? ruleHaptic : 'slow_down';
+  const words = state.coach?.filler_words?.slice(0, 3) ?? [];
+  const prompt = state.coach?.drill?.prompts?.[0] ?? null;
+
+  if (mode === 'unpaired') return <Screen><NotPaired style={{ marginTop: 22 }} /></Screen>;
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1, backgroundColor: take?.bg ?? C.ink }}>
@@ -81,7 +89,7 @@ export default function LiveScreen() {
           {practice ? (
             <>
               <T v="caps" color={dim}>Practice · round {Math.max(1, state.practice.round)}</T>
-              <T v="serif" size={24} color={fg} style={{ marginTop: 2 }}>“{prompt}”</T>
+              {prompt ? <T v="serif" size={24} color={fg} style={{ marginTop: 2 }}>“{prompt}”</T> : null}
               <T v="small" color={dim} style={{ marginTop: 4 }}>Taps on: {words.join(', ') || 'your crutch words'}</T>
             </>
           ) : (
@@ -138,14 +146,16 @@ export default function LiveScreen() {
               <T v="small" style={{ marginTop: 6 }}>Everything else is being written down for the debrief.</T>
             </View>
           ) : alwaysOn ? (
-            <ListeningIdle state={state} listen={listen} isDemo={mode === 'mock'} onOpenDebrief={() => router.push('/debrief')} />
+            <ListeningIdle state={state} listen={listen} debriefLate={debriefLate} onOpenDebrief={() => router.push('/debrief')} />
           ) : (
             <View>
               <T v="serif" size={52}>{session?.endedAt ? (practice ? 'Round finished.' : 'Conversation ended.') : 'Double-tap the band to begin.'}</T>
               {session?.endedAt && !practice ? (
-                <Pressable onPress={() => router.push('/debrief')} accessibilityRole="link" style={{ marginTop: 14 }}>
-                  <T v="body" style={{ textDecorationLine: 'underline', fontFamily: F.sansMedium }}>{state.debrief ? 'Read the debrief' : 'The debrief is being written…'}</T>
-                </Pressable>
+                debriefLate ? <T v="body" style={{ marginTop: 14, fontFamily: F.sansMedium }}>No debrief for this one. Very short ones close quietly, without one.</T> : (
+                  <Pressable onPress={() => router.push({ pathname: '/debrief', params: { id: session.id } })} accessibilityRole="link" style={{ marginTop: 14 }}>
+                    <T v="body" style={{ textDecorationLine: 'underline', fontFamily: F.sansMedium }}>{debriefReady ? 'Read the debrief' : 'The debrief is being written…'}</T>
+                  </Pressable>
+                )
               ) : <T v="small" style={{ marginTop: 10 }}>Keep this screen open and the phone on you. It taps; it never rings.</T>}
             </View>
           )}

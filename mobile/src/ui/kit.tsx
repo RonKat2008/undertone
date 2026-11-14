@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, View, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { C, F, SHOW_SAMPLE_LABELS } from './theme';
+import { C, F } from './theme';
 
 type Variant = 'body' | 'small' | 'caps' | 'serif' | 'mono';
 
@@ -62,20 +62,12 @@ export function Btn({ label, onPress, solid, small, disabled, color, style, acce
   );
 }
 
-export function SampleTag({ show = true }: { show?: boolean }) {
-  if (!SHOW_SAMPLE_LABELS || !show) return null;
-  return (
-    <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: C.paper3, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 2, alignSelf: 'flex-start' }}>
-      <T v="caps" size={9.5}>sample</T>
-    </View>
-  );
-}
-
 export function Row({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   return <View style={[{ flexDirection: 'row', alignItems: 'center' }, style]}>{children}</View>;
 }
 
-export function clock(seconds: number): string {
+export function clock(seconds: number | null | undefined): string {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '0:00';
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }

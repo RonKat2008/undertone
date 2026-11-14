@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { getWeeklyReport, listPeople, listSessions, type Sampled, type SessionListItem } from '@/api/client';
-import type { Person, WeeklyReport } from '@/bus/contracts';
-import { useListVersion } from '@/bus/use-bus';
-import { Rule, SampleTag, Screen, T, clock } from '@/ui/kit';
+import { getWeeklyReport, listPeople, listSessions } from '@/api/client';
+import { fmtInt, fmtOne, fmtPct } from '@/api/parse';
+import { firstError, okData, useLoad } from '@/api/use-load';
+import { useBus, useListVersion } from '@/bus/use-bus';
+import { Rule, Screen, T, clock } from '@/ui/kit';
+import { Failed, Fetching, Notice, NotPaired } from '@/ui/States';
 import { C, TONE } from '@/ui/theme';
 
 const METRIC: Record<string, { label: string; fmt: (v: number) => string; lowerIsBetter: boolean }> = {
@@ -17,31 +18,30 @@ const METRIC: Record<string, { label: string; fmt: (v: number) => string; lowerI
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const [sessions, setSessions] = useState<Sampled<SessionListItem[]> | null>(null);
-  const [report, setReport] = useState<Sampled<WeeklyReport> | null>(null);
-  const [people, setPeople] = useState<Person[]>([]);
+  const { mode } = useBus();
   const version = useListVersion(); // a session ended, its debrief arrived, or the phone reconnected
+  const [sessions, retrySessions] = useLoad(listSessions, version);
+  const [report, retryReport] = useLoad(getWeeklyReport, version);
+  const [peopleLoad] = useLoad(listPeople, version);
 
-  useEffect(() => {
-    let on = true;
-    listSessions().then((s) => on && setSessions(s));
-    getWeeklyReport().then((r) => on && setReport(r));
-    listPeople().then((p) => on && setPeople(p.data));
-    return () => { on = false; };
-  }, [version]);
-
+  const people = okData(peopleLoad) ?? [];
   const name = (id: string | null) => people.find((p) => p.person_id === id)?.name ?? null;
-  const r = report?.data;
+  const r = okData(report);
+  const rows = okData(sessions);
+  const failed = firstError(sessions, report);
 
+  if (mode === 'unpaired') return <Screen title="History"><NotPaired /></Screen>;
   return (
-    <Screen title="History" right={<SampleTag show={sessions?.sample ?? false} />}>
+    <Screen title="History">
+      {failed ? <Failed message={failed.message} unreachable={failed.unreachable} onRetry={() => { retrySessions(); retryReport(); }} style={{ marginBottom: 22 }} /> : null}
       {r ? (
         <View style={{ marginBottom: 22 }}>
-          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><T v="caps" color={C.paper}>This week, against your own baseline</T><SampleTag show={report?.sample ?? false} /></View>
-          <T v="serif" size={26} style={{ marginTop: 8 }}>{r.biggest_improvement}</T>
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><T v="caps" color={C.paper}>This week, against your own baseline</T></View>
+          {r.biggest_improvement ? <T v="serif" size={26} style={{ marginTop: 8 }}>{r.biggest_improvement}</T> : null}
           <View style={{ marginTop: 12 }}>
             {r.trend.map((t) => {
               const meta = METRIC[t.metric];
+              if (!meta) return null;
               const better = meta.lowerIsBetter ? t.to < t.from : t.to > t.from;
               const same = t.to === t.from;
               return (
@@ -57,30 +57,37 @@ export default function HistoryScreen() {
       ) : null}
 
       <Rule strong />
-      {(sessions?.data ?? []).map((s) => {
+      {!sessions ? <Fetching what="Fetching your conversations…" style={{ marginTop: 16 }} /> : null}
+      {(rows ?? []).map((s) => {
         const d = new Date(s.started_at);
+        const day = Number.isNaN(d.getTime()) ? 'Unknown date' : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+        const when = s.duration_s === null ? day : `${day} · ${clock(s.duration_s)}`;
+        const coach = s.mode === 'practice' ? 'practice' : s.coach_name;
         const who = name(s.person_id);
+        const n = s.numbers;
         return (
           <View key={s.session_id} style={{ borderBottomWidth: 1, borderBottomColor: C.rule, paddingVertical: 16 }}>
             <Pressable onPress={() => router.push({ pathname: '/debrief', params: { id: s.session_id } })} accessibilityRole="button"
               style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', columnGap: 10, rowGap: 4 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <T v="caps">{d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · {clock(s.duration_s)}</T>
+                  <T v="caps">{when}</T>
                   {s.audio_url ? <RecMark /> : null}
                 </View>
-                <T v="caps">{s.mode === 'practice' ? 'practice' : s.coach_name}{who ? ` · with ${who}` : ''}</T>
+                {coach || who ? <T v="caps">{[coach, who ? `with ${who}` : ''].filter(Boolean).join(' · ')}</T> : null}
               </View>
-              <T v="serif" size={24} style={{ marginTop: 6 }}>{s.headline_fact}</T>
-              <View style={{ flexDirection: 'row', gap: 18, marginTop: 10 }}>
-                <Stat v={`${Math.round(s.numbers.talk_ratio * 100)}%`} l="talk" />
-                <Stat v={String(s.numbers.interruptions)} l="interr." />
-                <Stat v={String(s.numbers.questions)} l="quest." />
-                <Stat v={s.numbers.fillers_per_min.toFixed(1)} l="fill/min" />
-                <Stat v={String(Math.round(s.numbers.wpm))} l="wpm" />
-              </View>
+              <T v="serif" size={24} style={{ marginTop: 6 }} color={s.headline_fact ? undefined : C.paper3}>{s.headline_fact ?? 'No debrief for this one.'}</T>
+              {n ? (
+                <View style={{ flexDirection: 'row', gap: 18, marginTop: 10 }}>
+                  <Stat v={fmtPct(n.talk_ratio)} l="talk" />
+                  <Stat v={fmtInt(n.interruptions)} l="interr." />
+                  <Stat v={fmtInt(n.questions)} l="quest." />
+                  <Stat v={fmtOne(n.fillers_per_min)} l="fill/min" />
+                  <Stat v={fmtInt(n.wpm)} l="wpm" />
+                </View>
+              ) : null}
             </Pressable>
-            <Pressable onPress={() => router.push({ pathname: '/transcript', params: { id: s.session_id, headline: s.headline_fact } })} accessibilityRole="button"
+            <Pressable onPress={() => router.push({ pathname: '/transcript', params: s.headline_fact ? { id: s.session_id, headline: s.headline_fact } : { id: s.session_id } })} accessibilityRole="button"
               accessibilityLabel={s.audio_url ? 'What was said: transcript and recording' : 'What was said: transcript'} hitSlop={8}
               style={({ pressed }) => ({ alignSelf: 'flex-start', marginTop: 10, paddingVertical: 6, opacity: pressed ? 0.5 : 1 })}>
               <T v="caps" color={C.paper}>{s.audio_url ? 'What was said · listen  →' : 'What was said  →'}</T>
@@ -88,7 +95,9 @@ export default function HistoryScreen() {
           </View>
         );
       })}
-      {sessions && sessions.data.length === 0 ? <T v="small" style={{ marginTop: 16 }}>No conversations yet.</T> : null}
+      {rows && rows.length === 0 ? (
+        <Notice title="No conversations yet." body="Each conversation the band hears shows up here once it ends, with its debrief and what was said." style={{ marginTop: 16 }} />
+      ) : null}
     </Screen>
   );
 }

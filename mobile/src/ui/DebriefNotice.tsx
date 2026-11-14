@@ -32,10 +32,10 @@ export function DebriefNotice({ notice, onOpen, onDismiss }: Props) {
   return (
     <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 6, paddingHorizontal: 12, opacity: fade, transform: [{ translateY }] }}>
       <View accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'stretch', backgroundColor: C.well, borderWidth: 1, borderColor: C.paper, borderRadius: 3, shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 }}>
-        <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={`New debrief. ${notice.headline} Open it.`}
+        <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={notice.headline ? `New debrief. ${notice.headline} Open it.` : 'New debrief. Open it.'}
           style={({ pressed }) => ({ flex: 1, paddingVertical: 11, paddingLeft: 14, paddingRight: 8, opacity: pressed ? 0.6 : 1 })}>
           <T v="caps" color={C.paper}>New debrief · open</T>
-          <T v="small" numberOfLines={2} color={C.paper2} style={{ marginTop: 3 }}>{notice.headline}</T>
+          {notice.headline ? <T v="small" numberOfLines={2} color={C.paper2} style={{ marginTop: 3 }}>{notice.headline}</T> : null}
         </Pressable>
         <Pressable onPress={onDismiss} accessibilityRole="button" accessibilityLabel="Dismiss" hitSlop={8}
           style={({ pressed }) => ({ width: 44, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: C.rule, opacity: pressed ? 0.5 : 1 })}>

@@ -9,7 +9,7 @@
  *
  * Pure: no I/O, no clocks. `at` comes in on the action.
  */
-import type { BusEvent, Debrief, SessionSummary } from './contracts';
+import type { BusEvent } from './contracts';
 import { initialState as busInitial, reduce, type BusAction, type BusState } from './reducer';
 
 export interface DebriefNotice {
@@ -28,7 +28,7 @@ export interface PhoneState extends BusState {
 export type PhoneAction =
   | BusAction
   | { type: 'notice.dismiss' }
-  /** A new source (pairing changed, demo switched): forget everything, including phone-only state. */
+  /** A new source (pairing changed): forget everything, including phone-only state. */
   | { type: 'source.changed' };
 
 export const initialPhoneState: PhoneState = {
@@ -74,8 +74,10 @@ function foldExtras(state: PhoneState, action: BusAction): Pick<PhoneState, 'alw
       return { ...same, alwaysOn: readAlwaysOn(e) ?? alwaysOn };
     case 'session.ended':
       return { ...same, lastEnded: { session_id: e.session_id, at: action.at } };
-    case 'debrief':
-      return { ...same, notice: { session_id: e.session_id, headline: e.data.headline_fact, at: action.at } };
+    case 'debrief': {
+      const headline = (e.data as { headline_fact?: unknown } | null)?.headline_fact;
+      return { ...same, notice: { session_id: e.session_id, headline: typeof headline === 'string' ? headline : '', at: action.at } };
+    }
     default:
       return same;
   }
@@ -91,20 +93,4 @@ export function listenState(state: BusState): ListenState {
   if (!state.band || !state.band.connected) return 'no-band';
   if (!state.band.mic_on) return 'mic-off';
   return 'listening';
-}
-
-/** The History row the mock adds when a demo conversation's debrief arrives. */
-export function summaryFromDebrief(
-  session_id: string, data: Debrief, startedAt: number, endedAt: number, coach_name: string,
-): SessionSummary {
-  return {
-    session_id,
-    started_at: new Date(startedAt).toISOString(),
-    duration_s: Math.max(1, Math.round((endedAt - startedAt) / 1000)),
-    coach_name,
-    mode: 'regular',
-    person_id: null,
-    headline_fact: data.headline_fact,
-    numbers: data.numbers,
-  };
 }
