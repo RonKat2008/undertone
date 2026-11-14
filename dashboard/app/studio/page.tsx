@@ -46,8 +46,10 @@ export default function StudioPage() {
     if (!clean) return;
     setError(null); setStage(0); setPhase('generating'); setSaved(null);
     try {
-      setDraft(await buildCoach(`I want to ${clean}`));
+      const built = await buildCoach(`I want to ${clean}`);
+      setDraft(built.spec);
       setPhase('sheet');
+      if (built.source === 'fallback') setSaved('The coach model did not answer, so this coach was written from the built-in template. Edit it, or try again later.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The coach could not be written.');
       setPhase('empty');

@@ -17,7 +17,9 @@ export interface BusConfig {
 /** A backend address in canonical form ("ws://h:1/ws/" -> "http://h:1"), or undefined when blank or not an address. */
 export function normaliseBusUrl(value: string | null | undefined): string | undefined {
   if (value === null || value === undefined) return undefined;
-  const v = value.trim();
+  let v = value.trim();
+  // "172.20.10.2:8000", "laptop.local", "localhost:8000": an address typed without a scheme means http.
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v) && /^(localhost|[\w-]+(\.[\w-]+)+|[\w.-]+:\d+)(:\d+)?(\/\S*)?$/i.test(v)) v = `http://${v}`;
   if (!/^(https?|wss?):\/\/[^/\s]+/i.test(v)) return undefined;
   return v.replace(/^ws/i, 'http').replace(/\/ws\/?$/, '').replace(/\/+$/, '');
 }

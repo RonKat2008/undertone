@@ -82,7 +82,7 @@ export default function CalibrationPage() {
                 <p className="display-s">You are the {swapped ? 'second' : 'first'} voice.</p>
                 <p className="text-m mt-2 max-w-[48ch] text-ink-2">If the transcript shows your words under “Them”, swap. You can do this mid-conversation too.</p>
                 <div className="mt-5 flex gap-2">
-                  <button className="btn" onClick={() => { setSwapped((s) => !s); setFailed(null); void swapSpeakers().catch(fail); }}>Swap speakers</button>
+                  <button className="btn" onClick={() => { setFailed(null); void swapSpeakers().then(() => setSwapped((s) => !s), fail); }}>Swap speakers</button>
                   <button className="btn btn-quiet" onClick={() => setVoice('idle')}>Redo</button>
                 </div>
               </>

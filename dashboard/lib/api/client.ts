@@ -10,13 +10,13 @@ import type { LibrarySession, SessionTranscript } from '@/lib/conversations/type
 import { isNodeDetail } from '@/lib/graph/model';
 import type { GraphNodeDetail } from '@/lib/graph/types';
 import {
-  ApiError, checked, errorMessage, graphFailure, httpErrorMessage, isArrayOf, isDebriefPayload, isObj, isPeople, isProfile,
-  isSessionList, isWeekly, recordFailure, toGraphResult, unreachableMessage, unreadableMessage,
-  type Fetched, type GraphResult, type RecordResult,
+  ApiError, checked, errorMessage, graphFailure, httpErrorMessage, isArrayOf, isCoachSpec, isDebriefPayload, isObj, isPeople, isProfile,
+  isSessionList, isWeekly, recordFailure, toBuiltCoach, toGraphResult, unreachableMessage, unreadableMessage,
+  type BuiltCoach, type Fetched, type GraphResult, type RecordResult,
 } from '@/lib/api/results';
 import type { AppInfo, DebriefPayload, DeviceInfo, Pairing } from '@/lib/api/types';
 
-export { ApiError, type Fetched, type GraphResult, type GraphSource } from '@/lib/api/results';
+export { ApiError, type BuildSource, type BuiltCoach, type Fetched, type GraphResult, type GraphSource } from '@/lib/api/results';
 export type { AppInfo, DebriefPayload, DeviceInfo, Pairing } from '@/lib/api/types';
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
@@ -59,8 +59,16 @@ export async function listCoaches(): Promise<CoachSpec[]> {
   if (!isCoachList(body)) throw unreadable('/coaches');
   return body;
 }
-export const buildCoach = (goal: string) => post<CoachSpec>('/coaches/build', { goal });
-export const buildPersonalCoach = () => post<CoachSpec>('/coaches/personal');
+/** POST /coaches/build. The reply wraps the coach: {spec, source, elapsed_ms, notes}. */
+export async function buildCoach(goal: string): Promise<BuiltCoach> {
+  return toBuiltCoach(await post<unknown>('/coaches/build', { goal }), apiBase(), '/coaches/build');
+}
+/** POST /coaches/personal answers the CoachSpec itself. */
+export async function buildPersonalCoach(): Promise<CoachSpec> {
+  const body = await post<unknown>('/coaches/personal');
+  if (!isCoachSpec(body)) throw unreadable('/coaches/personal');
+  return body;
+}
 export const saveCoach = (coach: CoachSpec) => http<CoachSpec>(`/coaches/${encodeURIComponent(coach.id)}`, { method: 'PUT', body: JSON.stringify(coach) });
 export const activateCoach = (id: string) => post<CoachSpec>(`/coaches/${encodeURIComponent(id)}/activate`);
 
@@ -149,6 +157,8 @@ export async function getBandAlwaysOn(): Promise<boolean | null> {
 }
 
 // ---------- conversations library ----------
+/** The backend's maximum page (GET /sessions caps limit at 500; its default is 50). */
+const LIBRARY_LIMIT = 500;
 /** Where a library on screen came from. 'unreachable' and 'invalid' carry no data and say why. */
 export type LibrarySource = 'live' | 'unreachable' | 'invalid';
 
@@ -159,7 +169,7 @@ export interface LibraryResult {
 }
 
 export async function listConversations(includeAll: boolean): Promise<LibraryResult> {
-  const path = includeAll ? '/sessions?include=all' : '/sessions';
+  const path = includeAll ? `/sessions?include=all&limit=${LIBRARY_LIMIT}` : `/sessions?limit=${LIBRARY_LIMIT}`;
   try {
     const data = parseLibrary(await http<unknown>(path));
     if (!data) return { data: [], source: 'invalid', error: unreadableMessage(apiBase(), path) };

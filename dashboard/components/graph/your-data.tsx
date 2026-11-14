@@ -129,7 +129,7 @@ export function TopHabits({ profile, weekly }: { profile: Fetched<HabitProfile> 
                 <span className={`num shrink-0 text-[12px] ${t.cls}`} aria-label={`${t.text}`}>{t.mark} {t.text}</span>
               </div>
               <div className="mt-2 h-1.5 w-full bg-well" aria-hidden>
-                <div className="h-full origin-left bg-ink-2" style={{ transform: `scaleX(${Math.min(1, h.rate)})` }} />
+                <div className="h-full origin-left bg-ink-2" style={{ transform: `scaleX(${Math.min(1, Math.max(0, h.rate))})` }} />
               </div>
               <div className="num mt-1 text-[11.5px] text-ink-2">in {Math.round(Math.min(1, Math.max(0, h.rate)) * 100)}% of conversations</div>
             </li>

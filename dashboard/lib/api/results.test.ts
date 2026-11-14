@@ -5,7 +5,7 @@ import { computeStats } from '../graph/model.ts';
 import type { KnowledgeGraph } from '../graph/types';
 import {
   ApiError, checked, emptyGraph, graphFailure, httpErrorMessage, isDebriefPayload, isPeople, isProfile, isSessionList,
-  isWeekly, recordFailure, toGraphResult, unreadableMessage,
+  isWeekly, recordFailure, toBuiltCoach, toGraphResult, unreadableMessage,
 } from './results.ts';
 
 const BASE = 'http://localhost:59999';
@@ -49,10 +49,31 @@ describe('graph answers', () => {
   });
 });
 
+describe('coach studio answers', () => {
+  const spec = { id: 'c1', name: 'Pitch coach', nudge_rules: [] };
+  test('POST /coaches/build wraps the coach in {spec, source, elapsed_ms, notes}', () => {
+    const r = toBuiltCoach({ spec, source: 'llm', elapsed_ms: 900, notes: [] }, BASE, '/coaches/build');
+    assert.equal(r.spec, spec);
+    assert.equal(r.source, 'llm');
+  });
+  test('the offline template is reported as fallback, with its notes', () => {
+    const r = toBuiltCoach({ spec, source: 'fallback', elapsed_ms: 5, notes: ['model timed out', 3] }, BASE, '/coaches/build');
+    assert.equal(r.source, 'fallback');
+    assert.deepEqual(r.notes, ['model timed out']);
+  });
+  test('a bare spec or junk is unreadable, naming the address', () => {
+    assert.throws(() => toBuiltCoach(spec, BASE, '/coaches/build'), /localhost:59999 answered \/coaches\/build/);
+    assert.throws(() => toBuiltCoach({ spec: { id: 'x' } }, BASE, '/coaches/build'));
+  });
+});
+
 describe('list and record reads', () => {
   test('an empty list is real data, not a failure', () => {
     assert.deepEqual(checked([], isSessionList, BASE, '/sessions'), { ok: true, data: [] });
     assert.deepEqual(checked([], isPeople, BASE, '/people'), { ok: true, data: [] });
+    const profile = { sessions: 0, crutch_words: [], recurring_issues: [] };
+    assert.deepEqual(checked(profile, isProfile, BASE, '/profile'), { ok: true, data: profile });
+    assert.deepEqual(checked({ trend: [] }, isWeekly, BASE, '/report/weekly'), { ok: true, data: { trend: [] } });
   });
   test('a body of the wrong shape is a failure naming the address and path', () => {
     const r = checked({ sessions: [] }, isSessionList, BASE, '/sessions?include=all');

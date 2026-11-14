@@ -3,7 +3,7 @@
  * answer becomes "real data", "nothing yet" or "failed, and why". No fetch, no React;
  * tested in results.test.ts.
  */
-import type { HabitProfile, Person, SessionSummary, WeeklyReport } from '../bus/contracts';
+import type { CoachSpec, HabitProfile, Person, SessionSummary, WeeklyReport } from '../bus/contracts';
 import { computeStats, isKnowledgeGraph } from '../graph/model.ts';
 import type { KnowledgeGraph } from '../graph/types';
 import type { DebriefPayload } from './types';
@@ -53,6 +53,27 @@ export const isProfile = (v: unknown): v is HabitProfile =>
 export const isWeekly = (v: unknown): v is WeeklyReport => isObj(v) && Array.isArray(v.trend);
 export const isDebriefPayload = (v: unknown): v is DebriefPayload =>
   isObj(v) && typeof v.session_id === 'string' && isObj(v.data) && typeof v.data.headline_fact === 'string';
+
+export const isCoachSpec = (v: unknown): v is CoachSpec =>
+  isObj(v) && typeof v.id === 'string' && typeof v.name === 'string' && Array.isArray(v.nudge_rules);
+
+// ---------- coach studio ----------
+/** How POST /coaches/build produced the coach: the model, the model after a repair pass, or the offline template. */
+export type BuildSource = 'llm' | 'repaired' | 'fallback';
+
+export interface BuiltCoach {
+  spec: CoachSpec;
+  source: BuildSource;
+  notes: string[];
+}
+
+/** POST /coaches/build answers {spec, source, elapsed_ms, notes}; the coach is `spec`. Throws when it is not readable. */
+export function toBuiltCoach(body: unknown, base: string, path: string): BuiltCoach {
+  if (!isObj(body) || !isCoachSpec(body.spec)) throw new ApiError(unreadableMessage(base, path), 0);
+  const source: BuildSource = body.source === 'fallback' || body.source === 'repaired' ? body.source : 'llm';
+  const notes = Array.isArray(body.notes) ? body.notes.filter((n): n is string => typeof n === 'string') : [];
+  return { spec: body.spec, source, notes };
+}
 
 // ---------- knowledge graph ----------
 /**

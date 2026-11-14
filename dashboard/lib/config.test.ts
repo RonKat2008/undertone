@@ -32,4 +32,13 @@ describe('backend address', () => {
     assert.equal(normaliseBusUrl('http://h:8000///'), 'http://h:8000');
     assert.equal(normaliseBusUrl(null), undefined);
   });
+
+  test('an address typed without a scheme means http', () => {
+    assert.equal(normaliseBusUrl('172.20.10.2:8000'), 'http://172.20.10.2:8000');
+    assert.equal(normaliseBusUrl('laptop.local'), 'http://laptop.local');
+    assert.equal(normaliseBusUrl('localhost:8000/'), 'http://localhost:8000');
+    assert.equal(normaliseBusUrl('laptop:8000'), 'http://laptop:8000');
+    assert.equal(resolveBusUrl({ query: '172.20.10.2:8000', hostname: 'x' }), 'http://172.20.10.2:8000');
+    assert.equal(normaliseBusUrl('mock'), undefined);
+  });
 });
