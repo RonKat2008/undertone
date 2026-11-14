@@ -12,3 +12,5 @@ fixtures/*.wav
 .DS_Store
 media/
 .claude/
+.undertone/
+vexo-open-kit

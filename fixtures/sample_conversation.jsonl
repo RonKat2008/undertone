@@ -1,0 +1,144 @@
+{"at": 0, "event": {"type": "band.status", "connected": true, "transport": "sim", "battery_pct": 87, "mic_on": true}}
+{"at": 0, "event": {"type": "session.started", "session_id": "s_sample", "coach_id": "listener", "mode": "regular", "policy": {"focus_rule_id": "monologue", "budget_per_session": 5, "min_gap_s": 60, "tolerance": 0.3, "silent": false}, "ts": 0}}
+{"at": 1.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.172, "speaker_context": "me", "confidence": 0.85, "ts": 1.0}}
+{"at": 1.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.359, "speaker_context": "me", "confidence": 0.99, "ts": 1.5}}
+{"at": 2.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.451, "speaker_context": "me", "confidence": 0.99, "ts": 2.0}}
+{"at": 2.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.553, "speaker_context": "me", "confidence": 0.99, "ts": 2.5}}
+{"at": 2.84, "event": {"type": "transcript.partial", "speaker": "me", "text": "Hey thanks for meeting with me, um,"}}
+{"at": 3.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.635, "speaker_context": "me", "confidence": 0.99, "ts": 3.0}}
+{"at": 3.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.646, "speaker_context": "me", "confidence": 0.99, "ts": 3.5}}
+{"at": 4.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.597, "speaker_context": "me", "confidence": 0.99, "ts": 4.0}}
+{"at": 4.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.572, "speaker_context": "me", "confidence": 0.99, "ts": 4.5}}
+{"at": 5.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.612, "speaker_context": "me", "confidence": 0.99, "ts": 5.0}}
+{"at": 5.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.66, "speaker_context": null, "confidence": 0.99, "ts": 5.5}}
+{"at": 5.890000000000001, "event": {"type": "turn.final", "turn_id": "t1", "speaker": "me", "text": "Hey thanks for meeting with me, um, I wanted to talk about the internship.", "start": 0.5, "end": 5.49, "wpm": 168.3, "fillers": ["um"]}}
+{"at": 6.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.491, "speaker_context": null, "confidence": 0.82, "ts": 6.0}}
+{"at": 6.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.261, "speaker_context": "other", "confidence": 0.99, "ts": 6.5}}
+{"at": 7.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.186, "speaker_context": "other", "confidence": 0.99, "ts": 7.0}}
+{"at": 7.42, "event": {"type": "transcript.partial", "speaker": "other", "text": "Sure, happy to. What"}}
+{"at": 7.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.155, "speaker_context": "other", "confidence": 0.99, "ts": 7.5}}
+{"at": 8.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.139, "speaker_context": "other", "confidence": 0.99, "ts": 8.0}}
+{"at": 8.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.131, "speaker_context": "other", "confidence": 0.99, "ts": 8.5}}
+{"at": 9.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.118, "speaker_context": null, "confidence": 0.99, "ts": 9.0}}
+{"at": 9.26, "event": {"type": "turn.final", "turn_id": "t2", "speaker": "other", "text": "Sure, happy to. What are you curious about?", "start": 6.09, "end": 8.86, "wpm": 173.3, "fillers": []}}
+{"at": 9.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.101, "speaker_context": "me", "confidence": 0.99, "ts": 9.5}}
+{"at": 10.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.203, "speaker_context": "me", "confidence": 0.8, "ts": 10.0}}
+{"at": 10.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.458, "speaker_context": "me", "confidence": 0.99, "ts": 10.5}}
+{"at": 11.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.555, "speaker_context": "me", "confidence": 0.99, "ts": 11.0}}
+{"at": 11.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.549, "speaker_context": "me", "confidence": 0.99, "ts": 11.5}}
+{"at": 12.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.547, "speaker_context": "me", "confidence": 0.99, "ts": 12.0}}
+{"at": 12.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.599, "speaker_context": "me", "confidence": 0.99, "ts": 12.5}}
+{"at": 13.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.656, "speaker_context": "me", "confidence": 0.99, "ts": 13.0}}
+{"at": 13.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.654, "speaker_context": "me", "confidence": 0.99, "ts": 13.5}}
+{"at": 14.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.601, "speaker_context": "me", "confidence": 0.99, "ts": 14.0}}
+{"at": 14.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.574, "speaker_context": "me", "confidence": 0.99, "ts": 14.5}}
+{"at": 15.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.613, "speaker_context": "me", "confidence": 0.99, "ts": 15.0}}
+{"at": 15.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.663, "speaker_context": "me", "confidence": 0.99, "ts": 15.5}}
+{"at": 16.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.658, "speaker_context": "me", "confidence": 0.99, "ts": 16.0}}
+{"at": 16.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.602, "speaker_context": "me", "confidence": 0.99, "ts": 16.5}}
+{"at": 17.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.574, "speaker_context": "me", "confidence": 0.99, "ts": 17.0}}
+{"at": 17.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.615, "speaker_context": "me", "confidence": 0.99, "ts": 17.5}}
+{"at": 18.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.664, "speaker_context": "me", "confidence": 0.99, "ts": 18.0}}
+{"at": 18.0, "event": {"type": "bookmark", "source": "phone", "text": null, "ts": 18.0}}
+{"at": 18.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.658, "speaker_context": "me", "confidence": 0.99, "ts": 18.5}}
+{"at": 18.6, "event": {"type": "transcript.partial", "speaker": "me", "text": "So basically I've been building a lot of stuff, um, like an iOS app and a drone project and you know a bunch of hackathon things, and"}}
+{"at": 19.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.604, "speaker_context": "me", "confidence": 0.99, "ts": 19.0}}
+{"at": 19.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.575, "speaker_context": "me", "confidence": 0.99, "ts": 19.5}}
+{"at": 20.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.614, "speaker_context": "me", "confidence": 0.99, "ts": 20.0}}
+{"at": 20.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.662, "speaker_context": "me", "confidence": 0.99, "ts": 20.5}}
+{"at": 21.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.658, "speaker_context": "me", "confidence": 0.99, "ts": 21.0}}
+{"at": 21.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.602, "speaker_context": "me", "confidence": 0.99, "ts": 21.5}}
+{"at": 22.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.574, "speaker_context": "me", "confidence": 0.99, "ts": 22.0}}
+{"at": 22.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.614, "speaker_context": "me", "confidence": 0.99, "ts": 22.5}}
+{"at": 23.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.664, "speaker_context": "me", "confidence": 0.99, "ts": 23.0}}
+{"at": 23.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.658, "speaker_context": "me", "confidence": 0.99, "ts": 23.5}}
+{"at": 24.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.602, "speaker_context": "me", "confidence": 0.99, "ts": 24.0}}
+{"at": 24.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.573, "speaker_context": "me", "confidence": 0.99, "ts": 24.5}}
+{"at": 25.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.612, "speaker_context": "me", "confidence": 0.99, "ts": 25.0}}
+{"at": 25.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.662, "speaker_context": "me", "confidence": 0.99, "ts": 25.5}}
+{"at": 26.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.657, "speaker_context": "me", "confidence": 0.99, "ts": 26.0}}
+{"at": 26.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.601, "speaker_context": "me", "confidence": 0.99, "ts": 26.5}}
+{"at": 26.99, "event": {"type": "turn.final", "turn_id": "t3", "speaker": "me", "text": "So basically I've been building a lot of stuff, um, like an iOS app and a drone project and you know a bunch of hackathon things, and I mean I think I'm a good fit because I build fast and I, uh, I really like robotics and I've been doing", "start": 9.36, "end": 26.59, "wpm": 174.1, "fillers": ["basically", "um", "you know", "i mean", "uh"]}}
+{"at": 27.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.533, "speaker_context": "other", "confidence": 0.96, "ts": 27.0}}
+{"at": 27.48, "event": {"type": "transcript.partial", "speaker": "other", "text": "That's great. Wait,"}}
+{"at": 27.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.398, "speaker_context": "other", "confidence": 0.99, "ts": 27.5}}
+{"at": 28.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.259, "speaker_context": "other", "confidence": 0.99, "ts": 28.0}}
+{"at": 28.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.187, "speaker_context": null, "confidence": 0.99, "ts": 28.5}}
+{"at": 28.849999999999998, "event": {"type": "turn.final", "turn_id": "t4", "speaker": "other", "text": "That's great. Wait, can I ask", "start": 26.46, "end": 28.45, "wpm": 180.9, "fillers": []}}
+{"at": 29.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.201, "speaker_context": "me", "confidence": 0.71, "ts": 29.0}}
+{"at": 29.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.282, "speaker_context": "me", "confidence": 0.86, "ts": 29.5}}
+{"at": 30.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.468, "speaker_context": "me", "confidence": 0.99, "ts": 30.0}}
+{"at": 30.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.593, "speaker_context": "me", "confidence": 0.99, "ts": 30.5}}
+{"at": 31.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.625, "speaker_context": "me", "confidence": 0.99, "ts": 31.0}}
+{"at": 31.21, "event": {"type": "transcript.partial", "speaker": "me", "text": "And also the drone startup, we pivoted"}}
+{"at": 31.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.585, "speaker_context": "me", "confidence": 0.99, "ts": 31.5}}
+{"at": 32.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.565, "speaker_context": "me", "confidence": 0.99, "ts": 32.0}}
+{"at": 32.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.609, "speaker_context": "me", "confidence": 0.99, "ts": 32.5}}
+{"at": 33.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.66, "speaker_context": "me", "confidence": 0.99, "ts": 33.0}}
+{"at": 33.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.657, "speaker_context": "me", "confidence": 0.99, "ts": 33.5}}
+{"at": 33.93, "event": {"type": "turn.final", "turn_id": "t5", "speaker": "me", "text": "And also the drone startup, we pivoted twice, um, which taught me a lot.", "start": 28.75, "end": 33.53, "wpm": 175.7, "fillers": ["um"]}}
+{"at": 34.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.508, "speaker_context": null, "confidence": 0.86, "ts": 34.0}}
+{"at": 34.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.298, "speaker_context": "other", "confidence": 0.88, "ts": 34.5}}
+{"at": 35.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.194, "speaker_context": "other", "confidence": 0.99, "ts": 35.0}}
+{"at": 35.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.159, "speaker_context": "other", "confidence": 0.99, "ts": 35.5}}
+{"at": 35.91, "event": {"type": "transcript.partial", "speaker": "other", "text": "Got it. Our team does"}}
+{"at": 36.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.139, "speaker_context": "other", "confidence": 0.99, "ts": 36.0}}
+{"at": 36.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.13, "speaker_context": "other", "confidence": 0.99, "ts": 36.5}}
+{"at": 37.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.126, "speaker_context": "other", "confidence": 0.99, "ts": 37.0}}
+{"at": 37.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.125, "speaker_context": "other", "confidence": 0.99, "ts": 37.5}}
+{"at": 38.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.125, "speaker_context": null, "confidence": 0.99, "ts": 38.0}}
+{"at": 38.379999999999995, "event": {"type": "turn.final", "turn_id": "t6", "speaker": "other", "text": "Got it. Our team does mostly perception work on the arm.", "start": 34.23, "end": 37.98, "wpm": 176.0, "fillers": []}}
+{"at": 38.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.088, "speaker_context": null, "confidence": 0.99, "ts": 38.5}}
+{"at": 39.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.135, "speaker_context": "me", "confidence": 0.68, "ts": 39.0}}
+{"at": 39.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.25, "speaker_context": "me", "confidence": 0.87, "ts": 39.5}}
+{"at": 40.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.451, "speaker_context": "me", "confidence": 0.99, "ts": 40.0}}
+{"at": 40.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.583, "speaker_context": "me", "confidence": 0.99, "ts": 40.5}}
+{"at": 41.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.62, "speaker_context": "me", "confidence": 0.99, "ts": 41.0}}
+{"at": 41.15, "event": {"type": "transcript.partial", "speaker": "me", "text": "What does a normal week look like"}}
+{"at": 41.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.583, "speaker_context": "me", "confidence": 0.99, "ts": 41.5}}
+{"at": 42.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.566, "speaker_context": "me", "confidence": 0.99, "ts": 42.0}}
+{"at": 42.0, "event": {"type": "status.reply", "verdict": "talking_too_much", "haptic": "status_talking", "ts": 42.0}}
+{"at": 42.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.611, "speaker_context": "me", "confidence": 0.99, "ts": 42.5}}
+{"at": 43.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.662, "speaker_context": "me", "confidence": 0.99, "ts": 43.0}}
+{"at": 43.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.656, "speaker_context": "me", "confidence": 0.99, "ts": 43.5}}
+{"at": 43.99, "event": {"type": "turn.final", "turn_id": "t7", "speaker": "me", "text": "What does a normal week look like for an intern on the perception team?", "start": 38.78, "end": 43.59, "wpm": 174.6, "fillers": []}}
+{"at": 44.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.514, "speaker_context": null, "confidence": 0.87, "ts": 44.0}}
+{"at": 44.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.344, "speaker_context": "other", "confidence": 0.68, "ts": 44.5}}
+{"at": 45.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.221, "speaker_context": "other", "confidence": 0.99, "ts": 45.0}}
+{"at": 45.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.171, "speaker_context": "other", "confidence": 0.99, "ts": 45.5}}
+{"at": 46.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.146, "speaker_context": "other", "confidence": 0.99, "ts": 46.0}}
+{"at": 46.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.134, "speaker_context": "other", "confidence": 0.99, "ts": 46.5}}
+{"at": 47.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.127, "speaker_context": "other", "confidence": 0.99, "ts": 47.0}}
+{"at": 47.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.125, "speaker_context": "other", "confidence": 0.99, "ts": 47.5}}
+{"at": 47.53, "event": {"type": "transcript.partial", "speaker": "other", "text": "You'd own one model end to end, ship it to"}}
+{"at": 48.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.124, "speaker_context": "other", "confidence": 0.99, "ts": 48.0}}
+{"at": 48.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.124, "speaker_context": "other", "confidence": 0.99, "ts": 48.5}}
+{"at": 49.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.126, "speaker_context": "other", "confidence": 0.99, "ts": 49.0}}
+{"at": 49.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.125, "speaker_context": "other", "confidence": 0.99, "ts": 49.5}}
+{"at": 50.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.123, "speaker_context": "other", "confidence": 0.99, "ts": 50.0}}
+{"at": 50.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.122, "speaker_context": "other", "confidence": 0.99, "ts": 50.5}}
+{"at": 51.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.122, "speaker_context": "other", "confidence": 0.99, "ts": 51.0}}
+{"at": 51.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.096, "speaker_context": null, "confidence": 0.99, "ts": 51.5}}
+{"at": 51.53, "event": {"type": "turn.final", "turn_id": "t8", "speaker": "other", "text": "You'd own one model end to end, ship it to the robot, and present it at the end of summer.", "start": 44.19, "end": 51.13, "wpm": 172.9, "fillers": []}}
+{"at": 52.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.073, "speaker_context": "me", "confidence": 0.99, "ts": 52.0}}
+{"at": 52.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.191, "speaker_context": "me", "confidence": 0.81, "ts": 52.5}}
+{"at": 53.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.452, "speaker_context": "me", "confidence": 0.99, "ts": 53.0}}
+{"at": 53.42, "event": {"type": "transcript.partial", "speaker": "me", "text": "That sounds amazing. Can I"}}
+{"at": 53.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.554, "speaker_context": "me", "confidence": 0.99, "ts": 53.5}}
+{"at": 54.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.55, "speaker_context": "me", "confidence": 0.99, "ts": 54.0}}
+{"at": 54.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.549, "speaker_context": "me", "confidence": 0.99, "ts": 54.5}}
+{"at": 55.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.6, "speaker_context": "me", "confidence": 0.99, "ts": 55.0}}
+{"at": 55.5, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.654, "speaker_context": "me", "confidence": 0.99, "ts": 55.5}}
+{"at": 56.0, "event": {"type": "motion", "state": "gesture", "hand_energy": 0.479, "speaker_context": null, "confidence": 0.8, "ts": 56.0}}
+{"at": 56.01, "event": {"type": "turn.final", "turn_id": "t9", "speaker": "me", "text": "That sounds amazing. Can I send you my resume after this?", "start": 51.83, "end": 55.61, "wpm": 174.6, "fillers": []}}
+{"at": 56.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.28, "speaker_context": "other", "confidence": 0.99, "ts": 56.5}}
+{"at": 56.75, "event": {"type": "transcript.partial", "speaker": "other", "text": "Yes, send"}}
+{"at": 57.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.191, "speaker_context": "other", "confidence": 0.99, "ts": 57.0}}
+{"at": 57.5, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.154, "speaker_context": null, "confidence": 0.99, "ts": 57.5}}
+{"at": 57.87, "event": {"type": "turn.final", "turn_id": "t10", "speaker": "other", "text": "Yes, send it over.", "start": 56.11, "end": 57.47, "wpm": 176.5, "fillers": []}}
+{"at": 58.0, "event": {"type": "motion", "state": "fidget", "hand_energy": 0.1, "speaker_context": null, "confidence": 0.99, "ts": 58.0}}
+{"at": 58.5, "event": {"type": "motion", "state": "still", "hand_energy": 0.05, "speaker_context": null, "confidence": 0.9, "ts": 58.5}}
+{"at": 59.0, "event": {"type": "motion", "state": "still", "hand_energy": 0.025, "speaker_context": null, "confidence": 0.89, "ts": 59.0}}
+{"at": 59.5, "event": {"type": "motion", "state": "still", "hand_energy": 0.013, "speaker_context": null, "confidence": 0.89, "ts": 59.5}}
+{"at": 60.0, "event": {"type": "motion", "state": "still", "hand_energy": 0.006, "speaker_context": null, "confidence": 0.89, "ts": 60.0}}
+{"at": 60.97, "event": {"type": "session.ended", "session_id": "s_sample"}}
