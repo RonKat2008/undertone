@@ -207,6 +207,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+@layer components {
 /* ---------- type (§3) ---------- */
 /* label: real small caps, sentence case in source, never text-transform */
 .label {
@@ -283,6 +284,8 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .state-on::after, .state-listening::after { content: ""; position: absolute; inset: 3px; border-radius: var(--r-note); background: var(--state-on); }
 .state-listening::before { border-color: var(--state-on); animation: breathe var(--dur-breath) ease-in-out infinite; }
 .state-fault::before { border: 1px dashed var(--state-fault); }
+
+}
 
 /* ---------- motion: transform, opacity, clip-path only ---------- */
 @keyframes strike { 0% { opacity: 0.25; transform: scale(0.6); } 55% { opacity: 1; transform: scale(1.08); } 100% { opacity: 1; transform: scale(1); } }
