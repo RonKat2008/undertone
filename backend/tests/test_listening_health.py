@@ -340,3 +340,49 @@ async def test_band_diag_and_status_carry_the_picture(rig) -> None:  # noqa: F81
     assert diag["conversation_id"] == state.session.session_id and diag["always_on_detail"]["state"] == "open"
     assert diag["judge"] == "rules" and "listening_ok" in status and "listening_reason" in status
     await _close(ctl, state, brain)
+
+
+# ---------- relationship refresh hooks ----------
+
+async def test_keep_verdict_refreshes_the_tagged_person(rig, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    from backend import relationships
+
+    calls: list[str] = []
+
+    async def fake_refresh(db: Any, person_id: str, **kw: Any) -> None:
+        calls.append(person_id)
+
+    monkeypatch.setattr(relationships, "refresh_person", fake_refresh)
+    state, brain, ctl, band, clock, seen = await _setup(rig, always_on=False)
+    sid = await brain.start_session()
+    rig.set_session_person(sid, "jordan-lee")
+    await brain.end_session()
+    await brain.wait_background()
+    assert calls == ["jordan-lee"] and not brain._rel_tasks
+    await _close(ctl, state, brain)
+
+
+def test_tagging_a_person_refreshes_them(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend import relationships, studio
+    from backend.bus import Bus
+    from backend.db import DB
+    from backend.growth import router
+    from backend.state import AppState
+
+    calls: list[str] = []
+
+    async def fake_refresh(db: Any, person_id: str, **kw: Any) -> None:
+        calls.append(person_id)
+
+    monkeypatch.setattr(relationships, "refresh_person", fake_refresh)
+    db = DB(tmp_path / "tag.db")
+    db.create_session("s-1", "core", "Core", "regular", "2026-11-14T10:00:00+00:00")
+    app = FastAPI()
+    app.include_router(router)
+    app.state.app = AppState(bus=Bus(), db=db, active_coach=studio.default_coach())
+    r = TestClient(app).post("/sessions/s-1/person", json={"name": "Jordan Lee"})
+    assert r.status_code == 200 and calls == ["jordan-lee"]
+    db.close()

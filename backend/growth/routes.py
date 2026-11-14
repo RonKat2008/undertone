@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.capture.media import recordings_dir
@@ -67,13 +67,18 @@ def people(st: AppState = Depends(get_app_state)) -> list[Person]:
 
 
 @router.post("/sessions/{session_id}/person", response_model=Person)
-def tag_person(session_id: str, body: TagPerson, st: AppState = Depends(get_app_state)) -> Person:
+def tag_person(session_id: str, body: TagPerson, background: BackgroundTasks,
+               st: AppState = Depends(get_app_state)) -> Person:
     try:
-        return _people.tag_session(st.db, session_id, body.name, body.person_id)
+        person = _people.tag_session(st.db, session_id, body.name, body.person_id)
     except LookupError as exc:
         raise HTTPException(404, f"session {session_id} not found") from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    from backend import relationships  # a new conversation with them: re-infer who they are
+
+    background.add_task(relationships.refresh_person, st.db, person.person_id)
+    return person
 
 
 def _verdict_fields(row: dict[str, object], media: Path) -> dict[str, object]:

@@ -69,6 +69,7 @@ class Brain:
         self._closed: dict[str, _Closed] = {}
         self.before_end: Callable[[], Awaitable[None]] | None = None
         self.judge_fail_streak = 0
+        self._rel_tasks: set[asyncio.Task[object]] = set()  # relationship refreshes in flight
         bus = app.bus
         bus.on("turn.final", self._on_turn)
         bus.on("transcript.partial", self._on_partial)
@@ -257,6 +258,23 @@ class Brain:
             return
         if verdict is not None and not verdict.kept and not quiet:
             self._safe(lambda: growth.update_profile(db, session, Metrics()), "update_profile")
+        self._refresh_relationship(session.session_id)
+
+    def _refresh_relationship(self, session_id: str) -> None:
+        """A new keep verdict can change who someone is to the wearer: re-infer the tagged
+        person in the background (refresh_person never raises)."""
+        try:
+            row = self.app.db.get_session(session_id) or {}
+            pid = row.get("person_id")
+            if not pid:
+                return
+            from backend import relationships
+
+            task = asyncio.create_task(relationships.refresh_person(self.app.db, str(pid)))
+            self._rel_tasks.add(task)
+            task.add_done_callback(self._rel_tasks.discard)
+        except Exception:
+            log.exception("could not schedule the relationship refresh for %s", session_id)
 
     async def _debrief_audio(self, session_id: str, data: Debrief) -> None:
         """Speak the recap, then re-publish the debrief with its audio. Never raises."""
@@ -435,6 +453,10 @@ class Brain:
         pending = [t for t in tasks if not t.done()]
         if pending:
             await asyncio.wait(pending, timeout=timeout)
+        if self._rel_tasks:  # scheduled by the keep verdicts just awaited
+            await asyncio.wait(list(self._rel_tasks), timeout=timeout)
+        for t in list(self._rel_tasks):  # a refresh still running after the timeout: stop it
+            t.cancel()
 
     @staticmethod
     def _safe(fn, what: str) -> None:  # type: ignore[no-untyped-def]
