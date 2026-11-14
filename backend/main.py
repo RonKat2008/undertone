@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend import debrief, growth, studio
+from backend import debrief, graph, growth, studio
 from backend.brain import Brain
 from backend.bus import Bus, to_wire
 from backend.config import MEDIA_DIR, settings
@@ -103,7 +103,7 @@ app.include_router(studio.router)
 app.include_router(growth.router)
 app.include_router(debrief.router)
 app.include_router(haptics.router)
-app.include_router(__import__("backend.graph", fromlist=["router"]).router)
+app.include_router(graph.router)
 
 
 # ---------- error envelope: {"ok": false, "error": {"code", "message", "details"?}} ----------
