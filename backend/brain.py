@@ -191,6 +191,7 @@ class Brain:
         nudge = self.nudge.evaluate(verdict, self.metrics.snapshot(now), self.motion, now, arrived)
         if nudge is not None:
             await self._emit_nudge(session, nudge, arrived)
+        await self._publish_quiet_marks()
         promise = verdict.results.get("commitment_made")
         if promise is not None and getattr(promise, "p", 0.0) >= PROMISE_P:
             await self.bookmark("promise", turn.text)
@@ -251,6 +252,16 @@ class Brain:
         nudge = self.nudge.evaluate(None, snap, self.motion, now, slip)
         if nudge is not None:
             await self._emit_nudge(session, nudge, slip)
+        await self._publish_quiet_marks()
+        for signal in self.metrics.detect_signals(now):
+            session.signals.append(signal)
+            await self.app.bus.publish(signal)
+
+    async def _publish_quiet_marks(self) -> None:
+        """Rules that fired without buzzing reach the laptop as quiet marks."""
+        assert self.nudge is not None
+        for mark in self.nudge.drain_quiet_marks():
+            await self.app.bus.publish(mark)
 
     # ---------- helpers ----------
     def _motion_summary(self, session: SessionState, turn: TurnFinalEvent,
