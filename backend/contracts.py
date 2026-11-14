@@ -421,6 +421,58 @@ class WeeklyReport(Model):
     biggest_improvement: str
 
 
+# ---------- REST: knowledge graph (backend/graph) ----------
+GraphNodeKind = Literal["me", "person", "topic", "commitment", "habit", "conversation"]
+GraphEdgeKind = Literal["talked_with", "about", "promised", "showed", "part_of"]
+GraphMetaValue = Union[str, int, float, bool, None]
+
+
+class GraphNode(Model):
+    id: str  # kind-prefixed: "me", "person:<id>", "topic:<slug>", "commitment:<id>", ...
+    kind: GraphNodeKind
+    label: str
+    weight: float
+    last_seen: float | None = None  # unix seconds
+    meta: dict[str, GraphMetaValue] = Field(default_factory=dict)
+
+
+class GraphEdge(Model):
+    source: str
+    target: str
+    kind: GraphEdgeKind
+    weight: float
+
+
+class GraphStats(Model):
+    conversations: int = 0
+    people: int = 0
+    topics: int = 0
+    minutes_spoken: float = 0.0
+    open_commitments: int = 0
+
+
+class KnowledgeGraph(Model):
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)
+    stats: GraphStats = Field(default_factory=GraphStats)
+    generated_at: float  # unix seconds
+    sample: bool = False
+
+
+class GraphQuote(Model):
+    session_id: str
+    ts: float  # unix seconds
+    speaker: Speaker
+    text: str
+
+
+class GraphNodeDetail(Model):
+    node: GraphNode
+    neighbours: list[GraphNode] = Field(default_factory=list)
+    conversations: list[SessionSummary] = Field(default_factory=list)
+    quotes: list[GraphQuote] = Field(default_factory=list)
+
+
 # ---------- INTERNAL (not on the wire) ----------
 class MotionSnapshot(Model):
     """Current body state, built by brain.py from motion events, for the nudge engine.

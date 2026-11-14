@@ -103,6 +103,7 @@ app.include_router(studio.router)
 app.include_router(growth.router)
 app.include_router(debrief.router)
 app.include_router(haptics.router)
+app.include_router(__import__("backend.graph", fromlist=["router"]).router)
 
 
 # ---------- error envelope: {"ok": false, "error": {"code", "message", "details"?}} ----------

@@ -133,6 +133,7 @@ REST routes:
 | POST | `/mission/choose` | body `{focus_rule_id}` |
 | POST | `/sessions/{id}/person` | body `{name, person_id?}` |
 | GET | `/sessions/{id}/debrief` | `{session_id, data, audio_url}` |
+| GET | `/graph?days=30`, `/graph/node/{id}?days=30`; POST `/graph/refresh` | knowledge graph (`graph/`): `KnowledgeGraph` / `GraphNodeDetail` (404 unknown id); `sample: true` only for an empty db; topics cached per session in `session_topics` (LLM, keyword fallback), refresh runs lazily after `GET /graph` |
 | GET | `/media/*` | static files (debrief MP3s) |
 
 Error envelope for all errors: `{"ok": false, "error": {"code": "...", "message": "...", "details"?: ...}}`.

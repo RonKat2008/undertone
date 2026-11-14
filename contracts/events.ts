@@ -201,3 +201,57 @@ export interface WeeklyReport {
   best_session_id: string | null;
   biggest_improvement: string;
 }
+
+// ---------- REST payloads: knowledge graph (GET /graph, GET /graph/node/{id}) ----------
+// Times are unix seconds. Node ids are stable and kind-prefixed: 'me', 'person:<id>',
+// 'topic:<slug>', 'commitment:<id>', 'habit:<rule_id>', 'conversation:<session_id>'.
+
+export type GraphNodeKind = 'me' | 'person' | 'topic' | 'commitment' | 'habit' | 'conversation';
+
+export interface GraphNode {
+  id: string;
+  kind: GraphNodeKind;
+  label: string;
+  weight: number;
+  last_seen: number | null;
+  meta: Record<string, string | number | boolean | null>;
+}
+
+export type GraphEdgeKind = 'talked_with' | 'about' | 'promised' | 'showed' | 'part_of';
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  kind: GraphEdgeKind;
+  weight: number;
+}
+
+export interface GraphStats {
+  conversations: number;
+  people: number;
+  topics: number;
+  minutes_spoken: number;
+  open_commitments: number;
+}
+
+export interface KnowledgeGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  stats: GraphStats;
+  generated_at: number;
+  sample: boolean; // true only for the built-in illustrative graph shown before any session exists
+}
+
+export interface GraphQuote {
+  session_id: string;
+  ts: number;
+  speaker: 'me' | 'other';
+  text: string;
+}
+
+export interface GraphNodeDetail {
+  node: GraphNode;
+  neighbours: GraphNode[];
+  conversations: SessionSummary[];
+  quotes: GraphQuote[];
+}
