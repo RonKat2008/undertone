@@ -10,8 +10,7 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { SampleTag } from '@/components/sample-tag';
-import { listConversations, listPeople, setKept, type LibraryResult, type Sampled } from '@/lib/api/client';
+import { listConversations, listPeople, setKept, type Fetched, type LibraryResult } from '@/lib/api/client';
 import type { Person } from '@/lib/bus/contracts';
 import { useBus } from '@/lib/bus/use-bus';
 import { conversationHref } from '@/lib/conversations/links';
@@ -30,7 +29,7 @@ export function Library() {
   const { state } = useBus();
   const [result, setResult] = useState<LibraryResult | null>(null);
   const [list, setList] = useState<LibrarySession[]>([]);
-  const [people, setPeople] = useState<Sampled<Person[]> | null>(null);
+  const [people, setPeople] = useState<Fetched<Person[]> | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [rowError, setRowError] = useState<RowError | null>(null);
@@ -61,12 +60,11 @@ export function Library() {
     return () => { on = false; };
   }, [busKey]);
 
-  // Sample names only label sample conversations, never real ones.
   const names = useMemo(() => {
     const m = new Map<string, string>();
-    if (people && result && people.sample === result.sample) for (const p of people.data) m.set(p.person_id, p.name);
+    if (people?.ok) for (const p of people.data) m.set(p.person_id, p.name);
     return m;
-  }, [people, result]);
+  }, [people]);
   const personName = (id: string | null) => (id ? names.get(id) ?? null : null);
 
   const visible = url.all ? list : list.filter((s) => s.kept);
@@ -75,7 +73,7 @@ export function Library() {
   const today = dayKey(new Date().toISOString());
   const keptCount = list.filter((s) => s.kept).length;
   const filteredCount = list.length - keptCount;
-  const keptMinutes = Math.round(list.filter((s) => s.kept).reduce((m, s) => m + s.duration_s, 0) / 60);
+  const keptMinutes = Math.round(list.filter((s) => s.kept).reduce((m, s) => m + (Number.isFinite(s.duration_s) ? s.duration_s : 0), 0) / 60);
 
   async function override(session: LibrarySession, kept: boolean) {
     const previous = session;
@@ -100,17 +98,16 @@ export function Library() {
     <div className="pt-6">
       <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
         <div className="min-w-0">
-          <div className="caps flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="label flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Library</span>
-            {result && <SampleTag show={result.sample} />}
           </div>
-          <h1 className="serif mt-1 text-[clamp(36px,5vw,64px)] leading-[0.95]">Every conversation, word for word.</h1>
+          <h1 className="display-l mt-1">Every conversation, word for word.</h1>
         </div>
         {result && !failed && (
           <dl className="flex gap-x-8 border-l border-rule pl-5">
-            <div><dt className="caps">Kept</dt><dd className="num text-[clamp(26px,3vw,38px)] leading-none">{keptCount}</dd></div>
-            <div><dt className="caps">Minutes</dt><dd className="num text-[clamp(26px,3vw,38px)] leading-none">{keptMinutes}</dd></div>
-            {url.all && <div><dt className="caps">Filtered out</dt><dd className="num text-[clamp(26px,3vw,38px)] leading-none text-ink-3">{filteredCount}</dd></div>}
+            <div><dt className="label">Kept</dt><dd className="num text-[clamp(26px,3vw,38px)] leading-none">{keptCount}</dd></div>
+            <div><dt className="label">Minutes</dt><dd className="num text-[clamp(26px,3vw,38px)] leading-none">{keptMinutes}</dd></div>
+            {url.all && <div><dt className="label">Filtered out</dt><dd className="num text-[clamp(26px,3vw,38px)] leading-none text-ink-3">{filteredCount}</dd></div>}
           </dl>
         )}
       </header>
@@ -138,8 +135,8 @@ export function Library() {
         </div>
       )}
       {rowError && (
-        <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-3 border-l-[3px] border-vermilion bg-well/60 px-3 py-2">
-          <span className="text-[13px]"><span className="caps mr-2 !text-vermilion">Not saved</span>{rowError.message}</span>
+        <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-3 border-l-[3px] border-ink bg-well/60 px-3 py-2">
+          <span className="text-[13px]"><span className="label mr-2 inline-flex items-center gap-2 !text-ink"><span className="state state-fault" aria-hidden />Not saved</span>{rowError.message}</span>
           <button type="button" className="btn btn-sm btn-quiet" onClick={() => setRowError(null)}>Dismiss</button>
         </div>
       )}
@@ -149,7 +146,7 @@ export function Library() {
       {result && !failed && visible.length === 0 && <LibraryEmpty all={url.all} />}
       {result && !failed && visible.length > 0 && matched.length === 0 && (
         <div className="py-14">
-          <p className="serif text-[30px] leading-tight">Nothing matches “{query.trim()}”.</p>
+          <p className="display-m">Nothing matches “{query.trim()}”.</p>
           <p className="mt-2 text-[13px] text-ink-2">Search looks at headlines and the people you tagged{url.all ? '' : ', in kept conversations'}.</p>
           <button type="button" className="btn mt-4" onClick={() => { setQuery(''); update({ q: '' }); }}>Clear the search</button>
         </div>
@@ -160,8 +157,8 @@ export function Library() {
         return (
           <section key={g.key} aria-labelledby={`day-${g.key}`} className="grid gap-x-10 border-b border-rule pb-2 pt-6 md:grid-cols-[200px_minmax(0,1fr)]">
             <h2 id={`day-${g.key}`} className="pb-2 md:sticky md:top-4 md:self-start">
-              <span className="serif block text-[28px] leading-none">{rel ?? longDate(g.key, today).split(' ')[0]}</span>
-              <span className="caps mt-1 block">{rel ? longDate(g.key, today) : longDate(g.key, today).split(' ').slice(1).join(' ')}</span>
+              <span className="display-s block">{rel ?? longDate(g.key, today).split(' ')[0]}</span>
+              <span className="label mt-1 block">{rel ? longDate(g.key, today) : longDate(g.key, today).split(' ').slice(1).join(' ')}</span>
             </h2>
             <ul className="border-t border-ink md:border-t-0">
               {g.items.map((s) => (
@@ -192,7 +189,7 @@ interface RowProps {
 
 function Row({ s, person, busy, failed, onKeep, onHide }: RowProps) {
   const reason = reasonLabel(s);
-  const meta = [person ? `with ${person}` : null, s.mode === 'practice' ? 'practice' : null, s.coach_name ? `${s.coach_name} coach` : null].filter(Boolean);
+  const meta = [person ? `with ${person}` : null, s.mode === 'practice' ? 'practice' : null, s.coach_name ? (/\bcoach$/i.test(s.coach_name.trim()) ? s.coach_name : `${s.coach_name} coach`) : null].filter(Boolean);
   return (
     <li className={`grid grid-cols-[52px_minmax(0,1fr)_auto] items-start gap-x-4 border-b border-rule py-3.5 last:border-b-0 ${failed ? 'bg-well/60' : ''}`}>
       <div className={`pt-[1px] ${reason ? 'opacity-55' : ''}`}>
@@ -207,7 +204,7 @@ function Row({ s, person, busy, failed, onKeep, onHide }: RowProps) {
             {s.audio_url && <RecordingMark />}
           </span>
         </Link>
-        {reason && <div className="caps mt-1.5 !text-ink-2">Filtered out <span className="text-ink-3">·</span> <span className="normal-case tracking-normal text-[12px] italic">{reason}</span></div>}
+        {reason && <div className="label mt-1.5 !text-ink-2">Filtered out <span className="text-ink-3">·</span> <span className="normal-case tracking-normal text-[12px] italic">{reason}</span></div>}
       </div>
       <div className="pt-0.5">
         {s.kept
@@ -248,7 +245,7 @@ function LibraryEmpty({ all }: { all: boolean }) {
   return (
     <div className="py-16">
       <svg width="64" height="20" viewBox="0 0 64 20" aria-hidden>{[0, 1, 2, 3, 4, 5, 6, 7].map((i) => <rect key={i} x={i * 8} y={9} width={4} height={2} fill="var(--rule)" />)}</svg>
-      <p className="serif mt-3 text-[34px] leading-tight">{all ? 'Nothing captured yet.' : 'No conversations kept yet.'}</p>
+      <p className="display-m mt-3">{all ? 'Nothing captured yet.' : 'No conversations kept yet.'}</p>
       <p className="mt-2 max-w-[50ch] text-[13px] text-ink-2">
         Wear the band through a real conversation. When it ends, the words and the recording land here, and short or background captures are set aside.
       </p>
@@ -258,9 +255,9 @@ function LibraryEmpty({ all }: { all: boolean }) {
 
 function LibraryUnreachable({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div role="alert" className="mt-8 max-w-[64ch] border-l-[3px] border-vermilion pl-5">
-      <div className="caps !text-vermilion">Backend</div>
-      <p className="serif mt-1 text-[clamp(30px,3.6vw,44px)] leading-[1.02]">The library could not be fetched.</p>
+    <div role="alert" className="mt-8 max-w-[64ch] border-l-[3px] border-ink pl-5">
+      <div className="label flex items-center gap-2 !text-ink"><span className="state state-fault" aria-hidden />Backend</div>
+      <p className="display-m mt-1">The library could not be fetched.</p>
       <p className="mt-3 text-[13.5px] text-ink-2">{message.replace(/\.$/, '')}. Check that the laptop backend is running, then try again.</p>
       <button type="button" className="btn btn-solid mt-5" onClick={onRetry}>Try again</button>
     </div>

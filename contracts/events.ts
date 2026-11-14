@@ -279,3 +279,38 @@ export interface GraphNodeDetail {
   conversations: SessionSummary[];
   quotes: GraphQuote[];
 }
+
+// ---------- REST payloads: relationships (GET /relationships, /people/{id}/relationship) ----------
+// friend/partner/family: personal ties. boss: they manage me; report: I manage them;
+// coworker: same team or company, no clear lead. client: I serve them; service: they serve me
+// (shop staff, waiter). teacher: they teach me; student: I teach them. acquaintance: some shared
+// history; stranger: none. unknown: not enough speech yet, or mixed signals.
+export type RelationshipKind = 'friend' | 'partner' | 'family' | 'boss' | 'report' | 'coworker' | 'client' | 'teacher' | 'student' | 'service' | 'acquaintance' | 'stranger' | 'unknown';
+export type RelationshipFormality = 'casual' | 'neutral' | 'formal';
+export type RelationshipPower = 'they_lead' | 'peer' | 'i_lead' | 'unknown';
+export type RelationshipSource = 'decisions' | 'rules' | 'user'; // user = set by the wearer, confidence 1
+
+export interface Relationship {
+  person_id: string;
+  kind: RelationshipKind;
+  confidence: number; // 0-1
+  formality: RelationshipFormality;
+  power: RelationshipPower;
+  warmth: number; // 0-1
+  evidence: string[]; // at most 3 short reasons, never quoted speech: "they assign you tasks"
+  source: RelationshipSource;
+  based_on_sessions: number;
+  updated_at: number | null; // unix seconds; null = not analysed yet
+}
+
+export interface PersonRelationship {
+  person_id: string;
+  name: string;
+  sessions: number; // kept conversations with this person
+  relationship: Relationship;
+}
+
+// PUT /people/{id}/relationship body
+export interface RelationshipUpdate {
+  kind: RelationshipKind;
+}

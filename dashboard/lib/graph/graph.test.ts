@@ -10,7 +10,7 @@ import {
   buildAdjacency, computeStats, edgeIsLit, emphasisFor, filterGraph, groupByKind, isEmptyGraph, isGraphNode,
   isKnowledgeGraph, isNodeDetail, neighbourIds, searchNodes, windowGraph,
 } from './model.ts';
-import { fullSampleGraph, sampleGraph, sampleNodeDetail } from './sample.ts';
+import { fullSampleGraph, sampleGraph, sampleNodeDetail } from '../test-fixtures/graph.ts';
 import type { FilterKind, GraphEdge, GraphNode, KnowledgeGraph } from './types';
 import { parseGraphUrl, toggleKind, writeGraphUrl } from './url.ts';
 
@@ -29,7 +29,7 @@ const tiny = {
 };
 
 describe('validation', () => {
-  test('accepts the sample graph and rejects malformed payloads', () => {
+  test('accepts a well-formed graph and rejects malformed payloads', () => {
     assert.equal(isKnowledgeGraph(fullSampleGraph(NOW)), true);
     assert.equal(isKnowledgeGraph({ nodes: 'x', edges: [], stats: {}, sample: false }), false);
     assert.equal(isKnowledgeGraph(null), false);
@@ -37,7 +37,7 @@ describe('validation', () => {
     assert.equal(isGraphNode({ ...node('a', 'person'), weight: Number.NaN }), false);
   });
 
-  test('accepts a sample node detail', () => {
+  test('accepts a well-formed node detail', () => {
     const g = fullSampleGraph(NOW);
     assert.equal(isNodeDetail(sampleNodeDetail(g, 'person:p-sam')), true);
     assert.equal(isNodeDetail({ node: {}, neighbours: [], conversations: [], quotes: [] }), false);
@@ -96,22 +96,6 @@ describe('search', () => {
 });
 
 describe('window and stats', () => {
-  test('the sample has about forty nodes over ninety days and shrinks with the window', () => {
-    const full = fullSampleGraph(NOW);
-    assert.ok(full.nodes.length >= 36 && full.nodes.length <= 44, `got ${full.nodes.length}`);
-    const d7 = sampleGraph(7, NOW);
-    const d30 = sampleGraph(30, NOW);
-    const d90 = sampleGraph(90, NOW);
-    assert.ok(d7.stats.conversations < d30.stats.conversations);
-    assert.ok(d30.stats.conversations < d90.stats.conversations);
-    assert.equal(d90.stats.conversations, full.nodes.filter((n) => n.kind === 'conversation').length);
-    for (const g of [d7, d30, d90]) {
-      const ids = new Set(g.nodes.map((n) => n.id));
-      assert.ok(g.edges.every((e) => ids.has(e.source) && ids.has(e.target)), 'no dangling edges');
-      assert.ok(ids.has('me'));
-    }
-  });
-
   test('windowGraph keeps only recent conversations and what they touch', () => {
     const g: KnowledgeGraph = {
       nodes: [node('me', 'me'), node('conversation:new', 'conversation', 'new', { last_seen: NOW - DAY }), node('conversation:old', 'conversation', 'old', { last_seen: NOW - 40 * DAY }),
@@ -131,28 +115,6 @@ describe('window and stats', () => {
       node('p', 'person'), node('t', 'topic'), node('k1', 'commitment', 'k', { meta: { open: true } }), node('k2', 'commitment', 'k', { meta: { open: false } }),
     ]);
     assert.deepEqual(s, { conversations: 2, people: 1, topics: 1, minutes_spoken: 7, open_commitments: 1 });
-  });
-});
-
-describe('sample node detail', () => {
-  test('person detail lists their conversations newest first, with quotes', () => {
-    const g = fullSampleGraph(NOW);
-    const d = sampleNodeDetail(g, 'person:p-sam');
-    assert.ok(d);
-    assert.equal(d.node.label, 'Sam');
-    assert.ok(d.conversations.length >= 2);
-    const times = d.conversations.map((c) => Date.parse(c.started_at));
-    assert.deepEqual(times, [...times].sort((a, b) => b - a));
-    assert.ok(d.quotes.length > 0 && d.quotes.length <= 4);
-    assert.ok(d.neighbours.some((n) => n.id === 'me'));
-  });
-  test('commitment detail quotes the promise itself', () => {
-    const d = sampleNodeDetail(fullSampleGraph(NOW), 'commitment:c-deck');
-    assert.ok(d);
-    assert.deepEqual(d.quotes.map((q) => q.text), ['I’ll send you the deck tonight.']);
-  });
-  test('unknown id gives null', () => {
-    assert.equal(sampleNodeDetail(fullSampleGraph(NOW), 'person:nobody'), null);
   });
 });
 
@@ -278,13 +240,13 @@ describe('url state', () => {
     assert.equal(s.view, 'graph');
   });
   test('round trip keeps other params and omits defaults', () => {
-    const s = parseGraphUrl('?bus=mock&days=7&kinds=person,topic&node=person%3Ap-sam&view=list');
+    const s = parseGraphUrl('?bus=http%3A%2F%2Fh%3A1&days=7&kinds=person,topic&node=person%3Ap-sam&view=list');
     assert.equal(s.days, 7);
     assert.deepEqual([...s.kinds].sort(), ['person', 'topic']);
     assert.equal(s.node, 'person:p-sam');
-    const out = writeGraphUrl('?bus=mock&days=7', s);
+    const out = writeGraphUrl('?bus=http%3A%2F%2Fh%3A1&days=7', s);
     assert.deepEqual(parseGraphUrl(out), s);
-    assert.ok(out.includes('bus=mock'));
+    assert.ok(out.includes('bus=http%3A%2F%2Fh%3A1'));
     assert.equal(writeGraphUrl('?days=90', parseGraphUrl('')), '');
   });
   test('rejects bad values', () => {
