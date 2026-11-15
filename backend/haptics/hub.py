@@ -26,6 +26,8 @@ DEDUPE_S = 1.5
 RATE_WINDOW_S = 10.0
 RATE_MAX = 30  # buzzes per app per window
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I
+CODE_TTL_S = 600.0  # a 6-character code is shown on screen; it must not unlock the token forever
+MAX_DEVICE_NAME = 40
 KV_DEVICES = "haptics.devices"
 KV_APPS = "haptics.apps"
 
@@ -120,15 +122,24 @@ class Hub:
     def create_pairing(self, name: str | None = None) -> Device:
         code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(6))
         device = Device(device_id=f"d-{secrets.token_hex(4)}", device_token=secrets.token_urlsafe(24),
-                        code=code, name=name or "iPhone")
+                        code=code, name=(name or "iPhone")[:MAX_DEVICE_NAME])
         self.devices[device.device_id] = device
         self._save()
         return device
 
     def claim(self, code: str) -> Device | None:
+        """The pairing behind a code. A code works once, only within CODE_TTL_S, and not after
+        the phone has already connected (e.g. by QR), so a code seen on screen later is dead."""
         wanted = code.strip().upper().replace("-", "").replace(" ", "")
-        matches = [d for d in self.devices.values() if d.code == wanted]
-        return max(matches, key=lambda d: d.created_at) if matches else None
+        now = time.time()
+        matches = [d for d in self.devices.values()
+                   if wanted and d.code == wanted and d.last_seen is None and now - d.created_at < CODE_TTL_S]
+        if not matches:
+            return None
+        device = max(matches, key=lambda d: d.created_at)
+        device.code = ""  # consumed
+        self._save()
+        return device
 
     def device_for_token(self, token: str | None) -> Device | None:
         if not token:
@@ -159,8 +170,9 @@ class Hub:
 
     async def connect(self, device: Device, ws: Socket, name: str | None = None) -> None:
         if name:
-            device.name = name[:40]
+            device.name = name[:MAX_DEVICE_NAME]
         device.last_seen = time.time()
+        device.code = ""  # connected: the on-screen code has done its job
         self._sockets.setdefault(device.device_id, set()).add(ws)
         self._save()
         await self._publish(DeviceStatusEvent(device_id=device.device_id, name=device.name, connected=True))

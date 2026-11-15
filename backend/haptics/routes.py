@@ -14,7 +14,7 @@ from starlette.requests import HTTPConnection
 from backend import haptics_port
 from backend.config import settings
 from backend.contracts import HapticCommand, HapticPattern
-from backend.haptics.hub import App, Device, Hub, RateLimited
+from backend.haptics.hub import MAX_DEVICE_NAME, App, Device, Hub, RateLimited
 
 log = logging.getLogger("undertone.haptics")
 
@@ -22,6 +22,7 @@ router = APIRouter(tags=["haptics"])
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost", "testclient"}
 WS_UNAUTHORIZED = 4401
+MAX_NAME_IN = 200  # longer names are refused; accepted ones are cut to MAX_DEVICE_NAME
 
 
 # ---------- hub lifecycle ----------
@@ -97,17 +98,17 @@ def _pairing(device: Device, request: Request) -> dict[str, Any]:
 
 # ---------- bodies ----------
 class PairBody(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=MAX_NAME_IN)
 
 
 class ClaimBody(BaseModel):
-    code: str
-    name: str | None = None
+    code: str = Field(max_length=32)
+    name: str | None = Field(default=None, max_length=MAX_NAME_IN)
 
 
 class AppBody(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    origin: str | None = None
+    origin: str | None = Field(default=None, max_length=300)
 
 
 class HapticBody(BaseModel):
@@ -120,6 +121,10 @@ class HapticBody(BaseModel):
 # ---------- pairing and devices ----------
 @router.post("/pair")
 def pair(request: Request, body: PairBody | None = None, hub: Hub = Depends(get_hub)) -> dict[str, Any]:
+    # The pairing carries a device token, and a device token passes _require_owner, so only the
+    # laptop (or an already-paired phone) may start one; otherwise anyone on the Wi-Fi could
+    # mint a token and approve or revoke apps, remove the real phone, or listen to every buzz.
+    _require_owner(request, hub)
     device = hub.create_pairing((body or PairBody()).name)
     return {"ok": True, **_pairing(device, request)}
 
@@ -130,7 +135,7 @@ def pair_claim(body: ClaimBody, request: Request, hub: Hub = Depends(get_hub)) -
     if device is None:
         raise HTTPException(404, "unknown pairing code")
     if body.name:
-        device.name = body.name[:40]
+        device.name = body.name[:MAX_DEVICE_NAME]
     return {"ok": True, **_pairing(device, request)}
 
 
@@ -234,5 +239,7 @@ async def haptics_send(body: HapticBody, request: Request, hub: Hub = Depends(ge
 async def haptics_test(body: HapticBody, request: Request, hub: Hub = Depends(get_hub)) -> dict[str, Any]:
     """Buzz from the laptop itself, no app key (scripts/buzz.sh, the dashboard's test button)."""
     _require_owner(request, hub)
+    if body.device_id is not None and body.device_id not in hub.devices:
+        raise HTTPException(404, "unknown device")
     cmd = HapticCommand(pattern=body.pattern, intensity=body.intensity, label=body.label or "test")
     return {"ok": True, "delivered": await hub.deliver(cmd, body.device_id), "pattern": body.pattern}
