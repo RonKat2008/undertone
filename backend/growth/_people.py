@@ -5,7 +5,9 @@ names other people. Describes behaviour, never the person.
 
 from __future__ import annotations
 
+import hashlib
 import re
+import unicodedata
 from collections.abc import Sequence
 from statistics import mean
 
@@ -24,7 +26,15 @@ FOLLOW_UP_STARTS: tuple[str, ...] = (
 
 
 def slugify(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:64].strip("-") or "person"
+    """Stable id for a name. Accents fold to plain letters (Zoë -> zoe). Letters with no ASCII
+    form (東京太郎, emoji) get a short hash, so two such names never share one id."""
+    clean = name.strip()
+    folded = "".join(ch for ch in unicodedata.normalize("NFKD", clean) if not unicodedata.combining(ch))
+    base = re.sub(r"[^a-z0-9]+", "-", folded.lower()).strip("-")[:48].strip("-")
+    if not any(not ch.isascii() for ch in folded):
+        return base or "person"
+    digest = hashlib.sha1(clean.casefold().encode()).hexdigest()[:8]
+    return f"{base}-{digest}" if base else f"p-{digest}"
 
 
 def _fmt(value: float) -> str:
