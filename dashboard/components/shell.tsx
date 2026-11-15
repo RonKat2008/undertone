@@ -1,7 +1,7 @@
 'use client';
 
 import { m } from 'motion/react';
-import { Feather, House, MessagesSquare, Settings2, Waypoints, type LucideIcon } from 'lucide-react';
+import { Activity, Feather, House, MessagesSquare, Settings2, Waypoints, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -24,9 +24,10 @@ interface Destination {
 /** Five destinations. Nothing else goes in the navigation. */
 const NAV: Destination[] = [
   { href: '/', label: 'Home', icon: House, also: [] },
+  { href: '/live', label: 'Live', icon: Activity, also: [] },
   { href: '/insights', label: 'Insights', icon: Waypoints, also: [] },
   { href: '/conversations', label: 'Conversations', icon: MessagesSquare, also: ['/debrief'] },
-  { href: '/coach', label: 'Coach', icon: Feather, also: ['/studio', '/live'] },
+  { href: '/coach', label: 'Coach', icon: Feather, also: ['/studio'] },
   { href: '/settings', label: 'Settings', icon: Settings2, also: ['/pair', '/calibration'] },
 ];
 
