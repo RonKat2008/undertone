@@ -280,6 +280,97 @@ export interface GraphNodeDetail {
   quotes: GraphQuote[];
 }
 
+// ---------- REST payloads: voice memory (backend/voices) ----------
+// GET /voices -> VoiceList; GET /voices/{id} -> VoiceSummary; POST /voices/{id}/name {name};
+// POST /voices/{id}/merge {into}; DELETE /voices/{id}; GET /sessions/{id}/voices -> SessionVoices;
+// GET|DELETE /voices/wearer, POST /voices/wearer/enrol {seconds}, POST /voices/wearer/enrol/wav
+// (audio/wav body) -> WearerVoice; POST /voices/reprocess {session_ids?} -> ReprocessResult.
+// Voiceprints never leave the server: none of these payloads carries an embedding.
+
+export type WearerState = 'none' | 'provisional' | 'confirmed' | 'enrolled';
+export type VoiceDecision = 'wearer' | 'matched' | 'new' | 'weak' | 'manual';
+export type VoiceRunStatus = 'pending' | 'done' | 'skipped' | 'failed' | 'off';
+export type NameOutcome = 'named' | 'confirmed' | 'conflict' | 'ignored';
+
+export interface VoiceConflict {
+  session_id: string;
+  voice_name: string | null;
+  heard_name: string;
+  created_at: string; // ISO
+}
+
+export interface VoiceSummary {
+  voice_id: string;
+  person_id: string | null; // 'voice-<n>' while unnamed
+  name: string; // or 'Unknown voice <n>'
+  named: boolean;
+  has_voiceprint: boolean;
+  samples: number;
+  seconds: number;
+  last_heard: string | null; // ISO
+  sessions: string[]; // newest first
+  conflicts: VoiceConflict[];
+}
+
+export interface WearerVoice {
+  state: WearerState;
+  has_voiceprint: boolean;
+  samples: number;
+  seconds: number;
+  last_heard: string | null;
+}
+
+export interface VoiceList {
+  enabled: boolean;
+  model: string | null;
+  wearer: WearerVoice;
+  voices: VoiceSummary[];
+}
+
+export interface SessionSpeaker {
+  voice_id: string | null; // 'wearer' for the wearer
+  person_id: string | null;
+  name: string | null;
+  role: Speaker;
+  decision: VoiceDecision;
+  similarity: number | null;
+  margin: number | null;
+  seconds: number;
+}
+
+export interface SessionNameGuess {
+  name: string;
+  source: string; // 'llm' | 'rules'
+  evidence: string;
+  confidence: number;
+  outcome: NameOutcome;
+}
+
+export interface SessionVoices {
+  session_id: string;
+  status: VoiceRunStatus;
+  reason: string | null;
+  processed_at: string | null;
+  model: string | null;
+  wearer_source: string | null;
+  wearer_similarity: number | null;
+  labels_corrected: boolean;
+  turns_relabelled: number;
+  turns_split: number;
+  words_used: boolean;
+  speakers: SessionSpeaker[];
+  name_guess: SessionNameGuess | null;
+  conflicts: VoiceConflict[];
+  recomputed: string[];
+  not_recomputed: string[];
+}
+
+export interface ReprocessResult {
+  queued: string[];
+  skipped: string[];
+}
+
+
 // ---------- REST payloads: relationships (GET /relationships, /people/{id}/relationship) ----------
 // friend/partner/family: personal ties. boss: they manage me; report: I manage them;
 // coworker: same team or company, no clear lead. client: I serve them; service: they serve me

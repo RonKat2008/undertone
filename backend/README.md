@@ -51,6 +51,7 @@ Person B packages:
 - `debrief/` debrief generation, spoken audio, `GET /sessions/{id}/debrief`.
 - `studio/` coach library/builder/validation (`prebuilt/*.json`, `default.py`, `routes.py`).
 - `growth/` habit profile, daily mission, streak, people, history (`routes.py`).
+- `voices/` voice memory: remembers voices across conversations, fixes me/other labels (section 6).
 
 Other: `tests/` (`conftest.py` sets the isolated test env once: temp db, no keys, DEV, DEMO_POLICY, rule judge);
 `scripts/` (replay, ws_tail, seed_sample, eval_judge, smoke_decisions, smoke_flash, smoke_tts, try_debrief, try_studio).
@@ -248,7 +249,63 @@ expected level, **1-based**, 1 = the first (worst) criterion .. `max` = number o
 plus `metrics.*` (talk_ratio, interruptions, questions, fillers_per_min, wpm, monologue_s, volume_db, ...)
 and `motion.*` (state, hand_energy, speaker_context, confidence, fidget_while_other_s, ts).
 
-## 6. Decisions API notes (verified live)
+## 6. Voice memory (`backend/voices/`)
+
+Remembers voices across conversations. Runs after a conversation closes (once its keep verdict is
+stored), in a worker thread, never on the live audio path; any failure is logged and recorded as the
+run's status and never touches session end, the debrief or the verdict.
+
+What happens per conversation: the saved WAV is cut into stretches of speech using Deepgram's final
+word timings (kept per conversation via `SessionController.on_final_words`; whole-turn 3 s windows when
+none exist), short neighbours are pooled, each stretch is embedded (NeMo TitaNet-small via sherpa-onnx,
+CPU), and the embeddings are clustered within the conversation (Deepgram labels only as a small
+tie-break, so two voices under one label are still separated). The cluster matching the wearer
+voiceprint is "me", every other cluster "other". The stored turns are corrected: speaker labels fixed,
+a turn holding both voices split at the word where the voice changes (`<turn_id>.1`, `.2`, ...).
+Every other cluster is matched to stored voiceprints (cosine >= `match_sim` 0.55 and >= `match_margin`
+0.1 over the second best): a match auto-tags the conversation with that person and adds an exemplar;
+no match creates "Unknown voice N" (person `voice-N`), so the next conversation links up before a name
+exists. Voiceprints keep up to 20 exemplars; the centroid is their robust mean (an outlier sample is
+rejected), so one bad sample cannot poison it. A name heard in the transcript (one Gemini call; rules
+for "Hello, Dylan" / "I'm Dylan" when unavailable; never a guess, never the wearer's name) names an
+unnamed voice or confirms a named one; a different name is recorded as a conflict, not applied.
+`POST /sessions/{id}/person` also attaches that conversation's other voice to the person (merging it into
+that person's voice when they already have one) and always wins: the tag is recorded as manual (also with
+`VOICE_MEMORY=0`), and on first start every conversation already tagged is recorded as manual.
+Reprocessing (`POST /voices/reprocess`) takes the conversation's samples out of every voiceprint and its
+voice-set tag off first, then redoes it from the original turns; an exemplar that conversation evicted
+from a full (20) print is not restored. Changing `VOICE_MODEL` makes old voiceprints incomparable: they
+are ignored (shown, never matched), and the wearer bootstraps again unless re-enrolled.
+
+Recomputed after a correction: `metrics_json` talk_ratio / wpm / fillers_per_min / monologue_s, the
+summary's talk_ratio / wpm / fillers_per_min, the habit profile and people cards. Not recomputed:
+interruptions and questions (from live judge results), volume, hand energy, the debrief text and its
+numbers, judge results; nudges and haptics already fired live cannot be undone.
+`GET /sessions/{id}/voices` lists exactly what was done for one conversation.
+
+The wearer: enrol with `POST /voices/wearer/enrol {"seconds": 15}` (speak alone right after calling it;
+the band must be streaming: ALWAYS_ON or a session) or `POST /voices/wearer/enrol/wav` with a 16 kHz
+mono 16-bit WAV body (`curl --data-binary @me.wav -H 'Content-Type: audio/wav'`). `DELETE /voices/wearer`
+clears it. Not enrolled: the loudest cluster (>= 3 dB above the next; the band is on the wearer's wrist)
+becomes a *provisional* wearer print; labels are corrected only when that print and the loudness pick
+agree, and after 3 such conversations the print is confirmed and earlier conversations are redone. Risk:
+someone consistently louder than the wearer can be taken for the wearer; enrolment removes the risk.
+
+Routes: `GET /voices`, `GET|POST name|POST merge|DELETE /voices/{id}`, `GET /sessions/{id}/voices`,
+`GET|DELETE /voices/wearer`, `POST /voices/wearer/enrol[/wav]`, `POST /voices/reprocess {"session_ids"?}`
+(payloads in `contracts/events.ts`, "voice memory").
+
+Privacy and control: `VOICE_MEMORY=0` turns the feature off entirely (no words kept, no model loaded,
+routes answer "off"; only the manual-tag record above is still written). Voiceprints are float32 arrays in the local SQLite file only (`voice_*` tables),
+never sent anywhere and never in an API payload. Conversations judged 'sensitive' or 'noise' are not
+used. Forgetting a voice (`DELETE /voices/{id}`) deletes its voiceprint, exemplars and per-conversation
+embeddings (a named person card stays; an "Unknown voice" person goes).
+Model: `VOICE_MODEL` (default `titanet-small`, 40 MB, CC BY 4.0), fetched on first use from the pinned
+sherpa-onnx release URL, sha256-checked, into `VOICE_MODEL_DIR` (default `.undertone/models`, git-ignored);
+`VOICE_MODEL_DOWNLOAD=0` forbids the download. Missing model or package: logged, old behaviour.
+Evaluate: `uv run --env-file ../.env python scripts/voice_eval_data.py` then `python scripts/eval_voices.py`.
+
+## 7. Decisions API notes (verified live)
 
 - `client.decisions.create(model="gemini-decision-1", input=str, questions={qid: CoachQuestion.model_dump()})` accepts plain dicts; each question needs a `type` key.
 - Response `answers[qid]` has `.type`:

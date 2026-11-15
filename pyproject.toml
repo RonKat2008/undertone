@@ -17,6 +17,7 @@ dependencies = [
     "bleak>=0.21",
     "pyserial>=3.5",
     "sounddevice>=0.5.6",
+    "sherpa-onnx>=1.12",
 ]
 
 [dependency-groups]

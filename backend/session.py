@@ -111,6 +111,8 @@ class SessionController:
         self.audio_watchdog = AudioWatchdog()
         self._health_log = TransitionLog()
         self.health_extra: Callable[[], dict] = lambda: {}
+        # voice memory (backend/voices): every batch of final Deepgram words, stream time, with labels
+        self.on_final_words: Optional[Callable[[Optional[str], float, list], None]] = None
 
     # ---------- emit ----------
 
@@ -493,6 +495,11 @@ class SessionController:
     def _on_words(self, speaker: str, words) -> None:
         self.last_heard_at = time.monotonic()
         self._last_speaker = speaker
+        if self.on_final_words is not None:
+            try:  # session id (None between conversations) and the stream time of its t=0
+                self.on_final_words(self.session_id, self._audio_offset if self.session_id else 0.0, list(words))
+            except Exception:  # noqa: BLE001 - voice memory must never touch the live path
+                log.exception("on_final_words failed")
         if speaker == "me":
             self._baseline.add(words)
 
@@ -695,6 +702,7 @@ async def attach_band(app_state, brain, band: Optional[BandSource] = None,
     if getattr(getattr(brain, "settings", None), "always_on", False):
         _attach_always_on(ctl, app_state, brain, join, clock)
     _attach_recorder(ctl, app_state.db)
+    _attach_voice_memory(ctl, app_state)
     await ctl.start()
     return ctl
 
@@ -729,6 +737,20 @@ def _attach_recorder(ctl: SessionController, db) -> None:
         return
     ctl.attach_recorder(Recorder(settings, on_finished=lambda info: store_recording(db, settings.directory, info)))
     log.info("recording: on (%s, cap %.0f MB)", settings.directory, settings.max_total_bytes / 2 ** 20)
+
+
+def _attach_voice_memory(ctl: SessionController, app_state) -> None:
+    """VOICE_MEMORY (default on): keep each conversation's final words for backend/voices."""
+    try:
+        from .voices.service import voice_memory
+
+        vm = voice_memory(app_state)
+        if vm.enabled:
+            ctl.on_final_words = vm.words.add
+            vm.recorder = ctl.recorder
+        log.info("voice memory: %s", "on" if vm.enabled else "off (VOICE_MEMORY=0)")
+    except Exception:  # noqa: BLE001 - the band works without it
+        log.exception("voice memory not attached")
 
 
 def _attach_always_on(ctl: SessionController, app_state, brain, join: Callable[[str], Awaitable[None]],
