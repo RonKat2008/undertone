@@ -16,3 +16,4 @@ media/
 vexo-open-kit
 *.db-shm
 *.db-wal
+backend.log
