@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from backend.contracts import CrutchWord, HabitProfile, RecurringIssue
 from backend.db import DB
 from backend.growth._store import StoredSession, load_sessions, rule_label
+from backend.metrics.volume import SILENCE_DB
 
 log = logging.getLogger(__name__)
 
@@ -120,10 +121,18 @@ def _trend(sessions: Sequence[StoredSession], rule_id: str) -> Trend:
 
 
 def _recurring_issues(sessions: Sequence[StoredSession]) -> list[RecurringIssue]:
+    """rate = share of sessions (0..1) in which the rule fired at least once; clients show it as a
+    percentage. Ties on share break on how often it fired per session. The trend still compares
+    fires per session, which moves before the share does."""
     rule_ids = sorted({n.rule_id for s in sessions for n in s.nudges})
-    issues = [RecurringIssue(rule_id=r, label=rule_label(r), rate=round(_mean_fires(sessions, r), 2),
+    issues = [RecurringIssue(rule_id=r, label=rule_label(r), rate=round(_session_share(sessions, r), 2),
                              trend=_trend(sessions, r)) for r in rule_ids]
-    return sorted(issues, key=lambda i: (-i.rate, i.rule_id))
+    fires = {r: _mean_fires(sessions, r) for r in rule_ids}
+    return sorted(issues, key=lambda i: (-i.rate, -fires[i.rule_id], i.rule_id))
+
+
+def _session_share(sessions: Sequence[StoredSession], rule_id: str) -> float:
+    return sum(1 for s in sessions if s.fired(rule_id) > 0) / len(sessions) if sessions else 0.0
 
 
 def compute_profile(sessions: Sequence[StoredSession], filler_words: Iterable[str] = ()) -> HabitProfile:
@@ -132,7 +141,9 @@ def compute_profile(sessions: Sequence[StoredSession], filler_words: Iterable[st
     return HabitProfile(
         sessions=len(sessions),
         baseline_wpm=_median_or_none(s.numbers.wpm for s in sessions),
-        baseline_volume_db=_median_or_none(s.metrics.volume_db for s in sessions if s.metrics is not None),
+        # a session with no real audio reports SILENT_DB; it must not become the next baseline
+        baseline_volume_db=_median_or_none(s.metrics.volume_db for s in sessions
+                                           if s.metrics is not None and s.metrics.volume_db > SILENCE_DB),
         crutch_words=_crutch_words(sessions, words),
         recurring_issues=_recurring_issues(sessions),
     )
