@@ -34,6 +34,7 @@ from .motion.classifier import MotionClassifier, Thresholds, calibrate, features
 from .motion.fusion import Fusion
 from .stt.fillers import DEFAULT_FILLERS
 from .stt.turns import BaselinePace, SpeakerMapper
+from .voice_practice.gate import practice_active
 
 if TYPE_CHECKING:
     from .always_on import AlwaysOn
@@ -449,6 +450,8 @@ class SessionController:
         if gen is not None and gen != self._hearing_gen:
             log.debug("ignoring %s from a replaced Deepgram worker", ev.get("type"))
             return
+        if practice_active() and ev.get("type") in ("turn.final", "transcript.partial"):
+            return  # a spoken practice is running: the band mic hears the coach's voice (voice_practice/gate.py)
         if ev.get("type") in ("turn.final", "transcript.partial"):
             self.last_heard_at = time.monotonic()
         if self.always_on is not None and self.always_on.intercept(ev):
@@ -484,7 +487,7 @@ class SessionController:
     def _on_live_words(self, speaker: str, words) -> None:
         """Interim + final words, rebased to session time, for practice mode (backend/practice.py)."""
         hook = getattr(self, "on_live_words", None)
-        if hook is None or not self.running:
+        if hook is None or not self.running or practice_active():
             return
         off = self._audio_offset
         if off:
@@ -493,6 +496,8 @@ class SessionController:
         hook(speaker, words, self.hearing.audio_clock() - off if self.hearing else None)
 
     def _on_words(self, speaker: str, words) -> None:
+        if practice_active():
+            return  # no voice memory or pace from the coach's voice during a practice
         self.last_heard_at = time.monotonic()
         self._last_speaker = speaker
         if self.on_final_words is not None:

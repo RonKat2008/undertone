@@ -423,6 +423,144 @@ export interface CommitmentStatus {
   evidence: string | null; // the wearer's words that closed it (auto only)
 }
 
+// ---------- spoken practice with the coach (WS /ws/practice, GET /practice/*) ----------
+// The wearer answers the ACTIVE coach's spoken questions. The backend relays audio to the
+// Deepgram Voice Agent (the key never reaches the browser), measures each answer and scores it.
+// A measure that could not be taken is null, never zero.
+//
+// WebSocket /ws/practice (one session per connection; a second concurrent one gets error 'busy'):
+//   browser -> backend
+//     binary: microphone PCM, linear16 little-endian, 16 000 Hz, mono (send only after practice.ready)
+//     PracticeClientMessage (JSON text)
+//   backend -> browser
+//     binary: coach voice PCM, linear16 little-endian, 24 000 Hz, mono (queue and play in order)
+//     PracticeServerMessage (JSON text)
+//   Order: connect -> practice.ready -> (state / caption / audio)* -> practice.scoring ->
+//          practice.result | practice.no_result -> the backend closes the socket.
+//   On practice.state 'you' the browser stops coach playback at once and drops queued audio (barge-in).
+//   When the coach's queued audio has finished playing, the browser sends {type:'playback_done'}
+//   (used to measure time-to-start honestly). {type:'end'} ends early; the answers so far are scored.
+
+export type PracticeMeasure = 'pace' | 'fillers' | 'conciseness' | 'structure' | 'confidence' | 'responsiveness';
+export type PracticeScoreSource = 'measured' | 'judged' | 'rules';
+export type PracticeJudge = 'gemini' | 'rules';
+export type PracticeSpeaker = 'coach' | 'you' | 'thinking' | 'waiting';
+export type PracticeErrorCode = 'no_key' | 'agent_refused' | 'agent_lost' | 'mic_silent' | 'busy' | 'bad_message';
+
+export type PracticeClientMessage = { type: 'playback_done' } | { type: 'end' };
+
+export type PracticeServerMessage =
+  | { type: 'practice.ready'; coach_name: string; planned_questions: number; previous_goals: PracticeGoal[] }
+  | { type: 'practice.state'; state: PracticeSpeaker }
+  // question: 1-based number of the coach's current question (null before the first one)
+  | { type: 'practice.caption'; role: 'coach' | 'you'; text: string; question: number | null }
+  | { type: 'practice.warning'; code: 'mic_quiet'; message: string }
+  | { type: 'practice.scoring' }
+  | { type: 'practice.result'; result: PracticeResult }
+  | { type: 'practice.no_result'; message: string }
+  | { type: 'practice.error'; code: PracticeErrorCode; message: string };
+
+export interface PracticeAnswer {
+  index: number; // 1-based, in the order the questions were asked
+  question: string;
+  text: string;
+  words: number;
+  speaking_s: number | null; // first word to last word, from word timings
+  wpm: number | null;
+  fillers: string[]; // each filler as heard, in order
+  fillers_per_min: number | null;
+  hedges: string[];
+  long_pauses: number | null; // gaps of 2 s or more between words
+  time_to_start_s: number | null; // coach audio finished (in the browser) -> first word
+}
+
+export interface PracticeTotals {
+  answers: number;
+  words: number;
+  speaking_s: number | null;
+  wpm: number | null;
+  filler_count: number;
+  fillers_per_min: number | null;
+  top_fillers: string[];
+  hedges: number;
+  long_pauses: number | null;
+  mean_answer_s: number | null;
+  mean_time_to_start_s: number | null;
+}
+
+export interface PracticeSubScore {
+  measure: PracticeMeasure;
+  label: string;
+  score: number; // 0-100
+  source: PracticeScoreSource; // measured from numbers, judged by Gemini, or a rule-based estimate
+  detail: string; // plain words, e.g. "148 words a minute"
+}
+
+export interface PracticeStrength {
+  title: string;
+  detail: string;
+  from_answer: number | null;
+}
+
+export interface PracticeGoal {
+  measure: PracticeMeasure;
+  title: string; // e.g. "Fewer filler words"
+  target: string; // e.g. "Under 3 filler words a minute; you had 7"
+  target_min: number | null; // numeric target, when the measure is a number
+  target_max: number | null;
+  unit: string | null;
+  actual: number | null; // this session's value of the measure
+  from_answer: number | null;
+  evidence: string | null; // a short quote or number from that answer
+}
+
+export interface PracticeGoalCheck {
+  goal: PracticeGoal; // the goal as set last time
+  now: number | null; // this session's value of the same measure
+  met: boolean | null; // null: could not be measured this time
+  detail: string;
+}
+
+// GET /practice/results/{id}; also inside practice.result
+export interface PracticeResult {
+  id: string;
+  coach_id: string;
+  coach_name: string;
+  started_at: string; // ISO 8601
+  duration_s: number;
+  overall: number; // 0-100
+  summary: string;
+  sub_scores: PracticeSubScore[];
+  strengths: PracticeStrength[];
+  goals: PracticeGoal[];
+  previous_goals: PracticeGoalCheck[];
+  answers: PracticeAnswer[];
+  totals: PracticeTotals;
+  judged_by: PracticeJudge;
+  ended_early: boolean;
+}
+
+// GET /practice/results -> PracticeResultSummary[] (newest first)
+export interface PracticeResultSummary {
+  id: string;
+  coach_name: string;
+  started_at: string;
+  duration_s: number;
+  overall: number;
+  answers: number;
+  goals_met: number | null; // earlier goals met this time; null when there were none
+  goals_checked: number;
+}
+
+// GET /practice/goals: the goals from the latest result (empty when there is none yet)
+export interface PracticeGoals {
+  result_id: string | null;
+  started_at: string | null;
+  coach_name: string | null;
+  overall: number | null;
+  goals: PracticeGoal[];
+}
+
 // ---------- REST payloads: reports (GET /reports/*?days=30) ----------
 // Kept conversations only. Times are unix seconds, days are UTC 'YYYY-MM-DD'. Every report carries a
 // graph_focus: node ids (same ids as GET /graph) and edges to highlight on the map. A null number or
@@ -700,142 +838,4 @@ export interface PromisesReport {
   open: ReportPromise[];
   done: ReportPromise[];
   graph_focus: GraphFocus;
-}
-
-// ---------- spoken practice with the coach (WS /ws/practice, GET /practice/*) ----------
-// The wearer answers the ACTIVE coach's spoken questions. The backend relays audio to the
-// Deepgram Voice Agent (the key never reaches the browser), measures each answer and scores it.
-// A measure that could not be taken is null, never zero.
-//
-// WebSocket /ws/practice (one session per connection; a second concurrent one gets error 'busy'):
-//   browser -> backend
-//     binary: microphone PCM, linear16 little-endian, 16 000 Hz, mono (send only after practice.ready)
-//     PracticeClientMessage (JSON text)
-//   backend -> browser
-//     binary: coach voice PCM, linear16 little-endian, 24 000 Hz, mono (queue and play in order)
-//     PracticeServerMessage (JSON text)
-//   Order: connect -> practice.ready -> (state / caption / audio)* -> practice.scoring ->
-//          practice.result | practice.no_result -> the backend closes the socket.
-//   On practice.state 'you' the browser stops coach playback at once and drops queued audio (barge-in).
-//   When the coach's queued audio has finished playing, the browser sends {type:'playback_done'}
-//   (used to measure time-to-start honestly). {type:'end'} ends early; the answers so far are scored.
-
-export type PracticeMeasure = 'pace' | 'fillers' | 'conciseness' | 'structure' | 'confidence' | 'responsiveness';
-export type PracticeScoreSource = 'measured' | 'judged' | 'rules';
-export type PracticeJudge = 'gemini' | 'rules';
-export type PracticeSpeaker = 'coach' | 'you' | 'thinking' | 'waiting';
-export type PracticeErrorCode = 'no_key' | 'agent_refused' | 'agent_lost' | 'mic_silent' | 'busy' | 'bad_message';
-
-export type PracticeClientMessage = { type: 'playback_done' } | { type: 'end' };
-
-export type PracticeServerMessage =
-  | { type: 'practice.ready'; coach_name: string; planned_questions: number; previous_goals: PracticeGoal[] }
-  | { type: 'practice.state'; state: PracticeSpeaker }
-  // question: 1-based number of the coach's current question (null before the first one)
-  | { type: 'practice.caption'; role: 'coach' | 'you'; text: string; question: number | null }
-  | { type: 'practice.warning'; code: 'mic_quiet'; message: string }
-  | { type: 'practice.scoring' }
-  | { type: 'practice.result'; result: PracticeResult }
-  | { type: 'practice.no_result'; message: string }
-  | { type: 'practice.error'; code: PracticeErrorCode; message: string };
-
-export interface PracticeAnswer {
-  index: number; // 1-based, in the order the questions were asked
-  question: string;
-  text: string;
-  words: number;
-  speaking_s: number | null; // first word to last word, from word timings
-  wpm: number | null;
-  fillers: string[]; // each filler as heard, in order
-  fillers_per_min: number | null;
-  hedges: string[];
-  long_pauses: number | null; // gaps of 2 s or more between words
-  time_to_start_s: number | null; // coach audio finished (in the browser) -> first word
-}
-
-export interface PracticeTotals {
-  answers: number;
-  words: number;
-  speaking_s: number | null;
-  wpm: number | null;
-  filler_count: number;
-  fillers_per_min: number | null;
-  top_fillers: string[];
-  hedges: number;
-  long_pauses: number | null;
-  mean_answer_s: number | null;
-  mean_time_to_start_s: number | null;
-}
-
-export interface PracticeSubScore {
-  measure: PracticeMeasure;
-  label: string;
-  score: number; // 0-100
-  source: PracticeScoreSource; // measured from numbers, judged by Gemini, or a rule-based estimate
-  detail: string; // plain words, e.g. "148 words a minute"
-}
-
-export interface PracticeStrength {
-  title: string;
-  detail: string;
-  from_answer: number | null;
-}
-
-export interface PracticeGoal {
-  measure: PracticeMeasure;
-  title: string; // e.g. "Fewer filler words"
-  target: string; // e.g. "Under 3 filler words a minute; you had 7"
-  target_min: number | null; // numeric target, when the measure is a number
-  target_max: number | null;
-  unit: string | null;
-  actual: number | null; // this session's value of the measure
-  from_answer: number | null;
-  evidence: string | null; // a short quote or number from that answer
-}
-
-export interface PracticeGoalCheck {
-  goal: PracticeGoal; // the goal as set last time
-  now: number | null; // this session's value of the same measure
-  met: boolean | null; // null: could not be measured this time
-  detail: string;
-}
-
-// GET /practice/results/{id}; also inside practice.result
-export interface PracticeResult {
-  id: string;
-  coach_id: string;
-  coach_name: string;
-  started_at: string; // ISO 8601
-  duration_s: number;
-  overall: number; // 0-100
-  summary: string;
-  sub_scores: PracticeSubScore[];
-  strengths: PracticeStrength[];
-  goals: PracticeGoal[];
-  previous_goals: PracticeGoalCheck[];
-  answers: PracticeAnswer[];
-  totals: PracticeTotals;
-  judged_by: PracticeJudge;
-  ended_early: boolean;
-}
-
-// GET /practice/results -> PracticeResultSummary[] (newest first)
-export interface PracticeResultSummary {
-  id: string;
-  coach_name: string;
-  started_at: string;
-  duration_s: number;
-  overall: number;
-  answers: number;
-  goals_met: number | null; // earlier goals met this time; null when there were none
-  goals_checked: number;
-}
-
-// GET /practice/goals: the goals from the latest result (empty when there is none yet)
-export interface PracticeGoals {
-  result_id: string | null;
-  started_at: string | null;
-  coach_name: string | null;
-  overall: number | null;
-  goals: PracticeGoal[];
 }
