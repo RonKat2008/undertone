@@ -63,7 +63,7 @@ The person you are talking to wants to get better at this: {coach.goal}
 How to run it:
 - Your opening line (already spoken) asked the first question. Do not ask it again.
 - Ask exactly one question at a time, then stop and listen. Never ask two questions in one turn.
-- Ask about {PLANNED_QUESTIONS} main questions in total. Use or adapt these, in an order that flows:
+- Ask about {PLANNED_QUESTIONS} main questions in total. Ask the coach's own questions below word for word, in this order (the first is already asked), and only then any of your own:
 {_question_bank(coach)}
 - Shape questions so they practise their known habits ({_habits(profile)}) and last time's goals ({_goals(previous)}). Never mention scores, numbers or goals out loud.
 - After an answer, you may ask at most one short follow-up (one sentence), or acknowledge in a few words and move on.
