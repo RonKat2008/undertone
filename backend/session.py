@@ -28,6 +28,8 @@ import uuid
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Tuple, Union
 
 from .band.source import BandSource
+from .config import _flag
+from .listening import AudioWatchdog, TransitionLog, expected_listening, listening_report, silent_for
 from .motion.classifier import MotionClassifier, Thresholds, calibrate, features
 from .motion.fusion import Fusion
 from .stt.fillers import DEFAULT_FILLERS
@@ -73,11 +75,14 @@ class SessionController:
         self.baseline_provider = baseline_provider or (lambda: None)
         self.band = band or BandSource.from_env(emit=self._emit)
         self.band.emit = self._emit
-        self.use_pipecat = (os.getenv("USE_PIPECAT", "true").lower() == "true") if use_pipecat is None else use_pipecat
+        self.use_pipecat = _flag("USE_PIPECAT", True) if use_pipecat is None else use_pipecat
         # STT: deepgram (real, via Pipecat) | fake (scripted speech, no network) | off
         stt = (os.getenv("STT") or "").strip().lower()
         self.stt = stt if stt in ("deepgram", "fake", "off") else ("deepgram" if self.use_pipecat else "off")
-        self.single_speaker = os.getenv("SINGLE_SPEAKER", "false").lower() == "true"
+        if self.stt != "deepgram":
+            log.warning("speech-to-text is %s (STT=%r, USE_PIPECAT=%r): nothing real will be transcribed",
+                        self.stt.upper(), os.getenv("STT"), os.getenv("USE_PIPECAT"))
+        self.single_speaker = _flag("SINGLE_SPEAKER")
         self.thresholds = Thresholds.load(self.band.number)
         self.classifier = MotionClassifier(self.thresholds)
         self.fusion = Fusion(self._emit_sync)
@@ -95,6 +100,17 @@ class SessionController:
         self.always_on: Optional["AlwaysOn"] = None  # set by attach_band when ALWAYS_ON=1
         self._audio_offset = 0.0  # always-on: stream audio time that is this session's t=0
         self.recorder: Optional["Recorder"] = None  # set by attach_recorder (attach_band does it)
+        # always-on boundaries + health (backend/always_on.py, backend/listening.py)
+        self._pending_emits: set = set()
+        self._hearing_gen = 0          # events from an older Hearing (a restarted one) are ignored
+        self._parked: dict = {}        # session_id -> audio offset: closed but resumable (rejoin)
+        self.stt_error: Optional[str] = None      # why the last Deepgram start failed (class only)
+        self.stt_started_at: Optional[float] = None
+        self.last_heard_at: Optional[float] = None
+        self._stt_failures = 0
+        self.audio_watchdog = AudioWatchdog()
+        self._health_log = TransitionLog()
+        self.health_extra: Callable[[], dict] = lambda: {}
 
     # ---------- emit ----------
 
@@ -106,13 +122,16 @@ class SessionController:
     def _emit_sync(self, ev: dict) -> None:
         r = self._emit_fn(ev)
         if asyncio.iscoroutine(r):
-            asyncio.ensure_future(r)
+            fut = asyncio.ensure_future(r)
+            self._pending_emits.add(fut)
+            fut.add_done_callback(self._pending_emits.discard)
 
     # ---------- lifecycle ----------
 
     async def start(self) -> None:
         await self.band.start()
-        self._tasks += [asyncio.create_task(self._tap_loop()), asyncio.create_task(self._motion_loop())]
+        self._tasks += [asyncio.create_task(self._tap_loop()), asyncio.create_task(self._motion_loop()),
+                        asyncio.create_task(self._health_loop())]
         if self.always_on is not None:
             await self.always_on.start()
 
@@ -139,6 +158,8 @@ class SessionController:
         async with self._lock:
             if self.session_id:
                 return self.session_id
+            if session_id is not None and session_id in self._parked:
+                return self._resume(session_id)
             if coach is None:
                 coach, mode = self.coach_provider()
             else:
@@ -149,11 +170,15 @@ class SessionController:
             self._baseline = BaselinePace()
             self._talk = {"me": 0.0, "other": 0.0}
             self._last_question_ts = None
-            if self.always_on is not None:
-                self._join_stream()  # mic and Deepgram are already running
-            else:
-                self.mapper = SpeakerMapper(self.single_speaker)
-                await self._start_listening(coach)
+            try:
+                if self.always_on is not None:
+                    self._join_stream()  # mic and Deepgram are already running
+                else:
+                    self.mapper = SpeakerMapper(self.single_speaker)
+                    await self._start_listening(coach)
+            except BaseException:
+                self.session_id = None  # never leave a phantom session behind
+                raise
             self._begin_recording(self.session_id)
             if announce:
                 await self._emit({"type": "session.started", "session_id": self.session_id,
@@ -162,20 +187,41 @@ class SessionController:
             log.info("session %s started", self.session_id)
             return self.session_id
 
-    async def stop_session(self, announce: bool = True) -> Optional[str]:
+    async def stop_session(self, announce: bool = True, park: bool = False) -> Optional[str]:
+        """park=True (always-on, closed on silence): keep the recording and t=0 so the session
+        can be resumed; release_parked() ends it for good."""
         async with self._lock:
             if not self.session_id:
                 return None
             sid = self.session_id
-            if self.always_on is None:
-                await self._stop_listening()
-            self.session_id = None
-            self._audio_offset = 0.0
-            await self._end_recording(sid)
+            try:
+                if self.always_on is None:
+                    await self._stop_listening()
+            finally:
+                self.session_id = None
+                offset, self._audio_offset = self._audio_offset, 0.0
+            if self.always_on is not None:
+                self.always_on.ended(sid)
+            if park and self.always_on is not None:
+                self._parked[sid] = offset
+            else:
+                await self._end_recording(sid)
             if announce:
                 await self._emit({"type": "session.ended", "session_id": sid})
-            log.info("session %s ended", sid)
+            log.info("session %s ended%s", sid, " (resumable)" if park else "")
             return sid
+
+    def _resume(self, sid: str) -> str:
+        """Back into a parked session: same t=0, the recording never stopped. Lock held."""
+        self.session_id, self._audio_offset = sid, self._parked.pop(sid)
+        self.band.reset_wall_clock(max(0.0, self.band.audio_seconds - self._audio_offset))
+        log.info("session %s resumed", sid)
+        return sid
+
+    async def release_parked(self, sid: str) -> None:
+        """A parked session will not resume: finish its recording."""
+        if self._parked.pop(sid, None) is not None:
+            await self._end_recording(sid)
 
     # ---------- recording (backend/capture) ----------
 
@@ -188,6 +234,8 @@ class SessionController:
         """Session t=0 is stream time _audio_offset (always-on) or 0 (after a clock reset)."""
         if self.recorder is None:
             return
+        if self.band.chunk_tap is None:  # detached after an error: try again for this session
+            self.band.chunk_tap = self.recorder.feed
         try:
             self.recorder.begin(session_id, self._audio_offset)
         except Exception:  # noqa: BLE001 - no recording, but the session runs
@@ -203,18 +251,29 @@ class SessionController:
 
     # ---------- listening: mic + Deepgram ----------
 
-    async def _start_listening(self, coach: dict, end_on_failure: bool = False) -> None:
+    async def _start_listening(self, coach: dict, end_on_failure: bool = True) -> None:
+        """end_on_failure: a Deepgram that gives up ends the worker, so `running` tells the truth."""
         self.band.reset_clock()
         if self.recorder is not None:
             self.recorder.clear()  # buffered audio is on the old clock
+        if self.always_on is not None:
+            self.always_on.clock_reset()  # stream times from before mean nothing now
         await self.band.mic(True)
         if self.stt == "off":
             return
+        self._hearing_gen += 1
         self.hearing = self._new_hearing(coach, end_on_failure)
+        self.stt_started_at = time.monotonic()
         try:
             await self.hearing.start()
+            self.stt_error = None
         except Exception as e:  # noqa: BLE001
-            log.error("Deepgram/Pipecat failed to start: %s. Session runs without speech.", e)
+            from .stt.pipeline import stt_error_class
+            self.stt_error = stt_error_class(str(e))
+            self._stt_failures += 1
+            (log.error if self._stt_failures in (1, 10) else log.debug)(
+                "speech-to-text failed to start (%s, attempt %d); running without speech",
+                self.stt_error, self._stt_failures)
             self.hearing = None
 
     def _new_hearing(self, coach: dict, end_on_failure: bool = False):  # -> Hearing
@@ -222,7 +281,8 @@ class SessionController:
             from .stt.fake import FakeHearing as Hearing
         else:
             from .stt.pipeline import Hearing
-        return Hearing(self.band.pcm_q, self.mapper, self._on_hearing_event,
+        gen = self._hearing_gen
+        return Hearing(self.band.pcm_q, self.mapper, lambda ev: self._on_hearing_event(ev, gen),
                        keyterms=coach.get("keyterms", []),
                        filler_words=coach.get("filler_words") or DEFAULT_FILLERS,
                        audio_clock=lambda: self.band.audio_seconds,
@@ -241,24 +301,93 @@ class SessionController:
                 log.warning("stopping Deepgram: %s", e)
             self.hearing = None
 
-    def listening_ok(self) -> bool:
-        """Always-on: mic on and, with Pipecat, a live Deepgram worker."""
+    def pipeline_ok(self) -> bool:
+        """Mic on and, with Pipecat, a live Deepgram worker (what a restart can fix)."""
         if not self.band.mic_on:
             return False
         return self.stt == "off" or (self.hearing is not None and self.hearing.running)
 
+    def listening_ok(self) -> bool:
+        """Band connected and the speech pipeline alive. The full picture: health()."""
+        return bool(self.band.status_event().get("connected")) and self.pipeline_ok()
+
     async def ensure_listening(self) -> None:
         """Always-on: mic on and one Deepgram worker for the whole stream; a dead one is
         replaced (its stream clock restarts at 0, so the band clock restarts with it)."""
-        if self.listening_ok():
+        if self.pipeline_ok():
             return
-        if self.hearing is not None:
-            log.warning("Deepgram worker stopped; restarting it")
-            await self._stop_hearing()
+        await self.stop_dead_hearing()
         coach, _ = self.coach_provider()
         await self._start_listening(coach, end_on_failure=True)
-        log.info("always-on: mic %s, speech pipeline %s", "on" if self.band.mic_on else "off",
-                 "up" if self.hearing is not None else ("off" if self.stt == "off" else "DOWN"))
+        up = self.hearing is not None or self.stt == "off"
+        (log.info if up else log.debug)("always-on: mic %s, speech pipeline %s",
+                                        "on" if self.band.mic_on else "off",
+                                        ("started (connecting)" if self.stt != "off" else "off")
+                                        if up else "DOWN")
+
+    async def stop_dead_hearing(self) -> None:
+        """Stop a Deepgram worker that died; its last turn is flushed to whoever listens now."""
+        if self.hearing is not None and not self.hearing.running:
+            log.warning("Deepgram worker stopped (%s); restarting it",
+                        getattr(self.hearing, "last_error", None) or "no error reported")
+            await self._stop_hearing()
+            await self.flush_hearing()
+
+    def stream_seconds(self) -> float:
+        return float(self.band.audio_seconds)
+
+    async def flush_hearing(self, turns: bool = False) -> None:
+        """Let every event already heard reach the bus handlers (the Brain) before going on.
+        turns=True also closes the turn being assembled right now."""
+        if turns and self.hearing is not None and self.hearing.running:
+            flush = getattr(self.hearing, "flush_turns", None)
+            if flush is not None:
+                try:
+                    flush()
+                except Exception:  # noqa: BLE001
+                    log.exception("flushing the open turn failed")
+        for _ in range(10):
+            pending = [f for f in self._pending_emits if not f.done()]
+            if not pending:
+                break
+            await asyncio.gather(*pending, return_exceptions=True)
+        for _ in range(3):  # bus handlers run their first (synchronous) step
+            await asyncio.sleep(0)
+
+    async def drain_for_end(self) -> None:
+        """Brain.before_end: hand over the last words before the session closes."""
+        if self.always_on is None and self.hearing is not None:
+            await self._stop_hearing()  # flushes the last turn while the session is still open
+        await self.flush_hearing(turns=self.always_on is not None)
+
+    # ---------- health ----------
+
+    def health(self) -> dict:
+        return listening_report(self, self.health_extra())
+
+    async def _health_loop(self, every_s: float = 1.0) -> None:
+        while True:
+            await asyncio.sleep(every_s)
+            try:
+                await self._health_tick()
+            except Exception:  # noqa: BLE001
+                log.exception("health check failed")
+
+    async def _health_tick(self) -> None:
+        now = time.monotonic()
+        expected = expected_listening(self)
+        self._health_log.update(self.health(), expected, now)
+        connected = bool(self.band.status_event().get("connected"))
+        quiet = silent_for(self.band, now)
+        if expected and self.audio_watchdog.due(connected, bool(self.band.mic_on), quiet, now):
+            log.warning("audio watchdog: no audio from the band for %.0f s with the mic on; re-arming "
+                        "the mic (attempt %d of %d)", quiet or 0, self.audio_watchdog.retries,
+                        self.audio_watchdog.max_retries)
+            try:
+                await self.band.mic(False)
+                await self.band.mic(True)
+            except Exception as e:  # noqa: BLE001
+                log.warning("audio watchdog: re-arming the mic failed (%s)", type(e).__name__)
 
     def _join_stream(self) -> None:
         """Always-on session start: the running stream's current position becomes t=0."""
@@ -314,7 +443,12 @@ class SessionController:
 
     # ---------- hearing ----------
 
-    def _on_hearing_event(self, ev: dict) -> None:
+    def _on_hearing_event(self, ev: dict, gen: Optional[int] = None) -> None:
+        if gen is not None and gen != self._hearing_gen:
+            log.debug("ignoring %s from a replaced Deepgram worker", ev.get("type"))
+            return
+        if ev.get("type") in ("turn.final", "transcript.partial"):
+            self.last_heard_at = time.monotonic()
         if self.always_on is not None and self.always_on.intercept(ev):
             return  # it opens a conversation and is replayed into it
         self.deliver(ev)
@@ -357,6 +491,7 @@ class SessionController:
         hook(speaker, words, self.hearing.audio_clock() - off if self.hearing else None)
 
     def _on_words(self, speaker: str, words) -> None:
+        self.last_heard_at = time.monotonic()
         self._last_speaker = speaker
         if speaker == "me":
             self._baseline.add(words)
@@ -465,29 +600,25 @@ def build_router(ctl: SessionController):
 
 
 def band_diag_body(ctl: SessionController) -> dict:
-    """GET /band/diag: is sound arriving and is speech-to-text alive? For checking by hand."""
-    band = ctl.band
-    secs = float(band.audio_seconds)
-    recent = band.loudness.mean_db(max(0.0, secs - 5.0), secs) if secs > 0 else None
+    """GET /band/diag: the full listening picture (backend/listening.py), plus the keys this
+    route always had (connected, stt as a string, stt_running, session_id, always_on bool)."""
+    report = ctl.health()
     hearing = ctl.hearing
-    return {
-        "connected": bool(band.status_event().get("connected")),
-        "mic_on": bool(band.mic_on),
-        "audio_seconds": round(secs, 1),
-        "recent_level_db": None if recent is None else round(recent, 1),
-        "queued_chunks": band.pcm_q.qsize(),
-        "dropped_chunks": band.dropped_chunks,
-        "stt": ctl.stt,
-        "stt_running": bool(hearing is not None and getattr(hearing, "running", True)),
-        "session_id": ctl.session_id,
-        "always_on": ctl.always_on is not None,
-    }
+    return {**report,
+            "connected": report["band_connected"],
+            "stt": ctl.stt, "stt_detail": report["stt"],
+            "stt_running": bool(hearing is not None and getattr(hearing, "running", True)),
+            "session_id": ctl.session_id,
+            "always_on": ctl.always_on is not None, "always_on_detail": report["always_on"]}
 
 
 def band_status_body(ctl: SessionController) -> dict:
-    """GET /band/status: the band.status event plus `always_on`. Only this HTTP reply has the
-    extra key; the band.status bus event keeps its contract shape."""
-    return {**ctl.band.status_event(), "always_on": ctl.always_on is not None}
+    """GET /band/status: the band.status event plus `always_on`, `listening_ok` and
+    `listening_reason`. Only this HTTP reply has the extra keys; the band.status bus event keeps
+    its contract shape."""
+    report = ctl.health()
+    return {**ctl.band.status_event(), "always_on": ctl.always_on is not None,
+            "listening_ok": report["listening_ok"], "listening_reason": report["listening_reason"]}
 
 
 # ---------- wiring into the Brain (backend/brain.py) ----------
@@ -538,17 +669,26 @@ async def attach_band(app_state, brain, band: Optional[BandSource] = None,
                             baseline_provider=lambda: getattr(getattr(brain, "metrics", None), "baseline_wpm", None))
 
     async def join(session_id: str) -> None:
-        coach = getattr(getattr(app_state, "session", None), "coach", None) or getattr(app_state, "active_coach", None)
+        live = getattr(app_state, "session", None)
+        if getattr(live, "session_id", None) != session_id:
+            return  # a stale session.started: that session is already gone
+        if ctl.session_id not in (None, session_id):
+            log.warning("controller still on %s while the Brain runs %s; switching", ctl.session_id, session_id)
+            await ctl.stop_session(announce=False)
+        coach = getattr(live, "coach", None) or getattr(app_state, "active_coach", None)
         await ctl.start_session(session_id=session_id, coach=_coach_dict(coach), announce=False)
 
     async def on_started(ev):
         await join(ev.session_id)
 
     async def on_ended(ev):
-        await ctl.stop_session(announce=False)
+        if ctl.session_id == ev.session_id:  # never stop a newer session on a late event
+            await ctl.stop_session(announce=False)
 
     bus.on("session.started", on_started)
     bus.on("session.ended", on_ended)
+    brain.before_end = ctl.drain_for_end  # the last words reach the Brain before it closes
+    ctl.health_extra = lambda: _health_extra(app_state, brain)
     from .practice import attach_practice
     ctl.practice = attach_practice(ctl, app_state)  # practice mode: buzz on every crutch word
     ctl._tasks.append(asyncio.ensure_future(_feed_live_pace(ctl, app_state, brain)))
@@ -596,16 +736,64 @@ def _attach_always_on(ctl: SessionController, app_state, brain, join: Callable[[
     from .always_on import AlwaysOn, AlwaysOnConfig
 
     async def open_conversation() -> None:
-        await join(await brain.start_session())  # join now: the bus handler may run later
+        # t=0 is the first turn's start, which was `lead` seconds of audio ago
+        first = ctl.always_on.pending_offset
+        lead = max(0.0, ctl.stream_seconds() - first) if first is not None else 0.0
+        sid = await brain.ensure_session(started_at=time.time() - lead)  # adopts a phone Start
+        await join(sid)  # join now: the bus handler may run later
 
-    async def close_conversation(quiet: bool) -> None:
-        await brain.end_session(quiet=quiet)
+    async def close_conversation(quiet: bool, park: bool = False) -> None:
+        sid = ctl.session_id
+        await brain.end_session(quiet=quiet, defer=True)
+        if ctl.session_id == sid:
+            await ctl.stop_session(announce=False, park=park)
+
+    async def resume_conversation(session_id: str) -> bool:
+        if not await brain.resume_session(session_id):
+            return False
+        await join(session_id)  # the parked controller session comes back (same t=0, same file)
+        return ctl.session_id == session_id
+
+    async def finish_conversation(session_id: str, wait: bool = True) -> None:
+        await ctl.release_parked(session_id)  # the recording is complete before its verdict
+        if wait:
+            await brain.finish_session(session_id)
+        else:
+            ctl._tasks.append(asyncio.ensure_future(brain.finish_session(session_id)))
+
+    def late_turn(session_id: str, ev: dict) -> None:
+        offset = ctl.always_on.offset_of(session_id)
+        rebased = {**ev, "start": round(max(0.0, ev["start"] - offset), 3),
+                   "end": round(max(0.0, ev["end"] - offset), 3)}
+        from .contracts import TurnFinalEvent
+        try:
+            brain.add_late_turn(session_id, TurnFinalEvent.model_validate(rebased))
+        except Exception:  # noqa: BLE001
+            log.exception("could not store a late turn for %s", session_id)
 
     st = brain.settings
-    cfg = AlwaysOnConfig(silence_s=float(st.always_on_silence_s), min_turns=int(st.always_on_min_turns))
+    cfg = AlwaysOnConfig(silence_s=float(st.always_on_silence_s), min_turns=int(st.always_on_min_turns),
+                         rejoin_s=float(getattr(st, "always_on_rejoin_s", 0.0)))
     ctl.coach_provider = lambda: (_coach_dict(getattr(app_state, "active_coach", None)), "regular")
     ctl.always_on = AlwaysOn(ctl, open_conversation, close_conversation, cfg,
+                             resume_conversation=resume_conversation,
+                             finish_conversation=finish_conversation, late_turn=late_turn,
                              **({"clock": clock} if clock is not None else {}))
+
+
+def _health_extra(app_state, brain) -> dict:
+    """Judge mode and phones for the listening report (GET /health, /band/diag)."""
+    st = getattr(brain, "settings", None)
+    rules = st is None or st.use_rule_judge_only or not st.has_gemini
+    phones = None
+    hub = getattr(app_state, "haptics_hub", None)
+    if hub is not None:
+        try:
+            phones = sum(1 for d in hub.list_devices() if d.get("connected"))
+        except Exception:  # noqa: BLE001
+            phones = None
+    return {"judge": "rules" if rules else "decisions",
+            "judge_fail_streak": getattr(brain, "judge_fail_streak", 0), "phones_connected": phones}
 
 
 def build_band_router(ctl: SessionController):

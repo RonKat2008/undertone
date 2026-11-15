@@ -25,7 +25,7 @@ from backend.capture.wav import BYTES_PER_SECOND, WavWriter
 
 log = logging.getLogger("undertone.capture")
 
-PREBUFFER_S = 20.0
+PREBUFFER_S = 90.0  # a first turn longer than this starts the file after t=0 (offset < 0)
 PRE_ROLL_S = 0.5
 CHUNK_S = 0.08
 
@@ -113,8 +113,10 @@ class Recorder:
             kept = buffered[idx:]
             for c in kept:
                 writer.write(c.data)
-            # nothing buffered (manual session right after a clock reset): the file starts at t=0
-            offset = round(max(0.0, start_s - kept[0].start), 3) if kept else 0.0
+            # nothing buffered (manual session right after a clock reset): the file starts at t=0.
+            # Negative when t=0 is older than the pre-buffer: the file starts that much after t=0
+            # (a turn is at `start + offset_s` in the file either way).
+            offset = round(start_s - kept[0].start, 3) if kept else 0.0
             self._active = _Active(session_id, writer, offset)
         log.info("recording %s (%.1f s of pre-buffer, offset %.2f s)", session_id,
                  len(kept) * CHUNK_S, offset)

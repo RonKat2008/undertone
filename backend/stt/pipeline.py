@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
+import re
 from typing import Callable, Iterable, List, Optional
 
 from .fillers import DEFAULT_FILLERS
@@ -25,6 +27,25 @@ from .turns import (FluxTurnAssembler, NovaTurnAssembler, RollingPace, SpeakerMa
 log = logging.getLogger("undertone.stt")
 SAMPLE_RATE = 16000
 OPENING_HOLD_S = 10.0  # longest an opening turn waits for the loudness speaker check
+
+
+# ---------- health (backend/listening.py reads these; no secrets: error *classes* only) ----------
+
+def stt_error_class(text: str) -> str:
+    """A short, secret-free name for a speech-to-text error message."""
+    t = (text or "").lower()
+    m = re.search(r"status (\d{3})", t) or re.search(r"\b(401|403|429)\b", t)
+    if "rejected" in t or (m and m.group(1).startswith("4")):
+        return "connection rejected" + (" (HTTP %s)" % m.group(1) if m else "")
+    if "failed to stay up" in t:
+        return "connection keeps dropping"
+    if "timed out" in t or "timeout" in t:
+        return "timeout"
+    if "connection" in t or "websocket" in t:
+        return "connection lost"
+    if "api_key" in t or "api key" in t:
+        return "no API key"
+    return "error"
 
 
 def _build_processors(pcm_q: asyncio.Queue, on_nova, on_interim, on_flux_end):
@@ -189,7 +210,7 @@ class Hearing:
         self.on_event = on_event
         self.keyterms = [k for k in keyterms if k][:100]
         self.filler_words = list(filler_words)
-        self.use_flux = (os.getenv("USE_FLUX", "false").lower() == "true") if use_flux is None else use_flux
+        self.use_flux = _env_flag("USE_FLUX") if use_flux is None else use_flux
         self.audio_clock = audio_clock or (lambda: 0.0)
         self.loudness = loudness  # LoudnessTimeline, for the speaker cross-check
         self.on_words = on_words
@@ -211,10 +232,32 @@ class Hearing:
         # crutch-word buzz needs ~1 s, a turn.final can be 20 s away). Interims get revised:
         # the consumer dedupes by word and time.
         self.on_live_words = on_live_words
+        # health: last pipeline error (class only), when, and the last transcript from Deepgram
+        self.last_error: Optional[str] = None
+        self.last_error_at: Optional[float] = None  # time.monotonic()
+        self.last_transcript_at: Optional[float] = None  # time.monotonic()
+        self._stt_service = None
 
     @property
     def running(self) -> bool:
         return self._run_task is not None and not self._run_task.done()
+
+    @property
+    def connected(self) -> bool:
+        """Deepgram's websocket is open right now (no service object: same as running)."""
+        if self._stt_service is None:
+            return self.running
+        return self.running and getattr(self._stt_service, "_connection", None) is not None
+
+    def flush_turns(self) -> None:
+        """Close the turn being assembled now (always-on: its conversation is closing)."""
+        if self._flux_on():
+            self.flux_turns.flush()
+        self.nova_turns.flush()
+
+    def _note_error(self, text: str) -> None:
+        self.last_error, self.last_error_at = stt_error_class(text), time.monotonic()
+        log.error("speech-to-text error: %s", self.last_error)
 
     # ---------- Deepgram callbacks ----------
 
@@ -223,6 +266,7 @@ class Hearing:
 
     def _on_nova(self, result, text: str) -> None:
         rs, words = words_from_result(result)
+        self.last_transcript_at = time.monotonic()
         new = self._dedupe.new(rs, words)
         if not new:
             return
@@ -265,6 +309,8 @@ class Hearing:
 
     def _on_interim(self, result, text: str) -> None:
         _, words = words_from_result(result)
+        if text or words:
+            self.last_transcript_at = time.monotonic()
         if words:
             self.nova_turns.heard(max(w.end for w in words))
         self._live(words)
@@ -294,11 +340,14 @@ class Hearing:
     async def _tick(self) -> None:
         while True:
             await asyncio.sleep(0.25)
-            now = self.audio_clock()
-            if self._flux_on():
-                self.flux_turns.tick(now)
-            else:
-                self.nova_turns.tick(now)
+            try:
+                now = self.audio_clock()
+                if self._flux_on():
+                    self.flux_turns.tick(now)
+                else:
+                    self.nova_turns.tick(now)
+            except Exception:  # noqa: BLE001 - one bad tick must not stop turn assembly
+                log.exception("turn assembly tick failed")
 
     # ---------- lifecycle ----------
 
@@ -339,18 +388,39 @@ class Hearing:
         worker = PipelineWorker(pipeline, params=PipelineParams(audio_in_sample_rate=SAMPLE_RATE),
                                 idle_timeout_secs=None, enable_rtvi=False,  # default 300 s idle would kill it
                                 **extra)
+        self._stt_service = nova
+
+        @worker.event_handler("on_pipeline_error")
+        async def _on_pipeline_error(_worker, frame) -> None:  # health: keep the error class
+            self._note_error(str(getattr(frame, "error", frame)))
+
         self._runner = WorkerRunner(handle_sigint=False)  # FastAPI owns signals
         await self._runner.add_workers(worker)
         self._run_task = asyncio.create_task(self._runner.run())
         self._ticker = asyncio.create_task(self._tick())
-        log.info("Deepgram worker started (flux=%s, keyterms=%d)", self.use_flux, len(self.keyterms))
+        log.info("Deepgram worker connecting (flux=%s, keyterms=%d)", self.use_flux, len(self.keyterms))
 
     async def stop(self) -> None:
         if self._ticker:
             self._ticker.cancel()
         # let the last finals arrive before closing
         await asyncio.sleep(1.0)
-        self.pcm_q.put_nowait(None)
+        try:
+            self._close_runner_queue()
+            await self._stop_runner()
+        finally:
+            if self._flux_on():
+                self.flux_turns.flush()
+            self.nova_turns.flush()
+
+    def _close_runner_queue(self) -> None:
+        try:
+            self.pcm_q.put_nowait(None)
+        except asyncio.QueueFull:  # full queue: make room for the end marker
+            self.pcm_q.get_nowait()
+            self.pcm_q.put_nowait(None)
+
+    async def _stop_runner(self) -> None:
         if self._runner is not None:
             for name in ("cancel", "stop", "stop_when_done"):
                 fn = getattr(self._runner, name, None)
@@ -362,6 +432,7 @@ class Hearing:
                     except Exception as e:  # noqa: BLE001
                         log.debug("runner.%s: %s", name, e)
                     break
-        if self._flux_on():
-            self.flux_turns.flush()
-        self.nova_turns.flush()
+
+
+def _env_flag(name: str) -> bool:
+    return (os.getenv(name) or "").strip().split("#")[0].strip().lower() in {"1", "true", "yes", "on"}

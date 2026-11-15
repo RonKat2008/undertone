@@ -48,24 +48,47 @@ def _initial_coach(db: DB):  # type: ignore[no-untyped-def]
     return studio.default_coach()
 
 
+BAND_RETRY_S = (5.0, 10.0, 30.0, 60.0)  # a band that would not attach is retried this often
+
+
 async def _attach_band(app: FastAPI, state: AppState):  # type: ignore[no-untyped-def]
     """Connect the band if one is configured. A band that fails to connect must not stop the
-    server: the dashboard's /session/start and the replay script still work without it."""
+    server: the dashboard's /session/start and the replay script still work without it. It is
+    retried in the background; /health says why it is missing (band_attached, band_error)."""
     transport = (os.environ.get("BAND_TRANSPORT") or "").strip().lower()
+    app.state.band, app.state.band_error = None, None
     if transport in ("", "off", "none"):
         log.info("band: off (BAND_TRANSPORT not set)")
+        app.state.band_error = "BAND_TRANSPORT is not set"
         return None
+    if await _try_attach_band(app, state, transport):
+        return app.state.band
+    app.state.band_retry = asyncio.create_task(_retry_band(app, state, transport))
+    return None
+
+
+async def _try_attach_band(app: FastAPI, state: AppState, transport: str) -> bool:
     try:
         from backend.session import attach_band, build_band_router
 
         band = await attach_band(state, app.state.brain)
         app.include_router(build_band_router(band))
-        app.state.band = band
+        app.state.band, app.state.band_error = band, None
         log.info("band: attached (%s)", transport)
-        return band
-    except Exception:
-        log.exception("band: could not attach (%s); continuing without it", transport)
-        return None
+        return True
+    except Exception as exc:
+        app.state.band_error = type(exc).__name__
+        log.exception("band: could not attach (%s); continuing without it, will retry", transport)
+        return False
+
+
+async def _retry_band(app: FastAPI, state: AppState, transport: str) -> None:
+    attempt = 0
+    while app.state.band is None:
+        await asyncio.sleep(BAND_RETRY_S[min(attempt, len(BAND_RETRY_S) - 1)])
+        attempt += 1
+        if await _try_attach_band(app, state, transport):
+            return
 
 
 @asynccontextmanager
@@ -76,13 +99,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.brain = Brain(state, settings)
     app.state.snapshot = Snapshot(state.bus)  # catch-up for late /ws joiners (backend/snapshot.py)
     # Person C: phones and third-party apps. The hub registers itself as the Brain's haptics sender.
-    haptics.install(app)
+    state.haptics_hub = haptics.install(app)  # type: ignore[attr-defined]  (phones count in /health)
     # Person A: the band. Off unless BAND_TRANSPORT is set (ble | serial | sim | laptop-mic).
-    band = await _attach_band(app, state)
+    await _attach_band(app, state)
     log.info("undertone up: %s", settings)
     try:
         yield
     finally:
+        retry = getattr(app.state, "band_retry", None)
+        if retry is not None:
+            retry.cancel()
+        band = app.state.band
         if band is not None:
             try:
                 await band.shutdown()
@@ -94,6 +121,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await brain.end_session()
             except Exception:
                 log.exception("end_session on shutdown failed")
+        try:
+            await brain.wait_background()  # debriefs in flight reach the DB before it closes
+        except Exception:
+            log.exception("waiting for debriefs on shutdown failed")
         await state.bus.drain()
         db.close()
 
@@ -178,12 +209,30 @@ class BookmarkBody(BaseModel):
 
 
 @app.get("/health")
-def health(st: AppState = Depends(get_app_state)) -> dict[str, Any]:
+def health(request: Request, st: AppState = Depends(get_app_state)) -> dict[str, Any]:
+    """`ok` = the server answers (clients rely on that). Whether it is really listening:
+    `listening_ok` + `listening_reason` (one short human reason), `degraded` (every problem),
+    and `listening` (the full picture, backend/listening.py)."""
+    band = getattr(request.app.state, "band", None)
+    listening = band.health() if band is not None else None
+    attached = band is not None
+    reason = None if attached else "No band attached (%s)" % (getattr(request.app.state, "band_error", None)
+                                                            or "not configured")
+    degraded = list(listening["degraded"]) if listening else [reason]
     return {"ok": True, "session_id": st.session.session_id if st.session else None,
+            "session_mode": st.session.mode if st.session else None,
+            "session_coach_id": st.session.coach.id if st.session else None,
             "active_coach": st.active_coach.id, "subscribers": st.bus.subscriber_count,
             "gemini": settings.has_gemini, "deepgram": settings.has_deepgram,
             "rule_judge_only": settings.use_rule_judge_only, "demo_policy": settings.demo_policy,
-            "dev": settings.dev}
+            "dev": settings.dev,
+            "band_attached": attached, "band_error": getattr(request.app.state, "band_error", None),
+            "always_on": settings.always_on,
+            "stt_mode": getattr(band, "stt", None),
+            "judge": "rules" if settings.use_rule_judge_only or not settings.has_gemini else "decisions",
+            "listening_ok": bool(listening and listening["listening_ok"]),
+            "listening_reason": listening["listening_reason"] if listening else reason,
+            "degraded": degraded, "listening": listening}
 
 
 @app.post("/session/start")

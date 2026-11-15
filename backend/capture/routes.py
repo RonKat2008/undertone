@@ -61,16 +61,19 @@ def build_transcript(row: dict[str, Any], turns: list[TurnFinalEvent], url: str 
         turns=[to_transcript_turn(t) for t in ordered])
 
 
-def override_reason(kept: bool, previous: str | None) -> KeptReason:
-    """The user's call: kept -> 'keep'; not kept keeps a more specific earlier reason."""
+def override_reason(kept: bool, previous: str | None) -> KeptReason | None:
+    """The user's call: kept -> 'keep'; not kept keeps a more specific earlier reason, else
+    None (kept false + no reason = hidden by the wearer, not "too short")."""
     if kept:
         return "keep"
-    return previous if previous in ("trivial", "noise", "sensitive") else "trivial"  # type: ignore[return-value]
+    return previous if previous in ("trivial", "noise", "sensitive") else None  # type: ignore[return-value]
 
 
 @router.get("/sessions/{session_id}/transcript", response_model=SessionTranscript)
 def get_transcript(session_id: str, st: AppState = Depends(get_app_state)) -> SessionTranscript:
     row = _row(st.db, session_id)
+    if row.get("kept_reason") == "sensitive":  # private speech: never served
+        raise HTTPException(404, f"session {session_id} not found")
     return build_transcript(row, st.db.load_turns(session_id), session_audio_url(row, media_dir(st.db)))
 
 
