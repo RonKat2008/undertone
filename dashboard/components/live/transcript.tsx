@@ -60,9 +60,21 @@ export function Transcript({ turns, partial, fillers }: TranscriptProps) {
 
 function Line({ speaker, time, pending = false, children }: { speaker: Speaker; time: string; pending?: boolean; children: ReactNode }) {
   const me = speaker === 'me';
+  // Words still arriving: who is speaking is not settled yet, so no name or colour is shown.
+  if (pending) {
+    return (
+      <div className="grid grid-cols-[32px_minmax(0,1fr)] gap-3">
+        <span className="mt-1 h-8 w-8 rounded-full bg-[var(--surface)] opacity-60" />
+        <div className="min-w-0">
+          <div className="text-caption text-muted">{time}</div>
+          <p className="text-lead mt-0.5 text-pretty text-fg/85">{children}</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-[32px_minmax(0,1fr)] gap-3">
-      <span className={pending ? 'opacity-60' : undefined}><Avatar name={me ? 'You' : 'Them'} tone={me ? 'me' : 'person'} size="sm" /></span>
+      <span><Avatar name={me ? 'You' : 'Them'} tone={me ? 'me' : 'person'} size="sm" /></span>
       <div className="min-w-0">
         <div className="text-caption flex items-baseline gap-2">
           <span className={`font-medium ${me ? 'text-accent' : 'text-person'}`}>{me ? 'You' : 'Them'}</span>
