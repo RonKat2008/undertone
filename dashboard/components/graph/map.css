@@ -1,0 +1,73 @@
+/* The Insights map. Colours come from the Lamplight tokens; nothing here sets a raw colour. */
+
+.ins-map {
+  position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: inherit;
+  background:
+    radial-gradient(60% 55% at 50% 50%, color-mix(in oklch, var(--accent) 7%, transparent), transparent 70%),
+    radial-gradient(40% 40% at 85% 10%, color-mix(in oklch, var(--coach) 6%, transparent), transparent 70%);
+}
+.ins-map-svg { display: block; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+.ins-map-svg[data-pannable] { touch-action: none; cursor: grab; }
+.ins-map-svg[data-pannable]:active { cursor: grabbing; }
+
+/* edges: quiet threads; when something is lit the rest fall back */
+.ins-edge-base { stroke-opacity: 0.32; transition: stroke-opacity var(--dur-base) ease; }
+.ins-edges[data-dimmed] .ins-edge-base { stroke-opacity: 0.08; }
+
+/* nodes */
+.ins-node-hit { cursor: pointer; }
+.ins-node {
+  transition: opacity var(--dur-base) ease, transform var(--dur-fast) var(--ease-out);
+}
+.ins-node-body {
+  fill: color-mix(in oklch, var(--node) 36%, var(--surface));
+  stroke: var(--node); stroke-width: 1.25;
+  transition: fill var(--dur-base) ease, stroke-width var(--dur-fast) ease;
+}
+.ins-node[data-kind="conversation"] .ins-node-body { fill: color-mix(in oklch, var(--node) 55%, var(--surface)); stroke-opacity: 0.6; }
+.ins-node-body[data-kept] { fill: var(--surface); stroke-dasharray: 2 2; }
+.ins-node-halo { fill: var(--node); opacity: 0; transition: opacity var(--dur-base) ease; }
+.ins-node-initials { fill: var(--node); font-weight: 500; pointer-events: none; font-variant-numeric: tabular-nums; }
+.ins-me-text { fill: var(--on-accent); font-weight: 500; pointer-events: none; }
+.ins-node[data-kind="me"] .ins-node-body, .ins-node[data-kind="me"][data-tone] .ins-node-body { fill: var(--accent); stroke: none; }
+
+.ins-node[data-tone="dim"] { opacity: 0.2; }
+.ins-node[data-tone="near"] .ins-node-body { fill: color-mix(in oklch, var(--node) 55%, var(--surface)); }
+.ins-node[data-tone="focus"] .ins-node-body { fill: color-mix(in oklch, var(--node) 72%, var(--surface)); stroke-width: 2; }
+/* people stay avatar-like at every emphasis so their initials keep their contrast */
+.ins-node[data-kind="person"][data-tone] .ins-node-body { fill: color-mix(in oklch, var(--node) 24%, var(--surface)); }
+.ins-node[data-tone="focus"] .ins-node-halo { opacity: 0.16; }
+.ins-node[data-selected] .ins-node-halo { opacity: 0.24; }
+.ins-node[data-selected] .ins-node-body { stroke: var(--text); stroke-width: 2; }
+
+@media (hover: hover) and (pointer: fine) {
+  .ins-node-hit:hover .ins-node { transform: scale(1.12); }
+  .ins-node-hit:hover .ins-node[data-tone="dim"] { opacity: 0.55; }
+}
+
+/* you, at the centre: a slow breath of light */
+.ins-me-glow { transform-origin: 0 0; animation: ins-breathe 4200ms var(--ease-in-out) infinite; }
+@keyframes ins-breathe { 0%, 100% { opacity: 0.7; transform: scale(0.94); } 50% { opacity: 1; transform: scale(1.06); } }
+
+/* labels sit in screen space with a halo in the panel colour so they read over threads */
+.ins-label {
+  font-size: 12px; font-weight: 400; fill: var(--muted);
+  stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; paint-order: stroke;
+  transition: opacity var(--dur-base) ease;
+}
+.ins-label[data-kind="person"], .ins-label[data-kind="me"] { fill: var(--text); font-weight: 500; }
+.ins-label[data-tone="near"] { fill: var(--text); }
+.ins-label[data-tone="focus"] { fill: var(--text); font-weight: 500; font-size: 13px; }
+
+/* controls float in the corner */
+.ins-map-controls { position: absolute; right: 10px; bottom: 10px; display: flex; align-items: flex-end; gap: 8px; }
+.ins-zoom {
+  display: grid; padding: 3px; border-radius: 12px; background: color-mix(in oklch, var(--surface) 85%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ins-me-glow { animation: none; }
+  .ins-node { transition: opacity var(--dur-fast) linear; }
+  .ins-node-hit:hover .ins-node { transform: none; }
+}
