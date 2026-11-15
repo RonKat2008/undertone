@@ -76,11 +76,9 @@ How to run it:
 
 def greeting(coach: CoachSpec) -> str:
     """Spoken first. It carries the first question: the agent only speaks again after an answer."""
-    opener = f"Hi, I'm your {coach.name} coach. I'll ask you a few questions; answer out loud, like it's real."
     first = next((p.strip() for p in coach.drill.prompts if p.strip()), None)
-    if first is None:
-        return f"{opener} To start, tell me what you'd like to get better at, and why."
-    return f"{opener} {FIRST_MARK} {first}"
+    # No introduction: the coach goes straight to the question.
+    return first or "Tell me what you'd like to get better at, and why."
 
 
 def build_settings(coach: CoachSpec, profile: HabitProfile | None, previous: Sequence[PracticeGoal]) -> dict[str, Any]:
