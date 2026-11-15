@@ -113,14 +113,14 @@ async def _enrol(vm: VoiceMemory, samples) -> WearerVoice:  # type: ignore[no-un
 
 
 @router.delete("/voices/wearer", response_model=WearerVoice)
-def clear_wearer(vm: VoiceMemory = Depends(_vm)) -> WearerVoice:
-    naming.clear_wearer(_on(vm).db)
+async def clear_wearer(vm: VoiceMemory = Depends(_vm)) -> WearerVoice:
+    await _on(vm).run_locked(naming.clear_wearer, vm.db)
     return views.wearer_view(vm.db)
 
 
 @router.post("/voices/reprocess", response_model=ReprocessResult)
 async def reprocess(body: ReprocessBody | None = None, vm: VoiceMemory = Depends(_vm)) -> ReprocessResult:
-    queued, skipped = _on(vm).reprocess((body or ReprocessBody()).session_ids)
+    queued, skipped = await _on(vm).reprocess((body or ReprocessBody()).session_ids)
     return ReprocessResult(queued=queued, skipped=skipped)
 
 
@@ -137,27 +137,37 @@ def get_voice(voice_id: str, vm: VoiceMemory = Depends(_vm)) -> VoiceSummary:
 
 
 @router.post("/voices/{voice_id}/name", response_model=VoiceSummary)
-def name_voice(voice_id: str, body: NameBody, vm: VoiceMemory = Depends(_vm)) -> VoiceSummary:
+async def name_voice(voice_id: str, body: NameBody, vm: VoiceMemory = Depends(_vm)) -> VoiceSummary:
     _voice(vm, voice_id)
     try:
-        return views.voice_summary(vm.db, naming.name_voice(vm.db, voice_id, body.name))
+        row = await vm.run_locked(naming.name_voice, vm.db, voice_id, body.name)
+    except LookupError as exc:  # forgotten or merged meanwhile
+        raise HTTPException(404, f"voice {voice_id} not found") from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    return views.voice_summary(vm.db, row)
 
 
 @router.post("/voices/{voice_id}/merge", response_model=VoiceSummary)
-def merge_voice(voice_id: str, body: MergeBody, vm: VoiceMemory = Depends(_vm)) -> VoiceSummary:
+async def merge_voice(voice_id: str, body: MergeBody, vm: VoiceMemory = Depends(_vm)) -> VoiceSummary:
     _voice(vm, voice_id)
     _voice(vm, body.into)
     if body.into == voice_id:
         raise HTTPException(422, "cannot merge a voice into itself")
-    return views.voice_summary(vm.db, naming.merge_voices(vm.db, body.into, voice_id, vm.cfg))
+    try:
+        row = await vm.run_locked(naming.merge_voices, vm.db, body.into, voice_id, vm.cfg)
+    except LookupError as exc:
+        raise HTTPException(404, f"voice {voice_id} or {body.into} not found") from exc
+    return views.voice_summary(vm.db, row)
 
 
 @router.delete("/voices/{voice_id}")
-def forget_voice(voice_id: str, vm: VoiceMemory = Depends(_vm)) -> dict[str, str]:
+async def forget_voice(voice_id: str, vm: VoiceMemory = Depends(_vm)) -> dict[str, str]:
     _voice(vm, voice_id)
-    naming.forget_voice(vm.db, voice_id)
+    try:
+        await vm.run_locked(naming.forget_voice, vm.db, voice_id)
+    except LookupError as exc:
+        raise HTTPException(404, f"voice {voice_id} not found") from exc
     return {"forgotten": voice_id}
 
 

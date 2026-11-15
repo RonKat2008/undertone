@@ -244,7 +244,13 @@ exists. Voiceprints keep up to 20 exemplars; the centroid is their robust mean (
 rejected), so one bad sample cannot poison it. A name heard in the transcript (one Gemini call; rules
 for "Hello, Dylan" / "I'm Dylan" when unavailable; never a guess, never the wearer's name) names an
 unnamed voice or confirms a named one; a different name is recorded as a conflict, not applied.
-`POST /sessions/{id}/person` also attaches that conversation's other voice to the person and always wins.
+`POST /sessions/{id}/person` also attaches that conversation's other voice to the person (merging it into
+that person's voice when they already have one) and always wins: the tag is recorded as manual (also with
+`VOICE_MEMORY=0`), and on first start every conversation already tagged is recorded as manual.
+Reprocessing (`POST /voices/reprocess`) takes the conversation's samples out of every voiceprint and its
+voice-set tag off first, then redoes it from the original turns; an exemplar that conversation evicted
+from a full (20) print is not restored. Changing `VOICE_MODEL` makes old voiceprints incomparable: they
+are ignored (shown, never matched), and the wearer bootstraps again unless re-enrolled.
 
 Recomputed after a correction: `metrics_json` talk_ratio / wpm / fillers_per_min / monologue_s, the
 summary's talk_ratio / wpm / fillers_per_min, the habit profile and people cards. Not recomputed:
@@ -265,7 +271,7 @@ Routes: `GET /voices`, `GET|POST name|POST merge|DELETE /voices/{id}`, `GET /ses
 (payloads in `contracts/events.ts`, "voice memory").
 
 Privacy and control: `VOICE_MEMORY=0` turns the feature off entirely (no words kept, no model loaded,
-routes answer "off"). Voiceprints are float32 arrays in the local SQLite file only (`voice_*` tables),
+routes answer "off"; only the manual-tag record above is still written). Voiceprints are float32 arrays in the local SQLite file only (`voice_*` tables),
 never sent anywhere and never in an API payload. Conversations judged 'sensitive' or 'noise' are not
 used. Forgetting a voice (`DELETE /voices/{id}`) deletes its voiceprint, exemplars and per-conversation
 embeddings (a named person card stays; an "Unknown voice" person goes).

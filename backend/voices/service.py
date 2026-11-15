@@ -28,6 +28,7 @@ import numpy as np
 from backend.capture.media import recordings_dir
 from backend.capture.store import DISCARD_AUDIO, session_audio_path
 from backend.db import DB
+from backend.stt.fillers import DEFAULT_FILLERS
 from backend.voices import memory, naming, people, store
 from backend.voices.correct import correct_turns
 from backend.voices.embedder import Embedder, load_embedder
@@ -56,8 +57,10 @@ def _download_allowed() -> bool:
 class VoiceMemory:
     def __init__(self, db: DB, cfg: VoiceConfig | None = None, enabled: bool | None = None,
                  embedder_factory: Callable[[], Embedder | None] | None = None,
-                 namer: Callable[..., Any] = other_name) -> None:
+                 namer: Callable[..., Any] = other_name,
+                 filler_words: Callable[[], Sequence[str]] = lambda: ()) -> None:
         self.db = db
+        self._fillers = filler_words  # the active coach's, for reprocessing and the backfill
         self.cfg = cfg or VoiceConfig()
         self.enabled = enabled_from_env() if enabled is None else enabled
         self.words = WordLog()
@@ -81,7 +84,8 @@ class VoiceMemory:
             return
         try:
             words = self.words.take(session_id)
-            if words:
+            row = self.db.get_session(session_id)
+            if words and not (row and row.get("kept_reason") in DISCARD_AUDIO):  # sensitive / noise: dropped
                 store.save_words(self.db, session_id, words)
             self._spawn(self.process(session_id, filler_words, await_summary=await_summary))
         except Exception:  # noqa: BLE001
@@ -107,9 +111,12 @@ class VoiceMemory:
             async with self._lock:
                 report, target = await asyncio.to_thread(self._run_blocking, session_id, path, list(filler_words))
                 if report.get("status") == "done":
+                    # profile and people cards are rebuilt here on the event loop, like the Brain's writes
+                    report["recomputed"] = report.get("recomputed", []) + rebuild_derived(self.db, filler_words)
                     report = await self._names(session_id, report, target)
             if report.get("wearer_confirmed_now"):
-                self._spawn(self._process_all(self._uncorrected(exclude=session_id)))
+                redo = await asyncio.to_thread(self._uncorrected, session_id)
+                self._spawn(self._process_all(redo))
             return report
         except Exception as exc:  # noqa: BLE001 - voice memory must never break anything else
             log.exception("voice memory failed for %s", session_id)
@@ -157,13 +164,15 @@ class VoiceMemory:
                               embedder: Embedder) -> tuple[dict[str, Any], str | None]:
         db, cfg = self.db, self.cfg
         original = store.original_turns(db, session_id)
-        turns = original if original is not None else db.load_turns(session_id)
-        if original is None:
-            store.save_run(db, session_id, "pending", embedder.name, {}, original_turns=turns)
-        else:
-            memory.undo_session(db, session_id, cfg)
+        rerun = original is not None
+        turns = original if rerun else db.load_turns(session_id)
         words = store.load_words(db, session_id)
+        # analyse first: if it fails, the previous run's results are still intact
         a = analyse(read_wav(path), float(row.get("audio_offset_s") or 0.0), turns, words, embedder, cfg)
+        if rerun:
+            memory.undo_session(db, session_id, cfg)
+        else:
+            store.save_run(db, session_id, "pending", embedder.name, {}, original_turns=turns)
         heard = str(row.get("started_at") or store.now_iso())
         wearer_row = store.wearer(db)
         wearer_row = wearer_row if wearer_row is not None and wearer_row.model == embedder.name else None
@@ -173,23 +182,24 @@ class VoiceMemory:
         decisions = memory.remember_others(db, session_id, a.clusters,
                                            memory.match_others(a.clusters, wd, voices, cfg), embedder.name, cfg, heard)
         report = _base_report(a, wd, decisions)
-        report.update(self._correct(session_id, turns, a, wd, decisions, filler_words))
+        report.update(self._correct(session_id, turns, a, wd, decisions, filler_words, rerun))
         _save_sightings(db, session_id, a, decisions, heard)
         target = _main_other(decisions)
         self._tag(session_id, target, cfg)
-        report["recomputed"] = report.get("recomputed", []) + rebuild_derived(db, filler_words)
         if confirmed:
             log.info("voice memory: the wearer's voice is now confirmed; earlier conversations will be redone")
             report["wearer_confirmed_now"] = True
         return report, target
 
     def _correct(self, session_id: str, turns: list[Any], a: Any, wd: memory.WearerDecision,
-                 decisions: list[memory.ClusterDecision], filler_words: list[str]) -> dict[str, Any]:
+                 decisions: list[memory.ClusterDecision], filler_words: list[str], rerun: bool) -> dict[str, Any]:
         if not wd.trusted:
-            if store.original_turns(self.db, session_id) is not None:
-                store.replace_turns(self.db, session_id, turns)  # an earlier correction is undone
-            return {"labels_corrected": False, "turns_relabelled": 0, "turns_split": 0, "recomputed": [],
-                    "not_recomputed": []}
+            done: list[str] = []
+            if rerun:  # an earlier correction is undone: the original turns and their numbers come back
+                store.replace_turns(self.db, session_id, turns)
+                done = recompute_session(self.db, session_id, turns, filler_words)
+            return {"labels_corrected": False, "turns_relabelled": 0, "turns_split": 0, "recomputed": done,
+                    "not_recomputed": list(NOT_RECOMPUTED) if done else []}
         roles = span_roles(a, {d.cluster: d.role for d in decisions})
         fix = correct_turns(turns, a.words, word_roles(a, roles), turn_roles(a, roles), filler_words)
         store.replace_turns(self.db, session_id, fix.turns)
@@ -207,17 +217,39 @@ class VoiceMemory:
             people.tag_by_voice(self.db, session_id, row.person_id)
 
     async def _names(self, session_id: str, report: dict[str, Any], target: str | None) -> dict[str, Any]:
+        """Name the main other voice from the transcript. A failure here leaves the run 'done'."""
         if target is None:
             return report
-        turns = self.db.load_turns(session_id)
-        guess: NameGuess | None = await self._namer(turns, None)
-        outcome = await asyncio.to_thread(naming.apply_heard_name, self.db, session_id, target, guess)
-        if guess is not None:
-            report["name_guess"] = {**asdict(guess), "outcome": outcome}
-            store.save_run(self.db, session_id, "done", self.model, report)
-            if outcome == "named":
-                await asyncio.to_thread(rebuild_derived, self.db, ())
+        try:
+            turns = await asyncio.to_thread(self.db.load_turns, session_id)
+            guess: NameGuess | None = await self._namer(turns, None)
+            outcome = await asyncio.to_thread(naming.apply_heard_name, self.db, session_id, target, guess)
+            if guess is not None:
+                report = {**report, "name_guess": {**asdict(guess), "outcome": outcome}}
+                await asyncio.to_thread(store.save_run, self.db, session_id, "done", self.model, report)
+                if outcome == "named":
+                    rebuild_derived(self.db, ())
+        except Exception:  # noqa: BLE001
+            log.exception("voice memory: name extraction failed for %s", session_id)
         return report
+
+    # ---------- user actions (routes), serialised with processing ----------
+    async def run_locked(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """A blocking mutation (rename, merge, forget, clear) under the same lock as processing."""
+        async with self._lock:
+            return await asyncio.to_thread(fn, *args)
+
+    async def manual_tag(self, session_id: str, person_id: str) -> None:
+        """POST /sessions/{id}/person: attach the conversation's voice to that person. Never raises.
+        The caller has already stored the tag and recorded it as manual."""
+        if not self.enabled:
+            return
+        try:
+            async with self._lock:
+                await asyncio.to_thread(naming.on_manual_tag, self.db, session_id, person_id, self.cfg)
+                self.db.set_session_person(session_id, person_id)  # the manual tag always wins
+        except Exception:  # noqa: BLE001 - the tag itself is already stored
+            log.exception("voice memory: manual tag of %s not applied to voices", session_id)
 
     def _safe_save(self, session_id: str, status: str, report: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -227,9 +259,9 @@ class VoiceMemory:
         return {**report, "status": status}
 
     # ---------- reprocess / enrolment ----------
-    def reprocess(self, session_ids: Sequence[str] | None = None) -> tuple[list[str], list[str]]:
+    async def reprocess(self, session_ids: Sequence[str] | None = None) -> tuple[list[str], list[str]]:
         """Queue conversations with recordings (all of them when none given), oldest first."""
-        eligible = store.sessions_with_recordings(self.db) if self.enabled else []
+        eligible = await asyncio.to_thread(store.sessions_with_recordings, self.db) if self.enabled else []
         wanted = eligible if not session_ids else [s for s in eligible if s in set(session_ids)]
         skipped = [s for s in (session_ids or []) if s not in wanted]
         if wanted:
@@ -248,7 +280,14 @@ class VoiceMemory:
 
     async def _process_all(self, session_ids: Sequence[str]) -> None:
         for sid in session_ids:
-            await self.process(sid, wait_s=0.0)
+            await self.process(sid, self._current_fillers(), wait_s=0.0)
+
+    def _current_fillers(self) -> list[str]:
+        try:
+            return list(self._fillers())
+        except Exception:  # noqa: BLE001
+            log.exception("voice memory: could not read the coach's filler words")
+            return []
 
     async def enrol(self, samples: np.ndarray) -> None:
         """Replace the wearer voiceprint with one built from the wearer speaking alone."""
@@ -290,10 +329,19 @@ def _main_other(decisions: list[memory.ClusterDecision]) -> str | None:
     return max(others, key=lambda d: d.seconds).voice_id if others else None
 
 
+def _coach_fillers(app_state: Any) -> list[str]:
+    """The active coach's filler words, else the live path's defaults."""
+    coach = getattr(app_state, "active_coach", None)
+    words = list(getattr(coach, "filler_words", None) or [])
+    if words:
+        return words
+    return list(DEFAULT_FILLERS)
+
+
 def voice_memory(app_state: Any) -> VoiceMemory:
     """The app's VoiceMemory, created on first use and kept on the AppState."""
     vm = getattr(app_state, "voices", None)
     if vm is None:
-        vm = VoiceMemory(app_state.db)
+        vm = VoiceMemory(app_state.db, filler_words=lambda: _coach_fillers(app_state))
         app_state.voices = vm
     return vm

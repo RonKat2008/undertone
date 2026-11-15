@@ -14,11 +14,11 @@ import logging
 from backend.contracts import Person
 from backend.db import DB
 from backend.growth._people import MAX_NAME_LEN, slugify
+from backend.voices.store import MANUAL_SQL
 
 log = logging.getLogger("undertone.voices")
 
 UNKNOWN_PREFIX = "voice-"
-MANUAL_SQL = "CREATE TABLE IF NOT EXISTS voice_manual_tags (session_id TEXT PRIMARY KEY, person_id TEXT NOT NULL)"
 
 
 def unknown_name(number: int) -> str:

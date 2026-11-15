@@ -84,7 +84,17 @@ def from_blob(b: bytes | None) -> np.ndarray:
     return np.frombuffer(b or b"", dtype="<f4").astype(np.float32)
 
 
+MANUAL_SQL = "CREATE TABLE IF NOT EXISTS voice_manual_tags (session_id TEXT PRIMARY KEY, person_id TEXT NOT NULL)"
+
+
 def ensure_tables(db: DB) -> None:
+    """Create the tables. The first time (no voice_profiles yet), every conversation already tagged
+    with a person was tagged by hand, so those tags are recorded as manual: they always win."""
+    first = not db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'voice_profiles'")
+    db.execute(MANUAL_SQL)
+    if first:
+        db.execute("INSERT OR IGNORE INTO voice_manual_tags (session_id, person_id) SELECT session_id, person_id"
+                   " FROM sessions WHERE person_id IS NOT NULL AND person_id NOT LIKE 'voice-%'")
     for sql in SCHEMA:  # constants above, never user input
         db.execute(sql)
 

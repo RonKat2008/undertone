@@ -352,3 +352,75 @@ def test_reprocess_route(client: TestClient, db: DB) -> None:
     body = client.post("/voices/reprocess", json={"session_ids": ["s1", "nope"]}).json()
     assert body == {"queued": ["s1"], "skipped": ["nope"]}
     assert client.post("/voices/reprocess", json={}).json()["queued"] == ["s1"]
+
+
+# ---------- review fixes ----------
+def test_existing_tags_are_recorded_as_manual_once(db: DB) -> None:
+    from backend.voices import people
+
+    add(db, "s1", PLAN_A, with_words=False)
+    db.set_session_person("s1", "ana")  # tagged by hand before voice memory existed
+    store.ensure_tables(db)
+    add(db, "s2", PLAN_B, with_words=False)
+    db.set_session_person("s2", "dylan")  # after: not a backfilled manual tag
+    store.ensure_tables(db)
+    assert people.manual_sessions(db) == {"s1": "ana"}
+
+
+async def test_a_wearer_print_from_another_model_is_replaced(vm: VoiceMemory, db: DB, namer: Namer) -> None:
+    class OtherModel(FakeEmbedder):
+        name = "other-model"
+
+    await enrol(vm)
+    audio, words = conversation(PLAN_B, 4)
+    audio = audio.copy()
+    for voice, start, dur in PLAN_B:  # the wearer is louder, so bootstrapping has a pick
+        if voice == "me":
+            i = int((start + PRE_ROLL) * SAMPLE_RATE)
+            audio[i:i + int(dur * SAMPLE_RATE)] *= 3.0
+    write_session(db, "s1", audio, stored_turns(words))
+    store.save_words(db, "s1", words)
+    other = VoiceMemory(db, enabled=True, embedder_factory=OtherModel, namer=namer)
+    await other.process("s1", wait_s=0)
+    row = store.wearer(db)
+    assert row is not None and row.model == "other-model" and row.wearer_state == "provisional"
+
+
+async def test_reprocess_uses_the_coachs_filler_words(db: DB, namer: Namer, monkeypatch: pytest.MonkeyPatch) -> None:
+    vm = VoiceMemory(db, enabled=True, embedder_factory=FakeEmbedder, namer=namer, filler_words=lambda: ["um"])
+    seen: list[list[str]] = []
+
+    async def spy(sid, filler_words=(), **kw):  # type: ignore[no-untyped-def]
+        seen.append(list(filler_words))
+
+    monkeypatch.setattr(vm, "process", spy)
+    await vm._process_all(["s1"])
+    assert seen == [["um"]]
+
+
+async def test_manual_tag_joins_the_persons_existing_voice(client: TestClient, vm: VoiceMemory, db: DB) -> None:
+    await enrol(vm)
+    add(db, "s1", PLAN_A)
+    add(db, "s3", PLAN_C, seed=2)
+    await vm.process("s1", wait_s=0)
+    client.post("/sessions/s1/person", json={"name": "Priya"})
+    await vm.process("s3", wait_s=0)  # a new unknown voice
+    assert len(store.list_voices(db)) == 2
+    client.post("/sessions/s3/person", json={"name": "Priya"})
+    voices = store.list_voices(db)
+    assert len(voices) == 1 and voices[0].person_id == "priya"
+    assert db.get_session("s3")["person_id"] == "priya"  # type: ignore[index]
+
+
+async def test_manual_tag_is_kept_with_voice_memory_off(db: DB, namer: Namer) -> None:
+    from backend.voices import people
+
+    off = VoiceMemory(db, enabled=False, embedder_factory=FakeEmbedder, namer=namer)
+    app = FastAPI()
+    app.include_router(growth_router)
+    state = AppState(bus=Bus(), db=db, active_coach=default_coach())
+    state.voices = off  # type: ignore[attr-defined]
+    app.state.app = state
+    add(db, "s1", PLAN_A, with_words=False)
+    assert TestClient(app).post("/sessions/s1/person", json={"name": "Ana"}).status_code == 200
+    assert people.manual_sessions(db) == {"s1": "ana"}

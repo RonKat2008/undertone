@@ -27,8 +27,10 @@ def display_name(db: DB, row: VoiceRow) -> str:
     return row.name or people.person_name(db, row.person_id) or people.unknown_name(row.number or 0)
 
 
-def _link(db: DB, row: VoiceRow, name: str) -> VoiceRow:
-    pid = people.ensure_person(db, name)
+def _link(db: DB, row: VoiceRow, name: str, person_id: str | None = None) -> VoiceRow:
+    """Name a voice and move it (and its auto-tagged conversations) to a person: person_id when
+    given (a manual tag names the exact person), else slugify(name)."""
+    pid = person_id or people.ensure_person(db, name)
     old = row.person_id
     linked = replace(row, name=name.strip(), person_id=pid)
     store.save_voice(db, linked)
@@ -116,14 +118,21 @@ def on_manual_tag(db: DB, session_id: str, person_id: str, cfg: VoiceConfig) -> 
     s = max(others, key=lambda s: s.seconds)
     row = store.get_voice(db, s.voice_id)
     name = people.person_name(db, person_id) or person_id
-    if row is not None and (row.person_id == person_id or people.is_unknown(row.person_id)):
-        if row.person_id != person_id:
-            _link(db, row, name)
+    target = next((v for v in store.list_voices(db) if v.person_id == person_id and v.voice_id != s.voice_id), None)
+    if row is not None and row.person_id == person_id:
+        store.update_sighting(db, session_id, s.voice_id, s.voice_id, "manual")
+        return s.voice_id
+    if row is not None and people.is_unknown(row.person_id):
+        if target is not None and target.model == row.model:  # the person already has a voice: one voice
+            merged = merge_voices(db, target.voice_id, row.voice_id, cfg)
+            store.update_sighting(db, session_id, merged.voice_id, merged.voice_id, "manual")
+            store.resolve_conflicts(db, merged.voice_id)
+            return merged.voice_id
+        _link(db, row, name, person_id)
         store.update_sighting(db, session_id, s.voice_id, s.voice_id, "manual")
         return s.voice_id
     if row is not None:
         _detach(db, row, session_id, cfg)
-    target = next((v for v in store.list_voices(db) if v.person_id == person_id), None)
     model = row.model if row is not None else (target.model if target is not None else "unknown")
     voice_id = _attach_sample(db, target, s, person_id, name, model, cfg)
     store.update_sighting(db, session_id, s.voice_id, voice_id, "manual")

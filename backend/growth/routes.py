@@ -67,26 +67,26 @@ def people(st: AppState = Depends(get_app_state)) -> list[Person]:
 
 
 @router.post("/sessions/{session_id}/person", response_model=Person)
-def tag_person(session_id: str, body: TagPerson, st: AppState = Depends(get_app_state)) -> Person:
+async def tag_person(session_id: str, body: TagPerson, st: AppState = Depends(get_app_state)) -> Person:
     try:
         person = _people.tag_session(st.db, session_id, body.name, body.person_id)
     except LookupError as exc:
         raise HTTPException(404, f"session {session_id} not found") from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    _teach_voice(st, session_id, person.person_id)
+    await _teach_voice(st, session_id, person.person_id)
     return person
 
 
-def _teach_voice(st: AppState, session_id: str, person_id: str) -> None:
-    """A manual tag also attaches that conversation's other voice to the person. Never raises."""
+async def _teach_voice(st: AppState, session_id: str, person_id: str) -> None:
+    """Record the tag as manual (it always wins over voice tags, even with VOICE_MEMORY=0), then
+    attach that conversation's other voice to the person. Never raises."""
     try:
-        from backend.voices.naming import on_manual_tag
+        from backend.voices.people import record_manual
         from backend.voices.service import voice_memory
 
-        vm = voice_memory(st)
-        if vm.enabled:
-            on_manual_tag(st.db, session_id, person_id, vm.cfg)
+        record_manual(st.db, session_id, person_id)
+        await voice_memory(st).manual_tag(session_id, person_id)
     except Exception:  # noqa: BLE001 - the tag itself is already stored
         log.exception("voice memory: manual tag of %s not applied to voices", session_id)
 

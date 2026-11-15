@@ -135,6 +135,12 @@ def remember_wearer(db: DB, session_id: str, clusters: Sequence[SpeakerCluster],
     so one wrong guess cannot drift it toward somebody else."""
     picked = [c for c in clusters if c.index in decision.clusters and c.seconds >= cfg.min_print_s]
     row = store.wearer(db)
+    if row is not None and row.model != model:
+        # A print from another model cannot be compared with this one: bootstrap again (re-enrol
+        # to skip that). The old print is replaced by a provisional one below.
+        log.warning("voice memory: the wearer print is from model %s, not %s; re-enrol for best results",
+                    row.model, model)
+        row = None
     if not picked or (row is not None and not decision.matched):
         return False
     biggest = max(picked, key=lambda c: c.seconds)
@@ -185,8 +191,25 @@ def _create_voice(db: DB, session_id: str, c: SpeakerCluster, model: str, heard_
     return voice_id
 
 
+def _drop_voice_tag(db: DB, session_id: str) -> None:
+    """Untag a conversation when its tag is the person of a voice heard in it (voice memory set it)
+    and the user did not tag it by hand; the rerun tags it again if the voice still matches."""
+    if session_id in people.manual_sessions(db):
+        return
+    row = db.get_session(session_id)
+    current = row.get("person_id") if row else None
+    heard = {v.person_id for s in store.sightings_for_session(db, session_id) if s.voice_id
+             for v in [store.get_voice(db, s.voice_id)] if v is not None}
+    if current and current in heard:
+        db.set_session_person(session_id, None)
+
+
 def undo_session(db: DB, session_id: str, cfg: VoiceConfig) -> None:
-    """Take one conversation's samples back out of every voiceprint (before a rerun)."""
+    """Take one conversation's samples back out of every voiceprint (before a rerun), and drop a
+    tag that voice memory set (a manual tag stays).
+
+    Limitation: an exemplar this conversation evicted from a capped print is not restored."""
+    _drop_voice_tag(db, session_id)
     for row in store.list_voices(db, include_wearer=True):
         if not any(e.session_id == session_id for e in row.voiceprint.exemplars):
             continue
