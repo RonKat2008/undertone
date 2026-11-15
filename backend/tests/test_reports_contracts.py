@@ -31,6 +31,8 @@ def _ts_union(name: str) -> set[str]:
 def _ts_report_interfaces() -> set[str]:
     src = EVENTS_TS.read_text()
     section = src[src.index("// ---------- REST payloads: reports"):]
+    following = section.find("\n// ---------- ", 1)  # blocks appended after reports are not reports
+    section = section if following < 0 else section[:following]
     return set(re.findall(r"export interface (\w+) \{", section))
 
 

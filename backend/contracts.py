@@ -1069,3 +1069,57 @@ class TurnContext(Model):
     motion_summary: str = ""
     recent_turns: list[TurnFinalEvent] = Field(default_factory=list)
 
+
+# ---------- REST: day recap (GET /reports/day, POST /reports/day/refresh) ----------
+# Wire types (mirrored in contracts/events.ts, "day recap" block). Appended here, after INTERNAL,
+# so parallel additions to this file do not collide. The day is the wearer's LOCAL calendar day.
+DayRecapSource = Literal["gemini", "rules"]
+
+
+class DayRecapItem(Model):
+    """One plain sentence about the day, optionally tied to a person, a topic and a conversation."""
+
+    text: str
+    person_id: str | None = None
+    person_name: str | None = None
+    topic_id: str | None = None  # topic slug, as in GET /graph ("topic:<slug>" there)
+    topic_label: str | None = None
+    session_id: str | None = None  # the conversation to open when the line is tapped
+
+
+class DayGoal(Model):
+    """One simple action for tomorrow."""
+
+    text: str
+    person_id: str | None = None
+    person_name: str | None = None
+
+
+class DayGoalCheck(Model):
+    """Yesterday's goal, judged on this day's conversations. met None = cannot tell honestly."""
+
+    text: str
+    person_id: str | None = None
+    person_name: str | None = None
+    met: bool | None = None
+    note: str  # plain reason, e.g. "You let Alex finish every time." / "You did not talk with Alex."
+    session_id: str | None = None
+
+
+class DayRecap(Model):
+    date: str  # local 'YYYY-MM-DD'
+    timezone: str  # the local zone the day was cut in, e.g. "America/Los_Angeles" or "UTC-08:00"
+    ready: bool
+    reason: str | None = None  # plain, when not ready: what is needed
+    headline: str | None = None
+    went_well: list[DayRecapItem] = Field(default_factory=list)
+    work_on: list[DayRecapItem] = Field(default_factory=list)
+    goals: list[DayGoal] = Field(default_factory=list)
+    yesterday_goals: list[DayGoalCheck] = Field(default_factory=list)
+    conversations: int = 0
+    people: list[str] = Field(default_factory=list)  # names of the people talked with that day
+    generated_by: DayRecapSource = "rules"
+    generated_at: float | None = None  # unix seconds
+
+
+DAY_RECAP_TYPES: tuple[str, ...] = ("DayRecapItem", "DayGoal", "DayGoalCheck", "DayRecap")

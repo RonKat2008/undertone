@@ -839,3 +839,51 @@ export interface PromisesReport {
   done: ReportPromise[];
   graph_focus: GraphFocus;
 }
+
+// ---------- REST payloads: day recap (GET /reports/day?date=YYYY-MM-DD, POST /reports/day/refresh) ----------
+// Appended block. The day is the wearer's LOCAL calendar day (other reports use UTC days). Every text
+// field is one short plain sentence in second person: no ids, no percentages, no jargon.
+// ready=false (with a plain `reason`) when the day has too little to say anything fair.
+
+export type DayRecapSource = 'gemini' | 'rules';
+
+export interface DayRecapItem {
+  text: string;
+  person_id: string | null;
+  person_name: string | null;
+  topic_id: string | null; // topic slug ("topic:<slug>" in GET /graph)
+  topic_label: string | null;
+  session_id: string | null; // the conversation to open when the line is tapped
+}
+
+export interface DayGoal {
+  text: string;
+  person_id: string | null;
+  person_name: string | null;
+}
+
+// Yesterday's goal judged on this day's conversations. met null = cannot tell honestly yet.
+export interface DayGoalCheck {
+  text: string;
+  person_id: string | null;
+  person_name: string | null;
+  met: boolean | null;
+  note: string;
+  session_id: string | null;
+}
+
+export interface DayRecap {
+  date: string; // local 'YYYY-MM-DD'
+  timezone: string; // e.g. 'America/Los_Angeles' or 'UTC-08:00'
+  ready: boolean;
+  reason: string | null; // plain, when not ready: what is needed
+  headline: string | null;
+  went_well: DayRecapItem[]; // 0-3
+  work_on: DayRecapItem[]; // 0-3
+  goals: DayGoal[]; // 0-3, for tomorrow
+  yesterday_goals: DayGoalCheck[];
+  conversations: number;
+  people: string[]; // names
+  generated_by: DayRecapSource;
+  generated_at: number | null; // unix seconds
+}
