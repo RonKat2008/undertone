@@ -1,11 +1,13 @@
 'use client';
 
 /**
- * The conversation's recording, on a plain <audio> element: play/pause, a scrubber that also
- * draws who spoke when, elapsed/total, and 1x/1.5x/2x. Keyboard: space toggles and ← → skip
- * 5 s from anywhere on the page that is not a field or a button; the scrubber is a slider.
+ * The conversation's recording on a plain <audio>: play/pause, a scrubber that shows who spoke
+ * when (you in teal, them in the person hue), the current time and the speed. The scrubber is
+ * a slider (arrows skip 5 s, Page keys 30 s, Home/End). Seek maths lives in lib/conversations/model.
  */
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type PointerEvent, type Ref } from 'react';
+import { Pause, Play, RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type Ref } from 'react';
+import { Button, ICON, SegmentedControl } from '@/components/ui';
 import { clampSeek, clockTime, fractionOf, SPEEDS, timeAtPointer, type Speed } from '@/lib/conversations/model';
 import type { TranscriptTurn } from '@/lib/conversations/types';
 
@@ -26,10 +28,30 @@ interface AudioPlayerProps {
 }
 
 const SKIP_S = 5;
+const SPEED_OPTIONS = SPEEDS.map((s) => ({ value: String(s), label: `${s}×` }));
 
-/** Space and arrows belong to these when they have focus. */
-const OWN_KEYS_SPACE = 'button, a, input, textarea, select, [contenteditable="true"], [role="slider"]';
-const OWN_KEYS_ARROWS = 'input, textarea, select, [contenteditable="true"], [role="slider"], [role="radiogroup"]';
+interface SegmentsProps {
+  turns: readonly TranscriptTurn[];
+  offset: number;
+  total: number | null;
+  className?: string;
+  style?: CSSProperties;
+}
+
+/** Who spoke when: yours along the top in teal, theirs along the bottom in the person hue. */
+function Segments({ turns, offset, total, className, style }: SegmentsProps) {
+  if (!total) return null;
+  return (
+    <span className={`absolute inset-0 ${className ?? ''}`} style={style}>
+      {turns.map((t) => {
+        const left = fractionOf(t.start + offset, total) * 100;
+        const width = Math.max(0.4, fractionOf(t.end + offset, total) * 100 - left);
+        return <span key={t.turn_id} className={`absolute h-[7px] rounded-full ${t.speaker === 'me' ? 'top-[2px] bg-accent' : 'bottom-[2px] bg-person'}`}
+          style={{ left: `${left}%`, width: `${width}%` }} />;
+      })}
+    </span>
+  );
+}
 
 export function AudioPlayer({ src, turns, offset, durationHint, onTime, onPlayingChange, ref }: AudioPlayerProps) {
   const audio = useRef<HTMLAudioElement>(null);
@@ -44,7 +66,7 @@ export function AudioPlayer({ src, turns, offset, durationHint, onTime, onPlayin
 
   const report = useCallback((t: number) => { setTime(t); onTime(t); }, [onTime]);
 
-  // Smooth time while playing (timeupdate only fires about four times a second).
+  // Smooth time while playing (timeupdate fires only about four times a second).
   useEffect(() => {
     if (!playing) return;
     let id = 0;
@@ -68,9 +90,7 @@ export function AudioPlayer({ src, turns, offset, durationHint, onTime, onPlayin
   }, [report, total]);
 
   const play = useCallback(() => {
-    const el = audio.current;
-    if (!el) return;
-    el.play().catch(() => { /* blocked or failed; onError shows the failure */ });
+    audio.current?.play().catch(() => { /* blocked or failed; onError shows a failure */ });
   }, []);
 
   const toggle = useCallback(() => {
@@ -80,22 +100,6 @@ export function AudioPlayer({ src, turns, offset, durationHint, onTime, onPlayin
   }, [play]);
 
   useImperativeHandle(ref, () => ({ playFrom: (t: number) => { seek(t); play(); } }), [seek, play]);
-
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || failed) return;
-      const el = e.target instanceof Element ? e.target : null;
-      if (e.key === ' ' && !el?.closest(OWN_KEYS_SPACE)) {
-        e.preventDefault();
-        toggle();
-      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !el?.closest(OWN_KEYS_ARROWS)) {
-        e.preventDefault();
-        seek((audio.current?.currentTime ?? 0) + (e.key === 'ArrowLeft' ? -SKIP_S : SKIP_S));
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [toggle, seek, failed]);
 
   function onSliderKey(e: KeyboardEvent<HTMLDivElement>) {
     const now = audio.current?.currentTime ?? 0;
@@ -119,36 +123,31 @@ export function AudioPlayer({ src, turns, offset, durationHint, onTime, onPlayin
 
   if (failed) {
     return (
-      <div role="alert" className="border-l-[3px] border-ink py-1 pl-3">
-        <div className="label flex items-center gap-2 !text-ink"><span className="state state-fault" aria-hidden />Recording</div>
-        <p className="mt-1 text-[13px] text-ink-2">The recording could not be loaded. The transcript below is still complete.</p>
-        <button type="button" className="btn btn-sm mt-2" onClick={() => { setFailed(false); audio.current?.load(); }}>Try again</button>
+      <div role="alert" className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-body text-muted">The recording didn’t load. The words below are all still here.</p>
+        <Button size="small" onClick={() => { setFailed(false); audio.current?.load(); }}>
+          <RotateCcw {...ICON} size={16} aria-hidden />Try again
+        </Button>
       </div>
     );
   }
 
   return (
-    <section aria-label="Recording" className="select-none">
+    <div role="group" aria-label="Recording" className="select-none">
       <audio ref={audio} src={src} preload="metadata"
-        onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
         onLoadedMetadata={(e) => { const d = e.currentTarget.duration; setDuration(Number.isFinite(d) ? d : null); e.currentTarget.playbackRate = speed; }}
         onDurationChange={(e) => { const d = e.currentTarget.duration; if (Number.isFinite(d)) setDuration(d); }}
         onTimeUpdate={(e) => { if (!playing) report(e.currentTarget.currentTime); }}
         onError={() => { setPlaying(false); setFailed(true); }} />
 
-      <div className="flex items-center gap-4">
-        <button type="button" onClick={toggle} aria-label={playing ? 'Pause the recording' : 'Play the recording'} aria-keyshortcuts="Space"
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-ink text-paper transition-transform hover:scale-105 active:scale-95">
-          {playing
-            ? <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden><rect x="2" width="3.5" height="14" fill="currentColor" /><rect x="8.5" width="3.5" height="14" fill="currentColor" /></svg>
-            : <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden><path d="M2.5 0l11 7-11 7z" fill="currentColor" /></svg>}
+      <div className="flex items-center gap-3 sm:gap-4">
+        <button type="button" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}
+          className="qi-btn shrink-0 !h-12 !w-12 !rounded-full !p-0" data-variant="primary">
+          {playing ? <Pause {...ICON} size={20} aria-hidden fill="currentColor" /> : <Play {...ICON} size={20} aria-hidden fill="currentColor" className="translate-x-px" />}
         </button>
+
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="flex items-center gap-2"><span className={`state ${playing ? 'state-on' : ''}`} aria-hidden /><span className="num-m" aria-hidden>{clockTime(time)}</span></span>
-            <span className="num text-[12px] text-ink-3" aria-hidden>{total !== null ? clockTime(total) : '–:––'}</span>
-          </div>
           <div
             ref={track}
             role="slider" tabIndex={0} aria-label="Position in the recording"
@@ -158,43 +157,37 @@ export function AudioPlayer({ src, turns, offset, durationHint, onTime, onPlayin
             onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(true); pointerSeek(e); }}
             onPointerMove={(e) => { if (dragging) pointerSeek(e); }}
             onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)}
-            className="group relative mt-2 h-7 cursor-pointer touch-none outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+            className="group relative h-11 cursor-pointer touch-none rounded-control outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            {/* who spoke when: yours above the line, theirs below */}
-            {total ? turns.map((t) => {
-              const left = fractionOf(t.start + offset, total) * 100;
-              const width = Math.max(0.25, (fractionOf(t.end + offset, total) * 100) - left);
-              return <span key={t.turn_id} aria-hidden className={`absolute h-[5px] ${t.speaker === 'me' ? 'top-[7px] bg-ink-2' : 'top-[15px] bg-them'}`} style={{ left: `${left}%`, width: `${width}%` }} />;
-            }) : null}
-            <span aria-hidden className="absolute inset-x-0 top-[13px] h-px bg-rule" />
-            <span aria-hidden className="absolute inset-x-0 top-[12.5px] h-[2px] origin-left bg-ink" style={{ transform: `scaleX(${frac})` }} />
-            {/* The playhead rides a full-width layer moved by transform; the clip keeps that layer from widening the page. */}
-            <span aria-hidden className="pointer-events-none absolute -inset-x-1 inset-y-0 overflow-hidden">
-              <span className="absolute inset-y-0 left-1 right-1" style={{ transform: `translateX(${frac * 100}%)` }}>
-                <span className={`absolute -left-px top-[3px] h-[22px] w-[2px] bg-ink transition-transform group-hover:scale-y-110 ${dragging ? 'scale-y-125' : ''}`} />
+            {/* who spoke when: thin segments, yours above the middle, theirs below */}
+            <span aria-hidden className="absolute inset-x-0 top-1/2 h-[18px] -translate-y-1/2 overflow-hidden rounded-full bg-surface-2">
+              <Segments turns={turns} offset={offset} total={total} className="opacity-35" />
+              {/* the played part lights up: the same segments at full strength, clipped at the playhead */}
+              <Segments turns={turns} offset={offset} total={total} style={{ clipPath: `inset(0 ${(1 - frac) * 100}% 0 0)` }} />
+            </span>
+            {/* the playhead rides a full-width layer moved by transform, clipped so it never widens the page */}
+            <span aria-hidden className="pointer-events-none absolute -inset-x-2 inset-y-0 overflow-hidden">
+              <span className="absolute inset-y-0 left-2 right-2" style={{ transform: `translateX(${frac * 100}%)` }}>
+                <span className={`absolute -left-[2px] top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-fg shadow-[0_0_0_3px_var(--surface)] transition-transform duration-150 ${dragging ? 'scale-y-110' : 'group-hover:scale-y-110'}`} />
               </span>
             </span>
           </div>
+          <div className="flex items-center justify-between gap-3 text-caption text-muted tabular" aria-hidden>
+            <span className="text-fg">{clockTime(time)}</span>
+            <span>{total !== null ? clockTime(total) : ''}</span>
+          </div>
         </div>
-      </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div role="group" aria-label="Playback speed" className="flex">
-          {SPEEDS.map((s, i) => (
-            <button key={s} type="button" aria-pressed={speed === s} onClick={() => setSpeed(s)}
-              className={`btn btn-sm num ${i > 0 ? '-ml-px' : ''} ${i === 0 ? 'rounded-r-none' : i === SPEEDS.length - 1 ? 'rounded-l-none' : 'rounded-none'} ${speed === s ? 'btn-solid' : 'btn-quiet'}`}>
-              {s}×
-            </button>
-          ))}
+        <div className="hidden shrink-0 sm:block">
+          <SegmentedControl label="Playback speed" value={String(speed)} options={SPEED_OPTIONS} onValueChange={(v) => setSpeed(Number(v) as Speed)} />
         </div>
-        <span className="flex items-center gap-3 text-[11px] text-ink-3">
-          <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-3 bg-ink-2" aria-hidden />You</span>
-          <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-3 bg-them" aria-hidden />Them</span>
-        </span>
+        {/* phones: one button that steps through the speeds */}
+        <button type="button" className="qi-btn shrink-0 tabular sm:hidden" data-variant="quiet" data-size="small"
+          aria-label={`Playback speed ${speed} times. Change speed`}
+          onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}>
+          {speed}×
+        </button>
       </div>
-      <p className="label mt-2 !text-ink-3">
-        Space plays or pauses · ← → skip 5 s
-      </p>
-    </section>
+    </div>
   );
 }
