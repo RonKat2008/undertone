@@ -33,6 +33,7 @@ RATE_WARMUP_S = 30.0
 RATE_PATHS = frozenset({("metrics", "fillers_per_min"), ("metrics", "talk_ratio")})
 
 
+DEMO_PACE_CEILING = 1.1  # demo mode: pace limit is at most 10% above the coach's own rule
 DEMO_CONFIDENCE_GATE = 0.5  # judged answers often come back near 0.5; 0.8 silenced them
 
 
@@ -159,7 +160,10 @@ class NudgeEngine:
         base = metrics.baseline_wpm
         if cond.path != WPM_PATH or cond.op not in UPPER_OPS or not base or not isinstance(cond.value, float):
             return cond
-        return replace(cond, value=max(cond.value, base * (1 + self.policy.tolerance)))
+        banded = max(cond.value, base * (1 + self.policy.tolerance))
+        if self._demo:  # demo mode: a high stored baseline cannot push the limit out of reach
+            banded = min(banded, cond.value * DEMO_PACE_CEILING)
+        return replace(cond, value=banded)
 
     def _may_buzz(self, r: _Rule, now: float) -> bool:
         is_success = r.rule.haptic == SUCCESS_HAPTIC
