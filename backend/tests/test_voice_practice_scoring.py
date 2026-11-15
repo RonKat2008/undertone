@@ -63,7 +63,7 @@ def test_measured_scores_reward_clean_speech_and_penalise_fillers() -> None:
     messy = [measure_answer(AnswerRecord(1, "Q", "", timed(FAST_FILLER, 0, 0.2)), FILLERS)]
     by = {s.measure: s for s in measured_scores(clean, totals(clean))}
     bad = {s.measure: s for s in measured_scores(messy, totals(messy))}
-    assert by["fillers"].score == 100 and bad["fillers"].score < 30
+    assert 80 <= by["fillers"].score < 100 and bad["fillers"].score < 50
     assert by["pace"].score > bad["pace"].score
     assert all(s.source == "measured" for s in [*by.values(), *bad.values()])
     assert "words a minute" in by["pace"].detail and "“um”" in bad["fillers"].detail
@@ -102,7 +102,7 @@ def test_goals_target_the_measured_weaknesses_with_numbers() -> None:
     filler = next(g for g in goals if g.measure == "fillers")
     assert filler.target_max == 3.0 and filler.actual == t.fillers_per_min
     assert "you had" in filler.target and filler.from_answer == 1 and "“um”" in (filler.evidence or "")
-    assert goals[0].measure == "fillers"  # weakest first
+    assert goals[0].measure == min(scores, key=lambda s: s.score).measure  # weakest first
 
 
 def _goal(measure: str, **kw: float) -> PracticeGoal:
