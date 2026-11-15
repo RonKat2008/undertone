@@ -2,9 +2,28 @@
 
 A wearable speech coach that listens to your conversations and nudges you, silently, while they happen.
 
-Built at Vexo Hacks 2026.
+Built at Vexo Hacks 2026 by Ronit, Dylan Brown and Ash.
 
-Team: <add names>
+![Live view: real-time transcript, pace, talk share, hands and detections](docs/screenshots/live.jpg)
+
+| Home | Insights map |
+|---|---|
+| ![Home](docs/screenshots/home.jpg) | ![Insights: people, topics, habits and promises](docs/screenshots/insights.jpg) |
+
+| A conversation's debrief | Coach |
+|---|---|
+| ![Debrief with one thing to try, transcript and recording](docs/screenshots/conversation.jpg) | ![Coach page](docs/screenshots/coach.jpg) |
+
+## At a glance
+
+- **Wear it.** A Vexo band on your wrist streams its microphone and motion sensors to your laptop.
+- **Get nudged live.** Deepgram transcribes as you speak, Google Gemini judges each turn, and your
+  phone buzzes silently when you rush, ramble or lean on filler words.
+- **Review afterwards.** Every conversation gets a debrief with one thing to try.
+- **Practise out loud.** A spoken coach (Deepgram Voice Agent) interviews you and gives a score and
+  simple goals.
+- **See the bigger picture.** Voice memory recognises people across conversations and builds a map
+  of the people, topics, habits and promises in your life.
 
 ## The problem
 
@@ -57,6 +76,22 @@ remembers the people you talk with and the habits you are working on.
 - **Build a coach from one sentence** (`POST /coaches/build`): Gemini turns a goal like "I want to
   stop interrupting in meetings" into a validated coach (rules, haptics, judge questions).
 - Prebuilt coaches, a personal coach built from your own habit profile, and a practice mode.
+
+### Practice with your coach
+
+- **Spoken practice** (`/coach/practice` on the website): the coach asks questions out loud through
+  the Deepgram Voice Agent, you answer by microphone, and it replies with short follow-ups.
+- **Score and goals**: measured sub-scores (pace, clarity, conciseness, confidence, getting started)
+  come from your actual words and timings; Gemini judges structure. You get an overall score and a
+  few concrete goals, which the next session checks.
+- **Demo Day coach**: a built-in hackathon-judge coach that asks what you built, who it is for, how
+  it works, what was hardest and what is next.
+
+### Calibration
+
+- **Teach it your voice** (Settings, Calibration): read a short passage for 15 seconds so it knows
+  your voice from other people's, then re-label earlier conversations.
+- **Teach it your hands**: 15 seconds of still, gesturing and fidgeting.
 
 ### Phone app
 
