@@ -1,10 +1,11 @@
 import { Suspense } from 'react';
-import { GraphHome } from '@/components/graph/graph-home';
+import { InsightsHome } from '@/components/insights/insights-home';
+import { ReportSkeleton } from '@/components/insights/shared';
 
 export default function Page() {
   return (
-    <Suspense fallback={<p className="display-m caret pt-16 text-ink-3">Drawing your graph</p>}>
-      <GraphHome />
+    <Suspense fallback={<div className="qi-page pt-8" data-width="wide"><ReportSkeleton /></div>}>
+      <InsightsHome />
     </Suspense>
   );
 }
