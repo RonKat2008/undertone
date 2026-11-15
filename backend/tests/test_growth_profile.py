@@ -118,21 +118,22 @@ def test_profile_recurring_issue_rates_and_trends(db: DB) -> None:
         add(db, i, nudges=tuple(nudges))
     profile = compute_profile(load_sessions(db))
     issues = {r.rule_id: r for r in profile.recurring_issues}
-    assert issues["interrupt"].rate == 2.0
+    # rate = share of sessions where the rule fired at least once (0..1), not fires per session
+    assert issues["interrupt"].rate == 1.0
     assert issues["interrupt"].trend == "better"
     assert issues["interrupt"].label == "Interrupting"
-    assert issues["hedging"].rate == 1.0
+    assert issues["hedging"].rate == 0.5
     assert issues["hedging"].trend == "worse"
     assert issues["long_turn"].rate == 1.0
     assert issues["long_turn"].trend == "same"
-    assert profile.recurring_issues[0].rule_id == "interrupt"
+    assert profile.recurring_issues[0].rule_id == "interrupt"  # ties with long_turn on share; fires more
 
 
 def test_profile_trend_is_same_with_one_session(db: DB) -> None:
     add(db, 1, nudges=(("interrupt", True), ("interrupt", True)))
     profile = compute_profile(load_sessions(db))
     assert profile.recurring_issues[0].trend == "same"
-    assert profile.recurring_issues[0].rate == 2.0
+    assert profile.recurring_issues[0].rate == 1.0
 
 
 def test_rebuild_profile_saves_and_uses_db(db: DB) -> None:

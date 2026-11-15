@@ -79,6 +79,25 @@ def bookmark_snippet(session: SessionState, ts: float, max_chars: int = 240) -> 
     return _trim(snippet, max_chars)
 
 
+def _promise_turn(session: SessionState, event: BookmarkEvent) -> TurnFinalEvent | None:
+    """The wearer turn a promise bookmark quotes. The bookmark is stamped when the judge answers,
+    after that turn ended, so by time alone it often lands on the other person's reply."""
+    if event.source != "promise" or not event.text:
+        return None
+    wanted = " ".join(event.text.split())
+    matches = [t for t in session.turns if t.speaker == "me" and " ".join(t.text.split()) == wanted
+               and t.start <= event.ts + TURN_SLACK_S]
+    return max(matches, key=lambda t: t.end) if matches else None
+
+
+def bookmark_event_snippet(session: SessionState, event: BookmarkEvent, max_chars: int = 240) -> str:
+    """Snippet for a bookmark: a promise quotes its own turn; anything else goes by time."""
+    turn = _promise_turn(session, event)
+    if turn is not None:
+        return _trim(" ".join(turn.text.split()), max_chars)
+    return bookmark_snippet(session, event.ts, max_chars)
+
+
 # ---------- focus ----------
 def focus_label(session: SessionState) -> str:
     """Readable focus habit: the rule id in words ("long_answer" -> "long answer").
@@ -100,7 +119,7 @@ def _review(event: BookmarkEvent, note: BookmarkNote | None, session: SessionSta
     fallback_follow = event.text if event.source == "promise" else None
     what = (note.what_happened.strip() if note else "") or event.text or DEFAULT_WHAT_HAPPENED
     follow = note.follow_up if note and note.follow_up and note.follow_up.strip() else fallback_follow
-    return BookmarkReview(ts=event.ts, source=event.source, snippet=bookmark_snippet(session, event.ts),
+    return BookmarkReview(ts=event.ts, source=event.source, snippet=bookmark_event_snippet(session, event),
                           what_happened=what, follow_up=follow)
 
 
@@ -223,21 +242,24 @@ def _strength(turn: TurnFinalEvent | None, session: SessionState) -> str:
             f'{len(turn.text.split())} words: "{_quote(turn.text, 12)}"')
 
 
-def _one_fix(key: str, me: list[TurnFinalEvent], metrics: Metrics) -> str:
+def _one_fix(key: str, me: list[TurnFinalEvent], metrics: Metrics) -> tuple[str, str]:
+    """(fix, plan key): the if-then plan must match the fix that was actually chosen."""
     if not me:
-        return "You did not take a turn, so the other person carried the whole conversation."
+        return "You did not take a turn, so the other person carried the whole conversation.", key
     if key == "interrupt" and metrics.interruptions:
-        return f"You started speaking before the other person finished, {_plural(metrics.interruptions, 'time')}."
+        return (f"You started speaking before the other person finished, "
+                f"{_plural(metrics.interruptions, 'time')}.", key)
     if key in ("talk", "question") and metrics.questions == 0:
-        return f"You took {_plural(len(me), 'turn')} without asking a question."
+        return f"You took {_plural(len(me), 'turn')} without asking a question.", key
     longest = max(me, key=_secs)
     if key in ANSWER_GROUP and longest.fillers:
         ending = (rules.sentences(longest.text) or [longest.text])[-1]
         words = ending.split()[:14]
         cut = max((i for i, w in enumerate(words[:-1]) if w.endswith(",")), default=len(words) - 1)
         clause = " ".join(words[: cut + 1]).rstrip(",.")
-        return f'Your longest answer ended on "{clause}" instead of one clear point.'
-    return f"Your longest turn ran {_secs(longest)} seconds before you handed the conversation back."
+        return f'Your longest answer ended on "{clause}" instead of one clear point.', key
+    plan = key if key in ANSWER_GROUP else "long_turn"
+    return f"Your longest turn ran {_secs(longest)} seconds before you handed the conversation back.", plan
 
 
 def _vs_last(metrics: Metrics, last: SessionSummary | None) -> str | None:
@@ -269,9 +291,10 @@ def fallback_draft(session: SessionState, metrics: Metrics, last: SessionSummary
     me = [t for t in session.turns if t.speaker == "me"]
     key = _focus_key(session)
     turn = _strength_turn(me)
+    fix, plan = _one_fix(key, me, metrics)
     return DebriefDraft(
         headline_fact=_headline(key, me, metrics), strength=_strength(turn, session),
-        one_fix=_one_fix(key, me, metrics), if_then=IF_THEN.get(key, DEFAULT_IF_THEN),
+        one_fix=fix, if_then=IF_THEN.get(plan, DEFAULT_IF_THEN),
         best_moment_quote=turn.text if turn else "", vs_last_time=_vs_last(metrics, last),
         notes=_notes(session, me, metrics),
     )

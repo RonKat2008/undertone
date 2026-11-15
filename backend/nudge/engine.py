@@ -145,7 +145,9 @@ class NudgeEngine:
                     confidence)
 
     def _effective(self, cond: Condition, metrics: Metrics) -> Condition:
-        """Tolerance band: pace only, never above the rule's own threshold."""
+        """Tolerance band: pace only. The band can raise the rule's threshold, never lower it:
+        threshold = max(rule value, baseline * (1 + tolerance)). Note plan.md 4.5 calls 190 a
+        "hard ceiling as a backup", which would be min(); the tests pin max()."""
         base = metrics.baseline_wpm
         if cond.path != WPM_PATH or cond.op not in UPPER_OPS or not base or not isinstance(cond.value, float):
             return cond

@@ -20,16 +20,27 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def load_events(path: Path) -> list[dict]:
-    events: list[dict] = []
+# The replay owns the session (/session/start and /session/stop); a fixture's own lifecycle
+# events would fight it, so they are skipped.
+SKIP_TYPES = frozenset({"session.started", "session.ended"})
+
+
+def load_events(path: Path) -> list[tuple[float, dict]]:
+    """(at, event) pairs. Lines are flat events with an "at" key, or {"at", "event"} wrapped
+    (the STT=fake scripts and fixtures/sample_conversation.jsonl)."""
+    events: list[tuple[float, dict]] = []
     for n, line in enumerate(path.read_text().splitlines(), 1):
         line = line.strip()
         if not line:
             continue
         try:
-            events.append(json.loads(line))
+            data = json.loads(line)
         except json.JSONDecodeError as exc:
             sys.exit(f"{path}:{n}: invalid JSON: {exc}")
+        at = float(data.get("at", 0.0))
+        event = data["event"] if isinstance(data.get("event"), dict) else {k: v for k, v in data.items() if k != "at"}
+        if event.get("type") not in SKIP_TYPES:
+            events.append((at, event))
     return events
 
 
@@ -59,9 +70,7 @@ def main() -> int:
             return 1
 
         t0 = time.monotonic()
-        for ev in events:
-            at = float(ev.get("at", 0.0))
-            event = {k: v for k, v in ev.items() if k != "at"}
+        for at, event in events:
             delay = t0 + at / args.speed - time.monotonic()
             if delay > 0:
                 time.sleep(delay)

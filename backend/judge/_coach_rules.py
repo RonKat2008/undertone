@@ -21,8 +21,24 @@ def _noul(p: float) -> NoulAnswer:
     return NoulAnswer(p=p, confidence=round(max(p, 1 - p), 3))
 
 
+# "And then?", "Really?", "Next?" ask the wearer to go on; repeating these words is not an echo.
+_CONTINUATION_WORDS = frozenset(
+    "then next after really okay ok right yeah yes no oh huh what else more go on".split()
+)
+
+
 def _content_words(text: str) -> set[str]:
-    return {w.lower() for w in rx.words(text) if w.lower() not in rx.STOPWORDS}
+    return {w.lower() for w in rx.words(text)
+            if w.lower() not in rx.STOPWORDS and w.lower() not in _CONTINUATION_WORDS}
+
+
+def _already_answered(ctx: TurnContext) -> bool:
+    """A wearer turn after the other person's previous turn already replied to it."""
+    prev = ctx.prev_other_turn
+    return prev is not None and any(
+        t.speaker == "me" and t.start >= prev.start and t.turn_id != ctx.turn.turn_id
+        for t in ctx.recent_turns
+    )
 
 
 def _wearer_before(ctx: TurnContext) -> str | None:
@@ -48,6 +64,8 @@ def repair_request(ctx: TurnContext) -> NoulAnswer:
     prev = ctx.prev_other_turn
     if prev is None:
         return _noul(0.03)
+    if _already_answered(ctx):
+        return _noul(_NO_P)
     text = prev.text.strip()
     if rx.REPAIR_BARE.match(text) or rx.REPAIR_PHRASE.search(text):
         return _noul(_YES_P)

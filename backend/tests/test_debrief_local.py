@@ -203,6 +203,29 @@ def test_bookmark_snippet_outside_turns(session: SessionState) -> None:
     assert local.bookmark_snippet(session, -20.0).startswith("Here's the case.")
 
 
+def test_promise_snippet_is_the_promise_turn_not_the_next_one(session: SessionState) -> None:
+    # Live: the promise bookmark is stamped when the judge returns (~0.8 s after t08 ends at 89.4),
+    # which is inside the other person's "Perfect, talk soon." turn (89.9-91.2).
+    promise = BookmarkEvent(source="promise", text=T08, ts=90.238)
+    assert local.bookmark_event_snippet(session, promise) == T08
+    session.bookmarks = [promise]
+    review = local._reviews(session, [])[0]
+    assert review.snippet == T08
+
+
+def test_promise_snippet_unknown_text_falls_back_to_time(session: SessionState) -> None:
+    promise = BookmarkEvent(source="promise", text="never said this", ts=86.0)
+    assert local.bookmark_event_snippet(session, promise) == T08
+
+
+def test_prompt_bookmark_block_uses_promise_turn(session: SessionState) -> None:
+    from backend.debrief.prompt import _bookmark_block
+
+    session.bookmarks = [BookmarkEvent(source="promise", text=T08, ts=90.238)]
+    block = _bookmark_block(session)
+    assert "Around it: Um, got it" in block and "Perfect, talk soon" not in block
+
+
 def test_bookmark_snippet_empty_session() -> None:
     assert local.bookmark_snippet(make_session(with_turns=False), 10.0) == ""
 
@@ -302,6 +325,23 @@ def test_fallback_interview_content(session: SessionState, metrics: Metrics) -> 
     assert "49 seconds" in d.headline_fact
     assert T06 in d.strength
     assert d.if_then.startswith(("When", "If"))
+
+
+def test_fallback_plan_matches_the_fix_when_focus_slip_did_not_happen(metrics: Metrics) -> None:
+    # Listener's focus is "interrupt"; with zero interruptions the fix falls back to the longest
+    # turn, so the if-then plan must be about long turns, not about interrupting.
+    s = make_session("listener")
+    calm = metrics.model_copy(update={"interruptions": 0})
+    d = local.fallback_debrief(s, calm, [], None)
+    assert "longest turn" in d.one_fix
+    assert d.if_then == local.IF_THEN["long_turn"]
+
+
+def test_fallback_plan_is_focus_plan_when_focus_slip_happened(metrics: Metrics) -> None:
+    s = make_session("listener")
+    d = local.fallback_debrief(s, metrics, [], None)  # metrics has 2 interruptions
+    assert "before the other person finished" in d.one_fix
+    assert d.if_then == local.IF_THEN["interrupt"]
 
 
 def test_fallback_empty_session() -> None:

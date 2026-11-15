@@ -316,3 +316,21 @@ def test_routes_list_and_serve_the_hint(client: TestClient) -> None:
     hinted = client.get(f"/coaches/{COACH_ID}.json", params={"first_language_family": "romance"}).json()
     assert plain["questions"]["word_misfit"]["instructions"] != hinted["questions"]["word_misfit"]["instructions"]
     assert client.get(f"/coaches/{COACH_ID}.json", params={"first_language_family": "nope"}).status_code == 422
+
+
+@pytest.mark.parametrize("prev", ["And then?", "So then what?", "Okay, and then?", "Really?", "Next?"])
+def test_continuation_prompt_is_not_a_repair_request(prev: str) -> None:
+    # "then" / "so" etc. in the wearer's earlier turn must not make a "go on" prompt an echo
+    ctx = _ctx(prev, "Then we moved to Berlin.", earlier_me="So then I really left, and next we moved.")
+    assert _p(ctx, "repair_request") < 0.5
+
+
+def test_repair_request_judges_only_the_first_reply() -> None:
+    first = _ctx("Sorry, could you say that again?", "I mean the new office in Berlin.")
+    assert _p(first, "repair_request") >= 0.8
+    # a second wearer turn after the same other turn already answered it: no new repair request
+    reply = first.turn
+    later = TurnFinalEvent(turn_id="m2", speaker="me", text="And it opens in May.", start=10.5, end=12.0, wpm=140)
+    ctx = TurnContext(turn=later, prev_other_turn=first.prev_other_turn,
+                      recent_turns=[*first.recent_turns, reply])
+    assert _p(ctx, "repair_request") < 0.5

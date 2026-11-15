@@ -30,7 +30,8 @@ class ChooseMission(BaseModel):
 
 class TagPerson(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    person_id: str | None = Field(default=None, max_length=80)
+    # ids are slugs (see _people.slugify); anything else (paths, spaces, markup) is refused
+    person_id: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 @router.get("/profile", response_model=HabitProfile)
