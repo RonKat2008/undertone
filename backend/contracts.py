@@ -926,6 +926,120 @@ REPORT_TYPES: tuple[str, ...] = (
 )
 
 
+# ---------- REST + WebSocket payloads: spoken practice with the coach (/ws/practice, /practice/*) ----------
+# The wearer answers the active coach's spoken questions (Deepgram Voice Agent, relayed by the backend).
+# A measure that could not be taken is null or left out, never zero. Mirrored in contracts/events.ts.
+PracticeMeasure = Literal["pace", "fillers", "conciseness", "structure", "confidence", "responsiveness"]
+PracticeScoreSource = Literal["measured", "judged", "rules"]
+PracticeJudge = Literal["gemini", "rules"]
+PracticeSpeaker = Literal["coach", "you", "thinking", "waiting"]
+PracticeErrorCode = Literal["no_key", "agent_refused", "agent_lost", "mic_silent", "busy", "bad_message"]
+
+
+class PracticeAnswer(Model):
+    index: int  # 1-based, in the order the questions were asked
+    question: str
+    text: str
+    words: int
+    speaking_s: float | None = None  # first word to last word, from word timings
+    wpm: float | None = None
+    fillers: list[str] = Field(default_factory=list)  # each filler as heard, in order
+    fillers_per_min: float | None = None
+    hedges: list[str] = Field(default_factory=list)
+    long_pauses: int | None = None  # gaps of 2 s or more between words
+    time_to_start_s: float | None = None  # coach audio finished (in the browser) -> first word
+
+
+class PracticeTotals(Model):
+    answers: int
+    words: int
+    speaking_s: float | None = None
+    wpm: float | None = None
+    filler_count: int
+    fillers_per_min: float | None = None
+    top_fillers: list[str] = Field(default_factory=list)
+    hedges: int
+    long_pauses: int | None = None
+    mean_answer_s: float | None = None
+    mean_time_to_start_s: float | None = None
+
+
+class PracticeSubScore(Model):
+    measure: PracticeMeasure
+    label: str
+    score: int  # 0-100
+    source: PracticeScoreSource  # measured from numbers, judged by Gemini, or a rule-based estimate
+    detail: str  # plain words, e.g. "148 words a minute"
+
+
+class PracticeStrength(Model):
+    title: str
+    detail: str
+    from_answer: int | None = None
+
+
+class PracticeGoal(Model):
+    measure: PracticeMeasure
+    title: str  # e.g. "Fewer filler words"
+    target: str  # e.g. "Under 3 filler words a minute; you had 7"
+    target_min: float | None = None  # numeric target, when the measure is a number
+    target_max: float | None = None
+    unit: str | None = None  # e.g. "filler words a minute"
+    actual: float | None = None  # this session's value of the measure
+    from_answer: int | None = None
+    evidence: str | None = None  # a short quote or number from that answer
+
+
+class PracticeGoalCheck(Model):
+    goal: PracticeGoal  # the goal as set last time
+    now: float | None = None  # this session's value of the same measure
+    met: bool | None = None  # null: could not be measured this time
+    detail: str
+
+
+class PracticeResult(Model):
+    id: str
+    coach_id: str
+    coach_name: str
+    started_at: str  # ISO 8601
+    duration_s: float
+    overall: int  # 0-100
+    summary: str
+    sub_scores: list[PracticeSubScore]
+    strengths: list[PracticeStrength]
+    goals: list[PracticeGoal]
+    previous_goals: list[PracticeGoalCheck] = Field(default_factory=list)
+    answers: list[PracticeAnswer]
+    totals: PracticeTotals
+    judged_by: PracticeJudge
+    ended_early: bool = False
+
+
+class PracticeResultSummary(Model):
+    id: str
+    coach_name: str
+    started_at: str
+    duration_s: float
+    overall: int
+    answers: int
+    goals_met: int | None = None  # earlier goals met this time; null when there were none
+    goals_checked: int = 0
+
+
+class PracticeGoals(Model):
+    result_id: str | None = None
+    started_at: str | None = None
+    coach_name: str | None = None
+    overall: int | None = None
+    goals: list[PracticeGoal] = Field(default_factory=list)
+
+
+PRACTICE_TYPES: tuple[str, ...] = (
+    "PracticeAnswer", "PracticeTotals", "PracticeSubScore", "PracticeStrength", "PracticeGoal",
+    "PracticeGoalCheck", "PracticeResult", "PracticeResultSummary", "PracticeGoals",
+)
+
+
 # ---------- INTERNAL (not on the wire) ----------
 class MotionSnapshot(Model):
     """Current body state, built by brain.py from motion events, for the nudge engine.
@@ -954,3 +1068,4 @@ class TurnContext(Model):
     prev_other_turn: TurnFinalEvent | None = None
     motion_summary: str = ""
     recent_turns: list[TurnFinalEvent] = Field(default_factory=list)
+
