@@ -1,0 +1,51 @@
+/* Settings page only. Values come from the Lamplight tokens (app/globals.css). */
+
+.settings-layout { display: grid; gap: var(--gap-section); }
+.settings-main { display: grid; gap: var(--gap-section); min-width: 0; max-width: var(--col-reading); }
+.settings-block { scroll-margin-top: 96px; min-width: 0; }
+
+/* the quiet section list at the side, wide screens only */
+.settings-nav { display: none; }
+@media (min-width: 1024px) {
+  .settings-layout { grid-template-columns: 184px minmax(0, 1fr); gap: 48px; }
+  .settings-nav { display: block; position: sticky; top: 96px; align-self: start; }
+}
+.settings-nav ul { display: grid; gap: 2px; }
+.settings-nav a {
+  position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px;
+  border-radius: var(--radius-control); color: var(--muted); font-size: var(--fs-body); text-decoration: none;
+  transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+.settings-nav a::before {
+  content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--accent);
+  transform: scaleY(0); opacity: 0; transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-fast) ease;
+}
+.settings-nav a[aria-current] { color: var(--text); background: var(--hover); }
+.settings-nav a[aria-current]::before { transform: scaleY(1); opacity: 1; }
+.settings-nav a[aria-current] svg { color: var(--accent); }
+.settings-nav a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .settings-nav a:hover { color: var(--text); background: var(--hover); } }
+
+/* phone: the icon tile carries the state's colour */
+.settings-phone-icon { background: var(--surface-2); color: var(--muted); }
+.settings-phone-icon[data-state="connected"] { background: var(--accent-wash); color: var(--accent); }
+.settings-phone-icon[data-state="paired"] { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }
+
+/* band battery: a small meter, filled by transform */
+.settings-battery { display: block; width: 100%; max-width: 160px; height: 6px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.settings-battery > span { display: block; height: 100%; border-radius: 6px; background: var(--kind-habit); transform-origin: left center; }
+.settings-battery[data-tone="low"] > span { background: var(--warn); }
+.settings-battery[data-tone="empty"] > span { background: var(--danger); }
+
+/* calibration: one bar per phase */
+.settings-phase-bar { height: 8px; border-radius: 8px; background: var(--surface-2); overflow: hidden; }
+.settings-phase-bar > span { display: block; height: 100%; border-radius: 8px; background: var(--accent); transform-origin: left center; transform: scaleX(0); }
+.settings-phase-bar[data-state="done"] > span { transform: scaleX(1); opacity: 0.55; }
+@media (prefers-reduced-motion: reduce) { .settings-phase-bar[data-state="now"] > span { transform: scaleX(1); opacity: 0.8; } }
+
+/* test buzzes: hairlines between rows only */
+.settings-buzz-list > li + li { border-top: 1px solid var(--line); }
+
+/* connected apps: a lettered tile, amber while it waits for you, teal once allowed */
+.settings-app-tile { background: var(--accent-wash); color: var(--accent); }
+.settings-app-tile[data-pending] { background: var(--coach-wash); color: var(--coach); }
