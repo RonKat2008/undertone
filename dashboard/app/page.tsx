@@ -1,10 +1,6 @@
-import { Suspense } from 'react';
-import { GraphHome } from '@/components/graph/graph-home';
+import { HomePage } from '@/components/home/home-page';
 
+/** Home: a living hero and a few calm sections from the wearer's own data. The graph lives at /insights. */
 export default function Page() {
-  return (
-    <Suspense fallback={<p className="serif pt-16 text-[32px] text-ink-3">Drawing your graph…</p>}>
-      <GraphHome />
-    </Suspense>
-  );
+  return <HomePage />;
 }

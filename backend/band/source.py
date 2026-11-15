@@ -13,6 +13,10 @@ Transports:
   sim         the kit's pretend band. Audio is silence unless SIM_WAV=path/to/16k-mono.wav,
               which is then played in real time while the mic is on. Taps: keyboard.
   laptop-mic  no band. Laptop microphone for audio, keyboard for taps (d = double, s = single).
+  file        no band. BAND_AUDIO_FILE=path/to/16k-mono.wav is the microphone: 20 ms frames
+              into the same PCM path as band packets, in real time while the mic is on,
+              silence after the end. BAND_FILE_OPUS=1 first runs each frame through the
+              band's Opus codec and the kit decoder. Taps: keyboard or /band/tap.
 
 BAND_AUDIO=laptop with ble or serial: the band still gives taps and motion, but audio comes
 from the laptop microphone (plan.md section 10: the fallback when venue Bluetooth drops audio).
@@ -37,12 +41,13 @@ import wave
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, Union
 
+from ..config import _flag
 from .audio import CHUNK_BYTES, CHUNK_S, SAMPLE_RATE, Chunker, LoudnessTimeline, rms_db
 
 log = logging.getLogger("undertone.band")
 
 Emit = Callable[[dict], Union[None, Awaitable[None]]]
-TRANSPORTS = ("ble", "serial", "sim", "laptop-mic")
+TRANSPORTS = ("ble", "serial", "sim", "laptop-mic", "file")
 
 
 @dataclass
@@ -67,7 +72,8 @@ async def _call(emit: Optional[Emit], event: dict) -> None:
 class BandSource:
     def __init__(self, transport: str = "sim", number: int = 13, emit: Optional[Emit] = None,
                  sim_wav: Optional[str] = None, keyboard: Optional[bool] = None,
-                 audio_source: str = "band") -> None:
+                 audio_source: str = "band", audio_file: Optional[str] = None,
+                 file_opus: bool = False) -> None:
         if transport not in TRANSPORTS:
             raise ValueError("BAND_TRANSPORT must be one of %s, got %r" % (TRANSPORTS, transport))
         self.transport = transport
@@ -78,6 +84,11 @@ class BandSource:
         if audio_source not in ("band", "laptop"):
             raise ValueError("BAND_AUDIO must be band or laptop, got %r" % (audio_source,))
         self.audio_source = "laptop" if transport == "laptop-mic" else audio_source
+        if transport == "file" and not audio_file:
+            raise ValueError("BAND_TRANSPORT=file needs BAND_AUDIO_FILE=path/to/16k-mono.wav")
+        self.audio_file = audio_file
+        self.file_opus = file_opus
+        self.file_done = asyncio.Event()  # set when the file has been played to its end
         self.pcm_q: asyncio.Queue = asyncio.Queue(maxsize=500)      # ~40 s of audio
         self.motion_q: asyncio.Queue = asyncio.Queue(maxsize=2000)  # ~20 s at 100 Hz
         self.tap_q: asyncio.Queue = asyncio.Queue()
@@ -88,6 +99,11 @@ class BandSource:
         self.mic_on = False
         self.battery_pct: Optional[int] = None
         self.dropped_chunks = 0
+        # health (backend/listening.py): is audio arriving? times are time.monotonic()
+        self.last_chunk_at: Optional[float] = None
+        self.mic_on_since: Optional[float] = None
+        self.chunks_received = 0
+        self.decode_errors = 0
         # optional: every 80 ms chunk with its end time on the audio clock (the recorder uses it)
         self.chunk_tap: Optional[Callable[[bytes, float], None]] = None
         self._decoder = None
@@ -105,7 +121,17 @@ class BandSource:
                    number=int(os.getenv("VEXO_BAND_NUMBER") or 13), emit=emit,
                    sim_wav=os.getenv("SIM_WAV") or None,
                    audio_source=(os.getenv("BAND_AUDIO") or "band").strip().lower(),
-                   keyboard=None if os.getenv("KEYBOARD_TAPS") is None else os.getenv("KEYBOARD_TAPS") == "1")
+                   audio_file=os.getenv("BAND_AUDIO_FILE") or None,
+                   file_opus=_flag("BAND_FILE_OPUS"),
+                   keyboard=None if os.getenv("KEYBOARD_TAPS") is None else _flag("KEYBOARD_TAPS"))
+
+    @property
+    def decoder_ok(self) -> bool:
+        """False when band audio is expected but cannot be decoded (it becomes silence)."""
+        if self.audio_source == "laptop" or self.transport in ("laptop-mic", "file") \
+                or (self.transport == "sim" and self.sim_wav):
+            return True
+        return self.band is None or self._decoder is not None
 
     # ---------- clock ----------
 
@@ -132,11 +158,11 @@ class BandSource:
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
-        if self.transport == "laptop-mic":
+        if self.transport in ("laptop-mic", "file"):
             self.connected = True
         else:
             await self._connect_band()
-        if self.keyboard and self.transport in ("sim", "laptop-mic"):
+        if self.keyboard and self.transport in ("sim", "laptop-mic", "file"):
             threading.Thread(target=self._keyboard_thread, daemon=True).start()
             log.info("keyboard taps on: type d + Enter = double-tap, s + Enter = single tap")
         await self._status()
@@ -201,9 +227,9 @@ class BandSource:
         """Mic on = session running. On the real band this also locks the LED solid blue."""
         if on == self.mic_on:
             return
-        self.mic_on = on
         if self.audio_source == "laptop":
-            self._laptop_mic(on)
+            self._laptop_mic(on)  # raises if the laptop mic cannot open: mic_on stays as it was
+            self._set_mic(on)
             if self.band is not None:  # band kept for taps and motion: show "listening" by hand
                 try:
                     if on:
@@ -212,11 +238,28 @@ class BandSource:
                         await self.band.led_off()
                 except Exception as e:  # noqa: BLE001
                     log.warning("band LED: %s", e)
+        elif self.transport == "file":
+            self._set_mic(on)
+            if on:
+                self.file_done.clear()
+                self._tasks.append(asyncio.create_task(self._play_file()))
         elif self.band is not None:
-            await self.band.configure(audio=on)
+            try:
+                await self.band.configure(audio=on)
+            except Exception as e:  # noqa: BLE001 - e.g. Bluetooth dropped mid-write
+                if on:
+                    raise
+                log.warning("turning the band mic off failed (%s); treating it as off", type(e).__name__)
+            self._set_mic(on)
             if on and self.transport == "sim" and self.sim_wav:
                 self._tasks.append(asyncio.create_task(self._play_wav(self.sim_wav)))
+        else:
+            self._set_mic(on)
         await self._status()
+
+    def _set_mic(self, on: bool) -> None:
+        self.mic_on = on
+        self.mic_on_since = time.monotonic() if on else None
 
     # ---------- band handlers (short: push and return) ----------
 
@@ -234,7 +277,13 @@ class BandSource:
     def _on_audio(self, a) -> None:
         if not self.mic_on or self.audio_source == "laptop" or (self.transport == "sim" and self.sim_wav):
             return
-        pcm = self._decoder.feed(a) if self._decoder is not None else b"\x00" * 640
+        try:
+            pcm = self._decoder.feed(a) if self._decoder is not None else b"\x00" * 640
+        except Exception as e:  # noqa: BLE001 - one bad packet must not kill the audio path
+            self.decode_errors += 1
+            if self.decode_errors in (1, 100) or self.decode_errors % 1000 == 0:
+                log.warning("band audio decode failed (%d so far): %s", self.decode_errors, type(e).__name__)
+            return
         self._push_pcm(pcm)
 
     def _on_battery(self, e) -> None:
@@ -263,6 +312,8 @@ class BandSource:
 
     def _push_pcm(self, pcm: bytes) -> None:
         for chunk in self.chunker.feed(pcm):
+            self.last_chunk_at = time.monotonic()
+            self.chunks_received += 1
             self.loudness.add(self.chunker.seconds, rms_db(chunk))
             if self.chunk_tap is not None:
                 try:
@@ -274,6 +325,9 @@ class BandSource:
                 self.pcm_q.put_nowait(chunk)
             except asyncio.QueueFull:
                 self.dropped_chunks += 1
+                if self.dropped_chunks == 1 or self.dropped_chunks % 100 == 0:
+                    log.warning("audio queue full: %d chunks dropped (speech-to-text is not keeping up)",
+                                self.dropped_chunks)
 
     async def _play_wav(self, path: str) -> None:
         """sim + SIM_WAV: play a 16 kHz mono 16-bit wav in real time while the mic is on."""
@@ -292,6 +346,27 @@ class BandSource:
                 self._push_pcm(data)
                 n += 1
                 await asyncio.sleep(max(0.0, start + n * CHUNK_S - time.monotonic()))
+
+    async def _play_file(self) -> None:
+        """file transport: 20 ms frames of BAND_AUDIO_FILE in real time, then silence."""
+        from .file_audio import FRAME_BYTES, FRAME_S, make_frame_filter, wav_frames
+        try:
+            frames = wav_frames(self.audio_file)
+            codec = make_frame_filter(self.file_opus)
+        except Exception as e:  # noqa: BLE001
+            log.error("BAND_AUDIO_FILE: %s", e)
+            self.file_done.set()
+            return
+        start = time.monotonic()
+        n = 0
+        while self.mic_on:
+            frame = next(frames, None)
+            if frame is None:
+                self.file_done.set()
+                frame = b"\x00" * FRAME_BYTES  # past the end: the band keeps sending (quiet) audio
+            self._push_pcm(codec(frame) if codec is not None else frame)
+            n += 1
+            await asyncio.sleep(max(0.0, start + n * FRAME_S - time.monotonic()))
 
     def _laptop_mic(self, on: bool) -> None:
         if not on:

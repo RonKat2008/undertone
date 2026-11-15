@@ -1,0 +1,153 @@
+{
+  "source_script": "fixtures/demo_session.jsonl",
+  "wav": "demo_two_speakers.wav",
+  "sample_rate": 16000,
+  "duration_s": 90.45,
+  "wearer": "me",
+  "voices": {
+    "me": "aura-2-thalia-en",
+    "other": "aura-2-orion-en"
+  },
+  "other_level_db": -10.0,
+  "filler_list": [
+    "um",
+    "uh",
+    "uhm",
+    "erm",
+    "hmm",
+    "you know",
+    "i mean",
+    "basically",
+    "literally",
+    "kind of",
+    "sort of",
+    "so yeah"
+  ],
+  "turns": [
+    {
+      "turn": 1,
+      "speaker": "other",
+      "voice": "aura-2-orion-en",
+      "text": "Here's the case. Our client is a regional coffee chain with about eighty stores. Profits fell twenty percent over two years. How would you approach figuring out why?",
+      "start": 0.6,
+      "end": 10.29,
+      "words": 28,
+      "wpm": 173.4,
+      "fillers": [],
+      "level_db": -30.0
+    },
+    {
+      "turn": 2,
+      "speaker": "me",
+      "voice": "aura-2-thalia-en",
+      "text": "Um, okay. Is that drop across all stores, or just a few?",
+      "start": 10.99,
+      "end": 14.65,
+      "words": 12,
+      "wpm": 196.7,
+      "fillers": [
+        "um"
+      ],
+      "level_db": -20.0
+    },
+    {
+      "turn": 3,
+      "speaker": "other",
+      "voice": "aura-2-orion-en",
+      "text": "Most stores are down, fairly evenly. And the second thing I'd want\u2014",
+      "start": 15.25,
+      "end": 20.12,
+      "words": 12,
+      "wpm": 147.8,
+      "fillers": [],
+      "level_db": -30.0
+    },
+    {
+      "turn": 4,
+      "speaker": "me",
+      "voice": "aura-2-thalia-en",
+      "text": "Yeah, so, um, I think maybe I'd split profit into revenue and costs. On revenue, you know, it could possibly be fewer customers or, um, sort of smaller tickets per visit, I'm not totally sure but I'd want traffic by store. Then on costs, like, bean prices have kind of gone up a lot, and labor too, and basically margins are getting squeezed. Um, I think maybe there's also, you know, competition from the big chains opening nearby, which could sort of pull people away. And, like, I'd check whether the newer stores are, um, kind of underperforming. I think maybe I'd start with revenue, but I'm not totally sure, it could possibly be costs, like, basically both.",
+      "start": 19.42,
+      "end": 66.7,
+      "words": 118,
+      "wpm": 149.7,
+      "fillers": [
+        "um",
+        "you know",
+        "um",
+        "sort of",
+        "kind of",
+        "basically",
+        "um",
+        "you know",
+        "sort of",
+        "um",
+        "kind of",
+        "basically"
+      ],
+      "level_db": -20.0
+    },
+    {
+      "turn": 5,
+      "speaker": "other",
+      "voice": "aura-2-orion-en",
+      "text": "Okay, let me stop you there. Pick one branch.",
+      "start": 67.2,
+      "end": 69.95,
+      "words": 9,
+      "wpm": 196.4,
+      "fillers": [],
+      "level_db": -30.0
+    },
+    {
+      "turn": 6,
+      "speaker": "me",
+      "voice": "aura-2-thalia-en",
+      "text": "Revenue first. How does the client define success for this turnaround?",
+      "start": 70.75,
+      "end": 75.18,
+      "words": 11,
+      "wpm": 149.0,
+      "fillers": [],
+      "level_db": -20.0
+    },
+    {
+      "turn": 7,
+      "speaker": "other",
+      "voice": "aura-2-orion-en",
+      "text": "Margins back to where they were within eighteen months, with no store closures.",
+      "start": 75.78,
+      "end": 80.65,
+      "words": 13,
+      "wpm": 160.2,
+      "fillers": [],
+      "level_db": -30.0
+    },
+    {
+      "turn": 8,
+      "speaker": "me",
+      "voice": "aura-2-thalia-en",
+      "text": "Um, got it, that helps. I'll send you the deck tonight with the full framework.",
+      "start": 81.35,
+      "end": 87.28,
+      "words": 15,
+      "wpm": 151.8,
+      "fillers": [
+        "um"
+      ],
+      "level_db": -20.0
+    },
+    {
+      "turn": 9,
+      "speaker": "other",
+      "voice": "aura-2-orion-en",
+      "text": "Perfect, talk soon.",
+      "start": 87.78,
+      "end": 89.45,
+      "words": 3,
+      "wpm": 107.8,
+      "fillers": [],
+      "level_db": -30.0
+    }
+  ]
+}

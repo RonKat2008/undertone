@@ -1,0 +1,172 @@
+/* ==========================================================================
+   LEGACY ALIASES (Tempo -> Lamplight). Temporary.
+
+   The pages that predate Lamplight still use the Tempo names below. Each name
+   now points at a Lamplight token so those pages compile and look calm until
+   they are rebuilt from components/ui. Nothing new may use anything in this
+   file. When a page is rebuilt, remove the names it used; when nothing uses a
+   name (grep app/ components/), delete it here. Delete the file at the end.
+   The music-notation hues are gone: every pattern hue resolves to the accent,
+   because a nudge is "your moment".
+   ========================================================================== */
+
+:root {
+  --paper: var(--bg);
+  --well: var(--surface);
+  --ink: var(--text);
+  --ink-2: var(--muted);
+  --ink-3: var(--muted);
+  --rule: var(--line);
+  --rule-strong: var(--line-strong);
+  --them: var(--muted);
+
+  --vermilion: var(--accent); --vermilion-text: var(--accent); --vermilion-tint: var(--accent-wash);
+  --ochre: var(--accent); --ochre-text: var(--accent); --ochre-tint: var(--accent-wash);
+  --green: var(--accent); --green-text: var(--accent); --green-tint: var(--accent-wash);
+  --teal: var(--accent); --teal-text: var(--accent); --teal-tint: var(--accent-wash);
+  --blue: var(--accent); --blue-text: var(--accent); --blue-tint: var(--accent-wash);
+  --violet: var(--accent); --violet-text: var(--accent); --violet-tint: var(--accent-wash);
+  --pencil: var(--muted); --pencil-text: var(--muted); --pencil-tint: var(--surface);
+  --rose: var(--muted); --rose-text: var(--muted); --rose-tint: var(--surface);
+
+  --state-on: var(--text);
+  --state-off: var(--muted);
+  --state-fault: var(--warn);
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px;
+  --s-6: 32px; --s-7: 48px; --s-8: 64px; --s-9: 96px;
+  --r-key: var(--radius-control);
+  --r-0: 0;
+  --r-note: 50%;
+
+  --ease-enter: var(--ease-out);
+  --ease-exit: var(--ease-out);
+  --ease-std: var(--ease-out);
+  --dur-press: var(--dur-fast);
+  --dur-enter: var(--dur-slow);
+  --dur-exit: var(--dur-base);
+  --dur-hold: 2500ms;
+  --dur-breath: 3200ms;
+
+  --margin-l: 0px;
+  --margin-r: 0px;
+
+  --k-person: var(--kind-person);
+  --k-topic: var(--kind-topic);
+  --k-commitment: var(--kind-promise);
+  --k-habit: var(--surface);
+  --k-habit-ink: var(--kind-habit);
+  --k-conversation: var(--kind-conversation);
+}
+
+@theme inline {
+  --color-paper: var(--bg);
+  --color-well: var(--surface);
+  --color-ink: var(--text);
+  --color-ink-2: var(--muted);
+  --color-ink-3: var(--muted);
+  --color-rule: var(--line);
+  --color-rule-strong: var(--line-strong);
+  --color-them: var(--muted);
+  --color-vermilion: var(--accent);
+  --color-vermilion-tint: var(--accent-wash);
+  --color-vermilion-text: var(--accent);
+  --color-ochre: var(--accent);
+  --color-ochre-tint: var(--accent-wash);
+  --color-ochre-text: var(--accent);
+  --color-green: var(--accent);
+  --color-green-tint: var(--accent-wash);
+  --color-green-text: var(--accent);
+  --color-teal: var(--accent);
+  --color-teal-tint: var(--accent-wash);
+  --color-teal-text: var(--accent);
+  --color-blue: var(--accent);
+  --color-blue-tint: var(--accent-wash);
+  --color-blue-text: var(--accent);
+  --color-violet: var(--accent);
+  --color-violet-tint: var(--accent-wash);
+  --color-violet-text: var(--accent);
+  --color-pencil: var(--muted);
+  --color-pencil-tint: var(--surface);
+  --color-pencil-text: var(--muted);
+  --color-rose: var(--muted);
+  --color-rose-tint: var(--surface);
+  --color-rose-text: var(--muted);
+  --font-serif: var(--font-voice);
+  --font-mono: var(--font-sans);
+}
+
+@layer components {
+  /* type: every Tempo size folds onto the five-step scale */
+  .label { font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 500; color: var(--muted); }
+  .num, .num-s, .num-m, .num-l, .num-xl { font-family: var(--font-sans); font-variant-numeric: tabular-nums; font-variant-caps: normal; }
+  .num-s { font-size: var(--fs-caption); line-height: var(--lh-caption); }
+  .num-m { font-size: var(--fs-title); line-height: var(--lh-title); }
+  .num-l, .num-xl { font-size: var(--fs-display); line-height: var(--lh-display); font-weight: 500; letter-spacing: -0.02em; }
+  .serif { font-family: var(--font-voice); font-weight: 400; }
+  .unit { font-size: 0.6em; color: var(--muted); margin-left: 0.16em; }
+  .display-xl, .display-l { font-size: var(--fs-display); line-height: var(--lh-display); font-weight: 500; letter-spacing: -0.02em; }
+  .display-m { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 500; letter-spacing: -0.012em; }
+  .display-s { font-size: var(--fs-lead); line-height: var(--lh-lead); font-weight: 500; }
+  .text-l { font-size: var(--fs-lead); line-height: var(--lh-lead); }
+  .text-m { font-size: var(--fs-body); line-height: var(--lh-body); }
+  .text-s { font-size: var(--fs-caption); line-height: var(--lh-caption); }
+
+  .tone-vermilion, .tone-ochre, .tone-green, .tone-teal, .tone-blue, .tone-violet {
+    --tone: var(--accent); --tone-text: var(--accent); --tone-tint: var(--accent-wash); --tone-on: var(--on-accent);
+  }
+  .tone-pencil, .tone-rose { --tone: var(--muted); --tone-text: var(--muted); --tone-tint: var(--surface); --tone-on: var(--bg); }
+
+  .frame { padding-left: 0; padding-right: 0; }
+
+  /* controls: Tempo buttons render as the new quiet/primary buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px;
+    border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: transparent; color: var(--text);
+    font-size: var(--fs-body); font-weight: 500; white-space: nowrap;
+    transition: background-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out);
+  }
+  .btn:hover:not(:disabled) { background: var(--hover); }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  .btn:disabled { cursor: not-allowed; opacity: 0.4; }
+  .btn-solid { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn-solid:hover:not(:disabled) { background: color-mix(in oklch, var(--accent), var(--text) 16%); }
+  .btn-quiet { color: var(--muted); border-color: transparent; }
+  .btn-quiet:hover:not(:disabled) { color: var(--text); }
+  .btn-sm { height: 32px; padding: 0 10px; font-size: var(--fs-caption); gap: 6px; }
+  .link { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .link:hover { text-decoration-color: currentColor; }
+  .field { background: transparent; border: 1px solid var(--line-strong); border-radius: var(--radius-control); padding: 7px 12px; width: 100%; color: var(--text); }
+  .field:focus { outline: none; border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-control); font-size: var(--fs-caption); }
+
+  .state { position: relative; display: inline-block; width: 8px; height: 8px; flex-shrink: 0; }
+  .state::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--state-off); }
+  .state-on::before, .state-listening::before { border-color: var(--state-on); background: var(--state-on); }
+  .state-fault::before { border-color: var(--state-fault); }
+
+  .anim-rise { animation: legacy-rise var(--dur-slow) var(--ease-out) both; }
+  .caret::after { content: "…"; }
+  .filler { text-decoration: underline var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  .turn { transition: background-color var(--dur-fast) ease; }
+  .turn:focus { outline: none; }
+  .turn:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+  .turn.is-active { background: var(--accent-wash); }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .anim-node { animation: legacy-fade var(--dur-slow) var(--ease-out) both; }
+  .anim-sheet { animation: legacy-rise var(--dur-slow) var(--ease-out) both; }
+  .graph-node { transition: opacity var(--dur-fast) ease; }
+  .graph-edge { transition: opacity var(--dur-fast) ease; }
+  .graph-node:focus { outline: none; }
+  .graph-node:focus-visible .focus-ring { opacity: 1; }
+  .graph-breathe { opacity: 1; }
+}
+
+input[type="range"] { accent-color: var(--accent); }
+
+@keyframes legacy-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes legacy-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .anim-rise, .anim-node, .anim-sheet { animation: legacy-fade var(--dur-base) ease both; }
+}

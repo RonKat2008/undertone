@@ -3,7 +3,6 @@
 import qrcode from 'qrcode-generator';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Glyph } from '@/components/glyph';
-import { SampleTag } from '@/components/sample-tag';
 import { approveApp, createPairing, listApps, listDevices, revokeApp, testBuzz, type AppInfo, type DeviceInfo, type Pairing } from '@/lib/api/client';
 import type { HapticPattern } from '@/lib/bus/contracts';
 import { PATTERNS, PATTERN_ORDER } from '@/lib/bus/patterns';
@@ -37,25 +36,28 @@ function ago(seconds: number | null): string {
 }
 
 export default function PairPage() {
-  const { state, kind, resolveApp } = useBus();
+  const { state, resolveApp } = useBus();
   const [pairing, setPairing] = useState<Pairing | null>(null);
-  const [devices, setDevices] = useState<DeviceInfo[]>([]);
-  const [apps, setApps] = useState<AppInfo[]>([]);
-  const [sample, setSample] = useState(false);
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
+  const [apps, setApps] = useState<AppInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [played, setPlayed] = useState<{ pattern: HapticPattern; n: number; note: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const [d, a] = await Promise.all([listDevices(), listApps()]);
-      setDevices(d.data); setApps(a.data); setSample(d.sample); setError(null);
+      setDevices(d); setApps(a); setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Cannot reach the backend.');
     }
   }, []);
 
   const newPairing = useCallback(() => {
-    createPairing().then(setPairing).catch((e) => setError(e instanceof Error ? e.message : 'Could not create a pairing.'));
+    setPairingError(null);
+    createPairing()
+      .then((p) => { setPairing(p); setPairingError(null); })
+      .catch((e) => { setPairing(null); setPairingError(e instanceof Error ? e.message : 'Could not create a pairing.'); });
   }, []);
 
   useEffect(() => {
@@ -70,90 +72,118 @@ export default function PairPage() {
   useEffect(() => { void refresh(); }, [busKey, refresh]);
 
   const act = async (fn: () => Promise<void>, app_id: string) => { try { await fn(); resolveApp(app_id); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : 'That did not work.'); } };
-  const pending = apps.filter((a) => a.status === 'pending');
-  const rest = apps.filter((a) => a.status !== 'pending');
-  const thisPhone = pairing ? devices.find((d) => d.device_id === pairing.device_id) : undefined;
+  const pending = (apps ?? []).filter((a) => a.status === 'pending');
+  const rest = (apps ?? []).filter((a) => a.status !== 'pending');
+  const thisPhone = pairing ? devices?.find((d) => d.device_id === pairing.device_id) : undefined;
+  const phones = (devices ?? []).filter((d) => d.paired || d.connected);
 
   async function play(pattern: HapticPattern) {
-    let note = 'shown here only';
-    if (kind !== 'mock') {
-      try { const n = await testBuzz(pattern, PATTERNS[pattern].action); note = n ? `sent to ${n} phone${n > 1 ? 's' : ''}` : 'no phone connected'; } catch { note = 'backend unreachable'; }
-    }
+    let note: string;
+    try { const n = await testBuzz(pattern, PATTERNS[pattern].action); note = n ? `sent to ${n} phone${n > 1 ? 's' : ''}` : 'no phone connected'; } catch { note = 'backend unreachable'; }
     setPlayed((p) => ({ pattern, n: (p?.n ?? 0) + 1, note }));
   }
 
+  const groups: { title: string; group: 'nudge' | 'status' | 'system' }[] = [
+    { title: 'Nudges', group: 'nudge' },
+    { title: 'How am I doing?', group: 'status' },
+    { title: 'System', group: 'system' },
+  ];
+
   return (
     <div className="pt-8">
-      <div className="caps mb-4 flex items-center gap-3">Pair and devices <SampleTag show={sample} /></div>
-      {error && <p role="alert" className="mb-4 text-[13px] text-vermilion">{error}</p>}
-      <div className="grid gap-x-16 gap-y-12 lg:grid-cols-[auto_minmax(0,1fr)]">
-        <section aria-label="Pair a phone">
-          <div className="border border-ink p-5">{pairing ? <QR text={pairing.qr} /> : <div className="h-[280px] w-[280px] bg-well" />}</div>
-          <div className="mt-4 flex items-end justify-between">
-            <div><div className="caps">Or type this code</div><div className="num text-[44px] leading-none tracking-[0.08em]">{pairing ? `${pairing.code.slice(0, 3)} ${pairing.code.slice(3)}` : '··· ···'}</div></div>
-            <button className="btn btn-sm btn-quiet" onClick={newPairing}>New code</button>
+      <div className="mb-6 flex items-center gap-3"><span className="label">Pair and devices</span></div>
+      {error && <p role="alert" className="text-m mb-4 flex items-center gap-2 font-medium text-ink"><span className="state state-fault" aria-hidden />{error}</p>}
+      <div className="grid gap-x-6 gap-y-12 xl:grid-cols-12">
+        <section aria-label="Pair a phone" className="xl:col-span-5">
+          <div className="flex flex-wrap items-end gap-x-8 gap-y-6">
+            <div className="border border-rule p-3">{pairing ? <QR text={pairing.qr} size={232} /> : <div className="h-[232px] w-[232px] bg-well" />}</div>
+            <div className="pb-1">
+              <div className="label mb-1">Or type this code</div>
+              <div className="num-l tracking-[0.06em]">{pairing ? `${pairing.code.slice(0, 3)} ${pairing.code.slice(3)}` : '··· ···'}</div>
+              <button className="btn btn-sm btn-quiet mt-4" onClick={newPairing}>{pairingError ? 'Try again' : 'New code'}</button>
+            </div>
           </div>
-          <p className="mt-3 max-w-[320px] text-[12.5px] text-ink-2">
-            Open Undertone on the iPhone and scan. {thisPhone?.connected ? <span className="text-green">This phone is connected.</span> : 'Waiting for the phone…'}
-            {pairing && <span className="num mt-1 block text-[11px] tracking-normal text-ink-3">server {pairing.server_url}</span>}
+          {pairingError && <p role="alert" className="text-m mt-5 flex max-w-[44ch] items-start gap-2 font-medium text-ink"><span className="state state-fault mt-[7px]" aria-hidden />No pairing code: {pairingError.replace(/\.$/, '')}. Start the laptop backend, then try again.</p>}
+          <p className="text-m mt-5 max-w-[44ch] text-ink-2">
+            Open Undertone on the iPhone and scan.{' '}
+            {!pairing ? null : thisPhone?.connected
+              ? <span className="inline-flex items-center gap-2 text-ink"><span className="state state-on" aria-hidden />This phone is connected.</span>
+              : 'Waiting for the phone…'}
           </p>
+          {pairing && <p className="num-s mt-1 text-ink-3">server {pairing.server_url}</p>}
         </section>
 
-        <div className="space-y-12">
+        <div className="space-y-12 xl:col-span-6 xl:col-start-7">
           <section aria-label="Phones">
-            <h2 className="caps border-b border-ink pb-2 !text-ink">Phones</h2>
-            {devices.filter((d) => d.paired || d.connected).length === 0 && <p className="py-3 text-ink-3">No phone has paired yet.</p>}
-            {devices.filter((d) => d.paired || d.connected).map((d) => (
-              <div key={d.device_id} className="grid grid-cols-[16px_1fr_auto] items-center gap-x-3 border-b border-rule py-3">
-                <span className={`h-2.5 w-2.5 rounded-full ${d.connected ? 'bg-green' : 'border border-ink-3'}`} />
-                <span className="serif text-[26px] leading-none">{d.name}</span>
-                <span className="caps">{d.connected ? 'connected · ready to buzz' : `last seen ${ago(d.last_seen)}`}</span>
+            <h2 className="display-s border-b border-ink pb-2">Phones</h2>
+            {devices === null && <p className="text-m py-3 text-ink-3">{error ? 'Unknown until the backend answers.' : 'Loading…'}</p>}
+            {devices !== null && phones.length === 0 && <p className="text-m py-3 text-ink-3">No phone has paired yet.</p>}
+            {phones.map((d) => (
+              <div key={d.device_id} className="grid grid-cols-[20px_1fr_auto] items-center gap-x-3 border-b border-rule py-3.5">
+                <span className={`state ${d.connected ? 'state-on' : ''}`} aria-hidden />
+                <span className="display-s">{d.name}</span>
+                <span className="text-s text-ink-2">{d.connected ? 'connected, ready to buzz' : `last seen ${ago(d.last_seen)}`}</span>
               </div>
             ))}
           </section>
 
           <section aria-label="Connected apps">
-            <h2 className="caps border-b border-ink pb-2 !text-ink">Connected apps · who else may tap you</h2>
+            <h2 className="display-s border-b border-ink pb-2">Connected apps <span className="text-s ml-2 text-ink-2">who else may tap you</span></h2>
             {pending.map((a) => (
-              <div key={a.app_id} className="anim-rise my-3 flex flex-wrap items-center justify-between gap-4 border-2 border-ink p-4">
-                <div className="flex items-center gap-4">
-                  <Glyph pattern="approve" size={22} playing playKey={a.app_id} />
-                  <div><div className="caps !text-ink">Waiting for your approval</div><div className="serif text-[28px] leading-none">{a.name}</div>
-                    <div className="num mt-1 text-[11px] tracking-normal text-ink-3">{a.origin ?? 'unknown origin'} · asked {ago(a.created_at)}</div></div>
+              <div key={a.app_id} className="anim-rise flex flex-wrap items-center justify-between gap-4 border-b border-rule py-4">
+                <div className="flex items-center gap-5">
+                  <Glyph pattern="approve" size={34} playing playKey={a.app_id} />
+                  <div>
+                    <div className="display-s">{a.name}</div>
+                    <div className="text-s text-rose-text">waiting for you</div>
+                    <div className="num-s text-ink-3">{a.origin ?? 'unknown origin'}, asked {ago(a.created_at)}</div>
+                  </div>
                 </div>
                 <div className="flex gap-2"><button className="btn btn-solid" onClick={() => act(() => approveApp(a.app_id), a.app_id)}>Approve</button><button className="btn" onClick={() => act(() => revokeApp(a.app_id), a.app_id)}>Decline</button></div>
               </div>
             ))}
             {rest.map((a) => (
-              <div key={a.app_id} className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-rule py-3 ${a.status === 'revoked' ? 'opacity-50' : ''}`}>
-                <div className="min-w-0 flex-1"><span className="serif text-[24px] leading-none">{a.name}</span><span className="num ml-3 text-[11px] tracking-normal text-ink-3">{a.origin ?? ''}</span></div>
-                <span className="caps">{a.status === 'revoked' ? 'revoked' : `${a.buzzes} buzzes · last ${ago(a.last_used)}`}</span>
+              <div key={a.app_id} className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-rule py-3.5 ${a.status === 'revoked' ? 'text-ink-3' : ''}`}>
+                <div className="min-w-0 flex-1"><span className="display-s">{a.name}</span><span className="num-s ml-3 text-ink-3">{a.origin ?? ''}</span></div>
+                <span className="text-s text-ink-2">{a.status === 'revoked' ? 'revoked' : <><span className="num-s text-ink">{a.buzzes}</span> buzzes, last {ago(a.last_used)}</>}</span>
                 {a.status === 'approved'
                   ? <button className="btn btn-sm btn-quiet" onClick={() => act(() => revokeApp(a.app_id), a.app_id)}>Revoke</button>
                   : <button className="btn btn-sm btn-quiet" onClick={() => act(() => approveApp(a.app_id), a.app_id)}>Allow again</button>}
               </div>
             ))}
-            {apps.length === 0 && <p className="py-3 text-ink-3">No app has asked yet. Open the slide timer in sdk/demo to see a request arrive.</p>}
+            {apps === null && <p className="text-m py-3 text-ink-3">{error ? 'Unknown until the backend answers.' : 'Loading…'}</p>}
+            {apps !== null && apps.length === 0 && <p className="text-m py-3 text-ink-3">No app has asked yet. An app that wants to tap you shows up here for your approval.</p>}
           </section>
         </div>
       </div>
 
-      <section className="mt-14" aria-label="Haptic vocabulary">
-        <div className="flex items-baseline justify-between border-b border-ink pb-2">
-          <h2 className="caps !text-ink">The vocabulary · eleven patterns</h2>
-          <span className="caps">{played ? `${played.pattern} · ${played.note}` : 'click a row to play it'}</span>
+      <section className="mt-20" aria-label="Haptic vocabulary">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-ink pb-2">
+          <h2 className="display-s">The vocabulary <span className="text-s ml-2 text-ink-2">eleven patterns</span></h2>
+          <span className="text-s text-ink-2">{played ? <><span className="num-s text-ink">{played.pattern}</span> {played.note}</> : 'click a row to play it'}</span>
         </div>
-        <div className="grid gap-x-14 md:grid-cols-2">
-          {PATTERN_ORDER.map((p) => {
-            const s = PATTERNS[p];
-            return (
-              <button key={p} onClick={() => play(p)} className="group grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-4 border-b border-rule py-2.5 text-left hover:bg-well sm:grid-cols-[130px_120px_minmax(0,1fr)]">
-                <Glyph pattern={p} size={24} playing={played?.pattern === p} playKey={played?.n} />
-                <span className="num hidden text-[12px] tracking-normal text-ink-2 sm:inline">{p}</span>
-                <span><span className="serif text-[20px] leading-none">{s.action}</span><span className="ml-3 text-[12px] text-ink-3">{s.feel.toLowerCase()}</span></span>
-              </button>
-            );
-          })}
+        <div className="grid gap-x-6 xl:grid-cols-12">
+          {[['nudge'], ['status', 'system']].map((col) => (
+            <div key={col[0]} className="xl:col-span-6">
+              {groups.filter((g) => col.includes(g.group)).map((g) => (
+                <div key={g.group}>
+                  <h3 className="label mb-1 mt-6">{g.title}</h3>
+                  {PATTERN_ORDER.filter((p) => PATTERNS[p].group === g.group).map((p) => {
+                    const s = PATTERNS[p];
+                    return (
+                      <button key={p} onClick={() => play(p)} className="grid w-full grid-cols-[168px_minmax(0,1fr)] items-center gap-x-5 border-b border-rule py-3 text-left hover:bg-well">
+                        <span className="flex h-[40px] items-end pl-1"><Glyph pattern={p} size={34} playing={played?.pattern === p} playKey={played?.n} /></span>
+                        <span className="min-w-0">
+                          <span className="display-s block leading-tight">{s.action}</span>
+                          <span className="text-s text-ink-2">{s.feel.toLowerCase()}</span> <span className="num-s text-ink-3">{p}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       </section>
     </div>

@@ -65,6 +65,8 @@ class Settings:
     always_on: bool = False
     always_on_silence_s: float = 60.0
     always_on_min_turns: int = 4
+    # speech within this many seconds of a silence close continues that conversation
+    always_on_rejoin_s: float = 20.0
 
     @property
     def has_gemini(self) -> bool:
@@ -99,6 +101,7 @@ def load_settings() -> Settings:
         always_on=_flag("ALWAYS_ON"),
         always_on_silence_s=_number("ALWAYS_ON_SILENCE_S", 60.0, minimum=1.0),
         always_on_min_turns=int(_number("ALWAYS_ON_MIN_TURNS", 4, minimum=0)),
+        always_on_rejoin_s=_number("ALWAYS_ON_REJOIN_S", 20.0, minimum=0.0),
     )
 
 

@@ -1,210 +1,183 @@
+/**
+ * Debrief: the headline, the one thing to try, the spoken recap, then everything else behind "More".
+ * Opened as /debrief?id=… ; with no id it shows the debrief the laptop just pushed, or else the
+ * latest conversation's.
+ */
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
-import Svg, { Line, Polyline, Rect } from 'react-native-svg';
-import { getDebrief, getTranscript, listPeople, listSessions, mediaUrl, tagPerson, type DebriefPayload, type Sampled, type TranscriptResult } from '@/api/client';
+import { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { getDebrief, getTranscript, listSessions, mediaUrl, type DebriefPayload, type DebriefView, type Load, type TranscriptResult } from '@/api/client';
+import { isNum, isStr, parseDebrief, type SessionListItem } from '@/api/parse';
 import { usePlayback } from '@/audio/player';
-import type { Debrief, Person, TimelinePoint } from '@/bus/contracts';
+import type { Debrief } from '@/bus/contracts';
 import { useBus } from '@/bus/use-bus';
+import { More } from '@/ui/debrief/More';
 import { Header } from '@/ui/Header';
-import { PlayerBar } from '@/ui/PlayerBar';
-import { Rule, SampleTag, Screen, T, clock } from '@/ui/kit';
-import { C, F, TONE } from '@/ui/theme';
+import { Appear, Card, EmptyState, Prose, Screen, T, TextButton, howLong, when } from '@/ui/kit';
+import { IconWell } from '@/ui/visuals';
+import { PlayLine } from '@/ui/PlayerBar';
+import { Failed, Fetching, NotPaired } from '@/ui/States';
+import { C, HUES, S } from '@/ui/theme';
+
+type Fetched = Load<DebriefPayload> | { kind: 'no-sessions' };
+
+/** No id: the latest conversation's debrief. A conversation that closed quietly has none. */
+async function readDebrief(id: string | undefined): Promise<Fetched> {
+  if (id) return getDebrief(id);
+  const list = await listSessions();
+  if (list.kind !== 'ok') return list;
+  const latest = list.data[0];
+  return latest ? getDebrief(latest.session_id) : { kind: 'no-sessions' };
+}
+
+/** parseDebrief drops better_version; a pushed debrief may carry one, so keep it when it is well formed. */
+function betterFrom(raw: Debrief): DebriefView['better_version'] {
+  const b: unknown = raw.better_version;
+  if (!b || typeof b !== 'object') return null;
+  const o = b as Record<string, unknown>;
+  if (!isStr(o.rewritten) || !o.rewritten.trim()) return null;
+  return { original: isStr(o.original) ? o.original : '', rewritten: o.rewritten, audio_url: isStr(o.audio_url) && o.audio_url ? o.audio_url : null };
+}
 
 export default function DebriefScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { state, mode } = useBus();
-  const [fetched, setFetched] = useState<Sampled<DebriefPayload> | null>(null);
-  const fromBus = !id && state.debrief ? state.debrief : null;
+  const [fetched, setFetched] = useState<Fetched | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
+
+  const live = state.debrief && (!id || id === state.debrief.session_id) ? state.debrief : null;
+  const fromLive = useMemo<DebriefPayload | null>(() => {
+    const data = live ? parseDebrief(live.data) : null;
+    return live && data ? { session_id: live.session_id, data: { ...data, better_version: betterFrom(live.data) }, audio_url: live.audio_url || null } : null;
+  }, [live]);
 
   useEffect(() => {
-    if (fromBus) return;
+    if (fromLive || mode === 'unpaired') return;
     let on = true;
-    (id ? getDebrief(id) : listSessions().then((s) => getDebrief(s.sample ? 'latest' : s.data[0].session_id))).then((r) => on && setFetched(r));
+    setFetched(null);
+    readDebrief(id).then(
+      (r) => { if (on) setFetched(r); },
+      () => { if (on) setFetched({ kind: 'error', message: '', unreachable: true }); },
+    );
     return () => { on = false; };
-  }, [id, fromBus, mode]);
+  }, [id, fromLive, mode, attempt]);
 
-  const payload = fromBus ?? fetched?.data ?? null;
-  const sample = fromBus ? mode === 'mock' : fetched?.sample ?? true;
+  // When and how long: the debrief itself does not carry them; the conversation list does.
+  useEffect(() => {
+    if (mode === 'unpaired') return;
+    let on = true;
+    listSessions().then((s) => { if (on && s.kind === 'ok') setSessions(s.data); }, () => undefined);
+    return () => { on = false; };
+  }, [mode]);
+
+  const retry = () => setAttempt((n) => n + 1);
+  const payload = fromLive ?? (fetched?.kind === 'ok' ? fetched.data : null);
+  const row = payload ? sessions.find((s) => s.session_id === payload.session_id) : undefined;
+
+  const body = mode === 'unpaired' ? <NotPaired />
+    : payload ? <Body p={payload} row={row} />
+      : !fetched ? <Fetching />
+        : fetched.kind === 'no-sessions' ? <EmptyState icon="talk" title="No conversations yet" line="A debrief appears here after a conversation ends." />
+          : fetched.kind === 'none' ? <EmptyState icon="talk" title="No debrief for this one" line="Very short conversations close without one." />
+            : fetched.kind === 'error' ? <Failed unreachable={fetched.unreachable} onRetry={retry} />
+              : <NotPaired />;
+
   return (
-    <Screen>
-      <Header title="Debrief" right={<SampleTag show={sample} />} />
-      {payload ? <Body d={payload.data} audio={mediaUrl(payload.audio_url)} sessionId={payload.session_id} /> : <T v="serif" size={28} color={C.paper3}>Fetching the debrief…</T>}
+    <Screen glow={C.warm}>
+      <Header />
+      {body}
     </Screen>
   );
 }
 
-/** The coach's summary, read aloud by a synthetic voice. Not the conversation itself. */
-function Recap({ url }: { url: string }) {
-  const pb = usePlayback(url);
-  return (
-    <View style={{ borderWidth: 1, borderColor: C.paper, padding: 14, marginTop: 22 }}>
-      <PlayerBar pb={pb} title="Spoken recap" subtitle="The coach’s summary, read aloud. Not your conversation." what="the spoken recap" />
-    </View>
-  );
+function meta(row: SessionListItem | undefined): string {
+  if (!row) return '';
+  const at = when(row.started_at);
+  const long = isNum(row.duration_s) ? howLong(row.duration_s) : '';
+  return [at, long].filter(Boolean).join(', ');
 }
 
-/** The real audio of the conversation, and the way into its transcript. */
-function Recording({ sessionId, headline }: { sessionId: string; headline: string }) {
+function Body({ p, row }: { p: DebriefPayload; row: SessionListItem | undefined }) {
   const router = useRouter();
-  const [t, setT] = useState<TranscriptResult | null>(null);
-  useEffect(() => { let on = true; getTranscript(sessionId).then((r) => on && setT(r)); return () => { on = false; }; }, [sessionId]);
-  const url = t?.kind === 'ok' ? mediaUrl(t.data.audio_url) : null;
-  const open = () => router.push({ pathname: '/transcript', params: { id: sessionId, headline } });
-  const note = !t ? 'Checking the laptop for a recording…'
-    : t.kind === 'not-found' ? 'The laptop has no record of what was said in this one.'
-      : t.kind === 'unreachable' ? 'Cannot reach the laptop to check for a recording.'
-        : 'No recording was kept for this one.';
-  return (
-    <View style={{ borderWidth: 1, borderColor: C.rule, padding: 14, marginTop: 12 }}>
-      {url ? <RecordingPlayer url={url} /> : (
-        <View>
-          <T v="serif" size={24} color={C.paper2}>Recording</T>
-          <T v="small">{note}</T>
-        </View>
-      )}
-      {t?.kind === 'not-found' ? null : (
-        <Pressable onPress={open} accessibilityRole="button" accessibilityLabel="What was said: open the transcript" hitSlop={8}
-          style={({ pressed }) => ({ marginTop: 12, paddingVertical: 8, alignSelf: 'flex-start', opacity: pressed ? 0.6 : 1 })}>
-          <T v="caps" color={C.paper}>What was said  →</T>
-        </Pressable>
-      )}
-    </View>
-  );
-}
+  const d = p.data;
+  const recap = mediaUrl(p.audio_url);
+  const line = meta(row);
+  const transcript = useTranscriptExists(p.session_id);
+  const hasTry = Boolean(d.one_fix || d.if_then);
 
-function RecordingPlayer({ url }: { url: string }) {
-  const pb = usePlayback(url);
-  return <PlayerBar pb={pb} title="Recording" subtitle="Your actual conversation, as the band heard it." what="the recording" />;
-}
-
-function Body({ d, audio, sessionId }: { d: Debrief; audio: string | null; sessionId: string }) {
-  const n = d.numbers;
   return (
     <View>
-      <T v="serif" size={36}>{d.headline_fact}</T>
+      <Appear index={0}>
+        {d.headline_fact ? <Prose size="title" accessibilityRole="header" style={styles.headline}>{d.headline_fact}</Prose> : null}
+        {line ? <T v="small" num style={styles.meta}>{line}</T> : null}
+      </Appear>
 
-      <T v="caps" style={{ marginTop: 24 }}>What worked</T>
-      <T v="body" style={{ marginTop: 4 }}>{d.strength}</T>
-
-      <Rule strong style={{ marginTop: 24, height: 3 }} />
-      <T v="caps" color={C.paper} style={{ marginTop: 12 }}>One thing to fix</T>
-      <T v="body" size={19} style={{ marginTop: 6 }}>{d.one_fix}</T>
-      <View style={{ borderLeftWidth: 3, borderLeftColor: C.paper, paddingLeft: 16, marginTop: 18 }}>
-        <T v="serif" size={32} style={{ fontFamily: F.serifItalic }}>{d.if_then}</T>
-        <T v="caps" style={{ marginTop: 6 }}>Your plan for next time</T>
-      </View>
-
-      {audio ? <Recap url={audio} /> : (
-        <View style={{ borderWidth: 1, borderColor: C.rule, padding: 14, marginTop: 22 }}>
-          <T v="serif" size={22} color={C.paper2}>Spoken recap</T>
-          <T v="small">No spoken recap for this one. The laptop reads the coach’s summary aloud when its voice is switched on.</T>
-        </View>
-      )}
-      <Recording sessionId={sessionId} headline={d.headline_fact} />
-
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 24, borderTopWidth: 1, borderTopColor: C.paper, paddingTop: 12 }}>
-        <Num v={`${Math.round(n.talk_ratio * 100)}%`} l="Talk ratio" big />
-        <Num v={String(n.interruptions)} l="Interruptions" />
-        <Num v={String(n.questions)} l="Questions" />
-        <Num v={n.fillers_per_min.toFixed(1)} l="Fillers / min" />
-        <Num v={String(Math.round(n.wpm))} l="Pace, wpm" />
-      </View>
-      {d.vs_last_time ? <T v="small" style={{ marginTop: 10 }}>Against your last time: {d.vs_last_time}</T> : null}
-
-      <Traces points={d.timeline} bookmarks={d.bookmarks.map((b) => b.ts)} />
-
-      <T v="caps" color={C.paper} style={{ marginTop: 28 }}>Bookmarks · {d.bookmarks.length}</T>
-      {d.bookmarks.length === 0 ? <T v="small" style={{ marginTop: 6 }}>None in this conversation.</T> : null}
-      {d.bookmarks.map((b, i) => (
-        <View key={i} style={{ borderTopWidth: 1, borderTopColor: C.rule, paddingTop: 12, marginTop: 10 }}>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <T v="mono" size={14}>{clock(b.ts)}</T>
-            <T v="caps" color={b.source === 'promise' ? TONE.green : C.paper2}>{b.source === 'promise' ? 'promise heard' : 'you tapped'}</T>
-          </View>
-          <T v="serif" size={23} style={{ marginTop: 4 }}>“{b.snippet}”</T>
-          <T v="small" style={{ marginTop: 6 }}>{b.what_happened}</T>
-          {b.follow_up ? <T v="body" size={15} style={{ marginTop: 8 }}><T v="caps" color={TONE.green}>Follow up  </T>{b.follow_up}</T> : null}
-        </View>
-      ))}
-
-      <T v="caps" color={C.paper} style={{ marginTop: 28 }}>Notes</T>
-      {d.notes.map((note, i) => (
-        <View key={i} style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}><T v="mono" size={13} color={C.paper3}>{i + 1}</T><T v="body" size={15} style={{ flex: 1 }}>{note}</T></View>
-      ))}
-
-      {d.best_moment_quote ? (
-        <View style={{ marginTop: 28 }}>
-          <T v="caps">Best moment</T>
-          <T v="serif" size={30} style={{ marginTop: 4 }}>“{d.best_moment_quote}”</T>
-        </View>
+      {hasTry ? (
+        <Appear index={1} style={styles.block}>
+          <Card tint={C.accentSoft}>
+            <T v="caption" strong color={C.accent} accessibilityRole="header">Try next time</T>
+            {d.one_fix ? <Prose size="body" style={styles.capGap}>{d.one_fix}</Prose> : null}
+            {d.if_then ? (
+              <Prose size="lead" italic color={C.warm} style={d.one_fix ? styles.plan : styles.capGap}
+                accessibilityLabel={`Your plan for next time: ${d.if_then}`}>{d.if_then}</Prose>
+            ) : null}
+          </Card>
+        </Appear>
       ) : null}
 
-      <TagPerson sessionId={sessionId} />
+      {d.strength ? (
+        <Appear index={2} style={styles.blockS}>
+          <Card>
+            <View style={styles.worked}>
+              <IconWell name="check" color={HUES[2]} size={32} />
+              <T v="caption" strong>What worked</T>
+            </View>
+            <Prose size="body" style={styles.capGap}>{d.strength}</Prose>
+          </Card>
+        </Appear>
+      ) : null}
+
+      {recap || transcript ? (
+        <Appear index={3} style={styles.block}>
+          {recap ? <Card><Recap url={recap} /></Card> : null}
+          {transcript ? (
+            <TextButton label="Read transcript" style={recap ? styles.read : undefined}
+              onPress={() => router.push({ pathname: '/transcript', params: { id: p.session_id } })} />
+          ) : null}
+        </Appear>
+      ) : null}
+
+      <Appear index={4}>
+        <More d={d} sessionId={p.session_id} />
+      </Appear>
     </View>
   );
 }
 
-function Num({ v, l, big }: { v: string; l: string; big?: boolean }) {
-  return (
-    <View style={{ width: big ? '100%' : '50%', marginBottom: 14 }}>
-      <T v="mono" size={big ? 76 : 38} style={{ lineHeight: big ? 76 : 40 }}>{v}</T>
-      <T v="caps" style={{ marginTop: 2 }}>{l}</T>
-    </View>
-  );
+function Recap({ url }: { url: string }) {
+  const pb = usePlayback(url);
+  return <PlayLine pb={pb} label="Hear the recap" what="the recap" big />;
 }
 
-/** Pace, volume and hand energy on one time axis. */
-function Traces({ points, bookmarks }: { points: TimelinePoint[]; bookmarks: number[] }) {
-  if (points.length < 2) return null;
-  const W = 340, H = 46;
-  const t0 = points[0].t, t1 = points[points.length - 1].t;
-  const x = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W;
-  const rows: { key: 'wpm' | 'volume_db' | 'hand_energy'; label: string; min: number; max: number; band?: [number, number] }[] = [
-    { key: 'wpm', label: 'Pace', min: 100, max: 230, band: [120, 200] },
-    { key: 'volume_db', label: 'Volume', min: -34, max: -8 },
-    { key: 'hand_energy', label: 'Hand energy', min: 0, max: 1, band: [0.3, 0.7] },
-  ];
-  return (
-    <View style={{ marginTop: 26 }}>
-      <T v="caps" color={C.paper}>Voice and body</T>
-      {rows.map((r) => {
-        const pts = points.filter((p) => r.key !== 'wpm' || p.wpm > 0);
-        const y = (v: number) => H - 4 - ((Math.min(r.max, Math.max(r.min, v)) - r.min) / (r.max - r.min)) * (H - 8);
-        return (
-          <View key={r.key} style={{ borderTopWidth: 1, borderTopColor: C.rule, paddingTop: 8, marginTop: 8 }}>
-            <T v="small" color={C.paper}>{r.label}</T>
-            <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-              {r.band ? <Rect x={0} width={W} y={y(r.band[1])} height={y(r.band[0]) - y(r.band[1])} fill={C.well} /> : null}
-              {bookmarks.filter((t) => t >= t0 && t <= t1).map((t, i) => <Line key={i} x1={x(t)} x2={x(t)} y1={0} y2={H} stroke={C.paper3} strokeWidth={1} strokeDasharray="2 3" />)}
-              <Polyline points={pts.map((p) => `${x(p.t).toFixed(1)},${y(p[r.key]).toFixed(1)}`).join(' ')} fill="none" stroke={C.paper} strokeWidth={1.75} />
-            </Svg>
-          </View>
-        );
-      })}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-        <T v="mono" size={11} color={C.paper3}>{clock(t0)}</T><T v="caps" size={9.5}>dashed: bookmarks · shaded: your usual range</T><T v="mono" size={11} color={C.paper3}>{clock(t1)}</T>
-      </View>
-    </View>
-  );
+/** Hide "Read transcript" only when the laptop says it has nothing; while unsure, offer it. */
+function useTranscriptExists(sessionId: string): boolean {
+  const [t, setT] = useState<TranscriptResult | null>(null);
+  useEffect(() => {
+    let on = true;
+    getTranscript(sessionId).then((r) => { if (on) setT(r); }, () => undefined);
+    return () => { on = false; };
+  }, [sessionId]);
+  return t?.kind !== 'not-found';
 }
 
-function TagPerson({ sessionId }: { sessionId: string }) {
-  const [people, setPeople] = useState<Person[]>([]);
-  const [tagged, setTagged] = useState<string | null>(null);
-  useEffect(() => { let on = true; listPeople().then((p) => on && setPeople(p.data)); return () => { on = false; }; }, []);
-  return (
-    <View style={{ marginTop: 32, borderTopWidth: 1, borderTopColor: C.paper, paddingTop: 14 }}>
-      <T v="serif" size={28}>{tagged ? `Tagged: ${tagged}` : 'Who was this with?'}</T>
-      <T v="small" style={{ marginTop: 4 }}>{tagged ? 'This conversation now counts toward your pattern with them.' : 'Tagging builds a brief for the next time you talk.'}</T>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
-        {people.map((p) => (
-          <Pressable key={p.person_id} onPress={() => { setTagged(p.name); void tagPerson(sessionId, p.name).catch(() => undefined); }} accessibilityRole="button" accessibilityState={{ selected: tagged === p.name }}
-            style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: 18, justifyContent: 'center', borderWidth: 1, borderColor: C.paper, backgroundColor: tagged === p.name ? C.paper : 'transparent', opacity: pressed ? 0.6 : 1 })}>
-            <T v="body" color={tagged === p.name ? C.ink : C.paper}>{p.name}</T>
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
-}
+const styles = StyleSheet.create({
+  headline: { marginTop: S[2] },
+  meta: { marginTop: S[3] },
+  plan: { marginTop: S[4] },
+  block: { marginTop: S[7] },
+  blockS: { marginTop: S[4] },
+  capGap: { marginTop: S[2] },
+  worked: { flexDirection: 'row', alignItems: 'center', gap: S[3] },
+  read: { marginTop: S[2] },
+});

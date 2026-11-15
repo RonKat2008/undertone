@@ -78,8 +78,10 @@ class Bus:
 
     async def drain(self) -> None:
         """Wait for in-flight handler tasks (tests and shutdown)."""
-        while self._tasks:
-            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+        # Only unfinished ones: gather() over tasks that are all done completes without yielding,
+        # so a done task whose set-cleanup callback is still queued would spin this loop forever.
+        while pending := [t for t in self._tasks if not t.done()]:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _put_drop_oldest(q: asyncio.Queue[BaseModel], item: BaseModel) -> None:

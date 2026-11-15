@@ -190,3 +190,19 @@ async def test_cancelled_consumer_removes_subscriber() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
     assert bus.subscriber_count == 0
+
+
+async def test_drain_returns_when_a_handler_finished_but_its_cleanup_is_still_queued() -> None:
+    """gather() over tasks that are all done completes without yielding to the loop, so the
+    done-callback that removes them from the set never ran and drain() spun forever (seen as
+    intermittent test hangs and a possible shutdown hang)."""
+    bus = Bus()
+
+    async def quick(_: Any) -> None:
+        return None
+
+    bus.on("bookmark", quick)
+    await bus.publish(bookmark(1.0))
+    await asyncio.sleep(0)  # the handler runs and finishes; its set-cleanup is queued behind us
+    assert all(t.done() for t in bus._tasks) and bus._tasks
+    await asyncio.wait_for(bus.drain(), WAIT_S)

@@ -1,24 +1,26 @@
-import { Geist_400Regular, Geist_500Medium } from '@expo-google-fonts/geist';
-import { GeistMono_400Regular } from '@expo-google-fonts/geist-mono';
-import { InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic } from '@expo-google-fonts/instrument-serif';
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Newsreader_400Regular } from '@expo-google-fonts/newsreader/400Regular';
+import { Newsreader_400Regular_Italic } from '@expo-google-fonts/newsreader/400Regular_Italic';
 import { useFonts } from 'expo-font';
 import { Stack, usePathname, useRouter } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { PATTERN_ORDER, PATTERNS } from '@/bus/patterns';
 import { isLive } from '@/bus/reducer';
 import { BusProvider, useBus } from '@/bus/use-bus';
-import { DebriefNotice } from '@/ui/DebriefNotice';
-import { Glyph } from '@/ui/Glyph';
 import { useKeepAwakeWhile } from '@/ui/Listening';
-import { Btn, T } from '@/ui/kit';
 import { C } from '@/ui/theme';
 
+// Keep the splash up until the four faces and the stored pairing are ready: no blank flash.
+SplashScreen.preventAutoHideAsync().catch(() => { /* already hidden (web, fast refresh) */ });
+
 export default function RootLayout() {
-  const [loaded] = useFonts({ Geist_400Regular, Geist_500Medium, GeistMono_400Regular, InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic });
-  if (!loaded) return <View style={{ flex: 1, backgroundColor: C.ink }} />;
+  const [loaded, error] = useFonts({ Inter_400Regular, Inter_500Medium, Newsreader_400Regular, Newsreader_400Regular_Italic });
+  // A font that fails to load falls back to the system face rather than holding the splash forever.
+  if (!loaded && !error) return null;
   return (
     <SafeAreaProvider>
       <BusProvider>
@@ -33,102 +35,49 @@ function Shell() {
   const { mode, state, dismissNotice } = useBus();
   const path = usePathname();
   const router = useRouter();
-  const [director, setDirector] = useState(false);
   const live = isLive(state);
   const sessionId = state.session?.id ?? null;
   const shownFor = useRef<string | null>(null);
+  const prevMode = useRef<typeof mode>('loading');
   // always-on: the screen may sleep between conversations, but not during one
   useKeepAwakeWhile(state.alwaysOn && live, 'undertone-conversation');
 
   useEffect(() => {
-    if (mode === 'unpaired' && path !== '/pair') router.replace('/pair');
-    if ((mode === 'mock' || mode === 'live') && path === '/pair') router.replace('/');
+    if (mode !== 'loading') SplashScreen.hideAsync().catch(() => { /* already hidden */ });
+  }, [mode]);
+
+  // Unpaired at launch, or just unpaired: offer the Pair screen once. "Not now" leaves it;
+  // Now then shows the pairing entry itself.
+  useEffect(() => {
+    const was = prevMode.current;
+    prevMode.current = mode;
+    if (mode === 'unpaired' && was !== 'unpaired' && path !== '/pair') router.replace('/pair');
+    if (mode === 'live' && was !== 'live' && path === '/pair') router.replace('/');
   }, [mode, path, router]);
 
-  // Always-on: a conversation that opens by itself takes the phone to the Live view, once per conversation.
+  // Always-on: a conversation that opens by itself brings Now forward, once per conversation.
   useEffect(() => {
     if (!state.alwaysOn || !live || !sessionId || shownFor.current === sessionId) return;
     shownFor.current = sessionId;
-    if (path !== '/live' && path !== '/pair') router.replace('/live');
+    if (path !== '/' && path !== '/pair') router.navigate('/');
   }, [state.alwaysOn, live, sessionId, path, router]);
 
-  // Reading the debrief is what the notice asks for: once there, it is done.
+  // Opening the debrief is what "Debrief ready" asks for: once there, it is read.
   useEffect(() => {
     if (path === '/debrief' && state.notice) dismissNotice();
   }, [path, state.notice, dismissNotice]);
 
-  // The director panel: a three-finger tap on the phone, the backtick key on web.
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === '`') setDirector((d) => !d); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  if (mode === 'loading') return <View style={{ flex: 1, backgroundColor: C.ink }} />;
+  if (mode === 'loading') return <View style={styles.page} />;
   return (
-    <View style={{ flex: 1, backgroundColor: C.ink }} onTouchStart={(e) => { if (e.nativeEvent.touches.length === 3) setDirector(true); }}>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.ink }, animation: 'fade' }} />
-      {state.notice && path !== '/debrief' && path !== '/pair' ? (
-        <DebriefNotice notice={state.notice} onDismiss={dismissNotice} onOpen={() => { dismissNotice(); router.push('/debrief'); }} />
-      ) : null}
-      <Director open={director} onClose={() => setDirector(false)} />
+    <View style={styles.page}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: styles.page }}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="pair" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+      </Stack>
     </View>
   );
 }
 
-function Director({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { send, mode, alwaysOnDemo, setAlwaysOnDemo } = useBus();
-  const Group = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <View style={{ marginBottom: 16 }}>
-      <T v="caps" style={{ marginBottom: 8 }}>{title}</T>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{children}</View>
-    </View>
-  );
-  return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel="Close the director panel" />
-      <View style={{ backgroundColor: C.well, borderTopWidth: 1, borderTopColor: C.paper, padding: 20, paddingBottom: 36, maxHeight: '78%' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
-          <T v="serif" size={28}>Director</T>
-          <T v="caps">{mode === 'mock' ? 'mock feed' : 'live backend'}</T>
-        </View>
-        <ScrollView>
-          {mode === 'mock' ? (
-            <Group title="Demo feed">
-              <Btn small solid={!alwaysOnDemo} label="Tap to start" onPress={() => setAlwaysOnDemo(false)} />
-              <Btn small solid={alwaysOnDemo} label="Always-on day" onPress={() => setAlwaysOnDemo(true)} />
-            </Group>
-          ) : null}
-          <Group title="Session">
-            <Btn small label="Start regular" onPress={() => send({ cmd: 'start', mode: 'regular' })} />
-            <Btn small label="Start practice" onPress={() => send({ cmd: 'start', mode: 'practice' })} />
-            <Btn small label="Stop" onPress={() => send({ cmd: 'stop' })} />
-            <Btn small label="Jump to debrief" onPress={() => send({ cmd: 'debrief' })} />
-          </Group>
-          <Group title="Nudge">
-            {PATTERN_ORDER.filter((p) => PATTERNS[p].group === 'nudge').map((p) => (
-              <Pressable key={p} onPress={() => send({ cmd: 'nudge', pattern: p })} accessibilityRole="button" accessibilityLabel={`Fire ${p}`}
-                style={({ pressed }) => ({ height: 40, paddingHorizontal: 12, borderWidth: 1, borderColor: C.paper, borderRadius: 3, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.6 : 1 })}>
-                <Glyph pattern={p} size={14} maxWidth={40} /><T v="small" color={C.paper}>{p}</T>
-              </Pressable>
-            ))}
-          </Group>
-          <Group title="How am I doing?">
-            <Btn small label="1 · good" onPress={() => send({ cmd: 'status', verdict: 'good' })} />
-            <Btn small label="2 · talking" onPress={() => send({ cmd: 'status', verdict: 'talking_too_much' })} />
-            <Btn small label="3 · ask" onPress={() => send({ cmd: 'status', verdict: 'ask_question' })} />
-          </Group>
-          <Group title="Marks and hands">
-            <Btn small label="Bookmark" onPress={() => send({ cmd: 'bookmark' })} />
-            <Btn small label="Nerves" onPress={() => send({ cmd: 'signal', kind: 'nerves' })} />
-            <Btn small label="Checked out" onPress={() => send({ cmd: 'signal', kind: 'checked_out' })} />
-            <Btn small label="Still" onPress={() => send({ cmd: 'motion', state: 'still' })} />
-            <Btn small label="Fidget" onPress={() => send({ cmd: 'motion', state: 'fidget' })} />
-          </Group>
-        </ScrollView>
-        <Btn small label="Close" onPress={onClose} />
-      </View>
-    </Modal>
-  );
-}
+const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: C.bg },
+});

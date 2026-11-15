@@ -489,7 +489,7 @@ class KnowledgeGraph(Model):
     edges: list[GraphEdge] = Field(default_factory=list)
     stats: GraphStats = Field(default_factory=GraphStats)
     generated_at: float  # unix seconds
-    sample: bool = False
+    sample: bool = False  # always false: an empty database gives just the `me` node
 
 
 class GraphQuote(Model):
@@ -589,6 +589,341 @@ class SessionVoices(Model):
 class ReprocessResult(Model):
     queued: list[str] = Field(default_factory=list)
     skipped: list[str] = Field(default_factory=list)
+
+
+# ---------- REST: relationships (backend/relationships) ----------
+# friend/partner/family: personal ties. boss: they manage ME; report: ME manages them;
+# coworker: same team or company, no clear lead. client: ME serves them (customer, patient, client);
+# service: they serve ME (shop staff, waiter, driver, help desk). teacher: they teach ME;
+# student: ME teaches them. acquaintance: some shared history, not close. stranger: no shared
+# history (asking directions, small talk with someone new). unknown: not enough speech or mixed signals.
+RelationshipKind = Literal[
+    "friend", "partner", "family", "boss", "report", "coworker", "client", "teacher", "student",
+    "service", "acquaintance", "stranger", "unknown",
+]
+RelationshipFormality = Literal["casual", "neutral", "formal"]
+RelationshipPower = Literal["they_lead", "peer", "i_lead", "unknown"]
+RelationshipSource = Literal["decisions", "rules", "user"]
+
+
+class Relationship(Model):
+    person_id: str
+    kind: RelationshipKind
+    confidence: float = Field(ge=0, le=1)
+    formality: RelationshipFormality = "neutral"
+    power: RelationshipPower = "unknown"
+    warmth: float = Field(default=0.5, ge=0, le=1)
+    evidence: list[str] = Field(default_factory=list, max_length=3)  # short, never quotes speech
+    source: RelationshipSource
+    based_on_sessions: int = 0
+    updated_at: float | None = None  # unix seconds; None = not analysed yet
+
+
+class PersonRelationship(Model):
+    person_id: str
+    name: str
+    sessions: int  # kept conversations with this person
+    relationship: Relationship
+
+
+class RelationshipUpdate(Model):
+    kind: RelationshipKind
+
+
+class CommitmentUpdate(Model):
+    """POST /graph/commitment/{id} body: false = done, true = reopened."""
+
+    open: bool
+
+
+CommitmentClosedBy = Literal["manual", "auto"]
+
+
+class CommitmentStatus(Model):
+    id: str  # "commitment:<bookmark_id>"
+    bookmark_id: int
+    open: bool
+    closed_by: CommitmentClosedBy | None = None
+    closed_at: float | None = None  # unix seconds
+    closed_session_id: str | None = None  # the later conversation that closed it (auto only)
+    evidence: str | None = None  # the wearer's words that closed it (auto only)
+
+
+# ---------- REST: reports (backend/reports) ----------
+ReportMeasure = Literal["conversations", "minutes_spoken", "talk_ratio", "wpm", "fillers_per_min",
+                        "interruptions", "questions", "habit_per_conversation"]
+ReportDirection = Literal["up", "down", "same", "insufficient_data"]
+ReportHighlightKind = Literal["improved", "slipped", "person", "habit", "promises", "topic", "insufficient_data"]
+
+
+class ReportWindow(Model):
+    days: int
+    start: float  # unix seconds; the window is [start, end]
+    end: float
+    previous_start: float  # the previous equal window is [previous_start, start)
+
+
+class ReportDelta(Model):
+    metric: ReportMeasure
+    current: float | None = None  # null = no data in this window
+    previous: float | None = None
+    change: float | None = None  # current - previous; null when the sample is too small
+    direction: ReportDirection = "insufficient_data"
+    better: bool | None = None  # null when the measure has no better direction or data is insufficient
+    sample: int = 0  # conversations behind `current`
+    previous_sample: int = 0
+
+
+class ReportDayPoint(Model):
+    day: str  # YYYY-MM-DD, UTC
+    conversations: int = 0
+    minutes_spoken: float = 0.0
+    talk_ratio: float | None = None
+    wpm: float | None = None
+    fillers_per_min: float | None = None
+    interruptions: int = 0
+    questions: int = 0
+    nudges: int = 0
+    quiet_marks: int = 0
+
+
+class ReportBucket(Model):
+    start: str  # YYYY-MM-DD, UTC; first day of the bucket
+    days: int
+    count: int
+
+
+class ReportRank(Model):
+    node_id: str
+    label: str
+    conversations: int
+    minutes: float  # conversation minutes (both speakers)
+
+
+class ReportCount(Model):
+    node_id: str
+    label: str
+    count: int
+
+
+class ReportComparison(Model):
+    metric: ReportMeasure
+    value: float | None = None  # the wearer in these conversations
+    usual: float | None = None  # the wearer in all their other conversations in the window
+    ratio: float | None = None  # value / usual; null unless both samples are big enough
+    sample: int = 0
+    usual_sample: int = 0
+    meaningful: bool = False  # big enough samples and a clear difference
+
+
+class ReportHighlight(Model):
+    kind: ReportHighlightKind
+    text: str
+    node_ids: list[str] = Field(default_factory=list)
+
+
+class GraphFocusEdge(Model):
+    source: str
+    target: str
+
+
+class GraphFocus(Model):
+    node_ids: list[str] = Field(default_factory=list)
+    edges: list[GraphFocusEdge] = Field(default_factory=list)
+
+
+class ReportTotals(Model):
+    conversations: int = 0
+    minutes_spoken: float = 0.0  # the wearer's own speaking minutes
+    minutes_together: float = 0.0  # conversation length
+    interruptions: int = 0
+    questions: int = 0
+    nudges: int = 0  # buzzed
+    quiet_marks: int = 0
+
+
+class ReportPromiseCounts(Model):
+    made: int = 0
+    open: int = 0
+    done: int = 0
+    overdue: int = 0
+
+
+class ReportHabitCount(Model):
+    rule_id: str
+    node_id: str
+    label: str
+    total: int
+    buzzed: int
+    quiet: int
+    conversations: int  # conversations it showed up in
+    per_conversation: float | None = None  # across all conversations in the window
+    trend: ReportDelta
+
+
+class ReportConversation(Model):
+    session_id: str
+    node_id: str
+    started_at: float  # unix seconds
+    minutes: float
+    minutes_spoken: float
+    talk_ratio: float
+    wpm: float
+    fillers_per_min: float
+    interruptions: int
+    questions: int
+    headline: str
+    person_node_id: str | None = None
+    topic_ids: list[str] = Field(default_factory=list)  # topic node ids
+
+
+class ReportPromise(Model):
+    id: str  # commitment node id
+    bookmark_id: int
+    text: str
+    quote: str | None = None
+    person_id: str | None = None
+    person_name: str | None = None
+    person_node_id: str | None = None
+    session_id: str
+    conversation_node_id: str
+    made_at: float  # unix seconds
+    age_days: int
+    open: bool
+    closed_by: CommitmentClosedBy | None = None
+    closed_at: float | None = None
+    closed_session_id: str | None = None
+    evidence: str | None = None
+    due_day: str | None = None  # YYYY-MM-DD, only when the promise names a clear day
+    overdue: bool = False
+
+
+class ReportQuote(Model):
+    session_id: str
+    ts: float  # unix seconds
+    text: str
+
+
+class ReportRelationshipGroup(Model):
+    kind: RelationshipKind  # people never analysed are grouped under "unknown"
+    people: int
+    conversations: int
+    minutes: float
+    node_ids: list[str] = Field(default_factory=list)  # person node ids
+
+
+class OverviewReport(Model):
+    window: ReportWindow
+    totals: ReportTotals
+    measures: list[ReportDelta] = Field(default_factory=list)
+    habits: list[ReportHabitCount] = Field(default_factory=list)
+    best_habit: ReportHabitCount | None = None
+    weakest_habit: ReportHabitCount | None = None
+    promises: ReportPromiseCounts
+    top_people: list[ReportRank] = Field(default_factory=list)
+    top_topics: list[ReportRank] = Field(default_factory=list)
+    by_relationship: list[ReportRelationshipGroup] = Field(default_factory=list)
+    series: list[ReportDayPoint] = Field(default_factory=list)
+    highlights: list[ReportHighlight] = Field(default_factory=list)
+    insufficient_data: bool = True  # too few conversations to compare with the previous window
+    graph_focus: GraphFocus
+
+
+class PersonReportSummary(Model):
+    person_id: str
+    node_id: str
+    name: str
+    conversations: int
+    minutes_together: float
+    minutes_spoken: float
+    last_talked: float | None = None  # unix seconds
+    relationship: RelationshipKind | None = None  # null = never analysed (backend/relationships)
+    relationship_confidence: float | None = None
+    relationship_source: RelationshipSource | None = None
+    comparisons: list[ReportComparison] = Field(default_factory=list)
+    sentence: str | None = None  # the clearest meaningful comparison, ready to show
+    open_promises: int = 0
+    top_topics: list[ReportRank] = Field(default_factory=list)
+
+
+class ByPersonReport(Model):
+    window: ReportWindow
+    people: list[PersonReportSummary] = Field(default_factory=list)
+    untagged_conversations: int = 0
+    graph_focus: GraphFocus
+
+
+class PersonReport(Model):
+    window: ReportWindow
+    person: PersonReportSummary
+    topics: list[ReportRank] = Field(default_factory=list)
+    promises: list[ReportPromise] = Field(default_factory=list)
+    habits: list[ReportCount] = Field(default_factory=list)
+    timeline: list[ReportConversation] = Field(default_factory=list)
+    graph_focus: GraphFocus
+
+
+class TopicReportSummary(Model):
+    topic_id: str  # slug
+    node_id: str
+    label: str
+    conversations: int
+    minutes_together: float
+    last_discussed: float | None = None
+    trend: ReportDelta  # conversations on the topic, this window vs the previous one
+    people: list[ReportRank] = Field(default_factory=list)
+    comparisons: list[ReportComparison] = Field(default_factory=list)
+    sentence: str | None = None
+    promises: int = 0
+
+
+class ByTopicReport(Model):
+    window: ReportWindow
+    topics: list[TopicReportSummary] = Field(default_factory=list)
+    graph_focus: GraphFocus
+
+
+class TopicReport(Model):
+    window: ReportWindow
+    topic: TopicReportSummary
+    series: list[ReportBucket] = Field(default_factory=list)
+    promises: list[ReportPromise] = Field(default_factory=list)
+    quotes: list[ReportQuote] = Field(default_factory=list)
+    habits: list[ReportCount] = Field(default_factory=list)
+    timeline: list[ReportConversation] = Field(default_factory=list)
+    graph_focus: GraphFocus
+
+
+class HabitReport(Model):
+    habit: ReportHabitCount
+    series: list[ReportBucket] = Field(default_factory=list)
+    by_person: list[ReportCount] = Field(default_factory=list)
+    by_topic: list[ReportCount] = Field(default_factory=list)
+    if_then: list[str] = Field(default_factory=list)
+
+
+class HabitsReport(Model):
+    window: ReportWindow
+    habits: list[HabitReport] = Field(default_factory=list)
+    graph_focus: GraphFocus
+
+
+class PromisesReport(Model):
+    window: ReportWindow
+    counts: ReportPromiseCounts
+    open: list[ReportPromise] = Field(default_factory=list)
+    done: list[ReportPromise] = Field(default_factory=list)
+    graph_focus: GraphFocus
+
+
+REPORT_TYPES: tuple[str, ...] = (
+    "ReportWindow", "ReportDelta", "ReportDayPoint", "ReportBucket", "ReportRank", "ReportCount",
+    "ReportComparison", "ReportHighlight", "GraphFocusEdge", "GraphFocus", "ReportTotals",
+    "ReportPromiseCounts", "ReportHabitCount", "ReportConversation", "ReportPromise", "ReportQuote",
+    "ReportRelationshipGroup",
+    "OverviewReport", "PersonReportSummary", "ByPersonReport", "PersonReport", "TopicReportSummary",
+    "ByTopicReport", "TopicReport", "HabitReport", "HabitsReport", "PromisesReport",
+)
 
 
 # ---------- INTERNAL (not on the wire) ----------

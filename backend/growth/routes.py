@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.capture.media import recordings_dir
@@ -67,7 +67,8 @@ def people(st: AppState = Depends(get_app_state)) -> list[Person]:
 
 
 @router.post("/sessions/{session_id}/person", response_model=Person)
-async def tag_person(session_id: str, body: TagPerson, st: AppState = Depends(get_app_state)) -> Person:
+async def tag_person(session_id: str, body: TagPerson, background: BackgroundTasks,
+                     st: AppState = Depends(get_app_state)) -> Person:
     try:
         person = _people.tag_session(st.db, session_id, body.name, body.person_id)
     except LookupError as exc:
@@ -75,6 +76,9 @@ async def tag_person(session_id: str, body: TagPerson, st: AppState = Depends(ge
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     await _teach_voice(st, session_id, person.person_id)
+    from backend import relationships  # a new conversation with them: re-infer who they are
+
+    background.add_task(relationships.refresh_person, st.db, person.person_id)
     return person
 
 

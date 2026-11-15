@@ -31,21 +31,20 @@ export interface Pairing {
 }
 
 const KEY = 'undertone:pairing';
-export type StoredPairing = Pairing | 'demo' | null;
+export type StoredPairing = Pairing | null;
 
 export async function loadPairing(): Promise<StoredPairing> {
   try {
     const raw = await AsyncStorage.getItem(KEY);
     if (!raw) return null;
     const value = JSON.parse(raw);
-    if (value === 'demo') return 'demo';
-    return isPairing(value) ? value : null;
+    return isPairing(value) ? value : null; // an old build's retired 'demo' value reads as unpaired
   } catch {
     return null;
   }
 }
 
-export async function savePairing(pairing: Pairing | 'demo'): Promise<void> {
+export async function savePairing(pairing: Pairing): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(pairing));
 }
 
@@ -277,7 +276,7 @@ export function createSocketSource(pairing: Pairing): BusSource {
       case 'bookmark': void json('/session/bookmark', 'POST', { source: 'phone' }); return;
       case 'status': void json('/session/tap', 'POST', {}); return;
       case 'nudge': void json('/haptics/test', 'POST', { pattern: command.pattern, label: 'Test from the phone' }); return;
-      default: return; // signals, motion and rewinding exist only in the mock
+      default: return; // signals, motion and rewinding have no backend endpoint
     }
   }
 

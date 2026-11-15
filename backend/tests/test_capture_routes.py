@@ -147,7 +147,8 @@ def test_user_override(client: TestClient, db: DB) -> None:
     assert row is not None and (row["kept"], row["kept_source"]) == (1, "user")
     assert "s-noise" in [s["session_id"] for s in client.get("/sessions").json()]
     r = client.post("/sessions/s-keep/keep", json={"kept": False})
-    assert (r.json()["kept"], r.json()["kept_reason"]) == (False, "trivial")
+    assert r.json()["kept"] is False and r.json().get("kept_reason") is None  # hidden by the wearer
+    assert db.get_session("s-keep")["kept_reason"] is None
     assert "s-keep" not in [s["session_id"] for s in client.get("/sessions").json()]
 
 
@@ -158,8 +159,16 @@ def test_override_validation(client: TestClient) -> None:
 
 def test_override_keeps_specific_reason() -> None:
     assert capture_routes.override_reason(False, "sensitive") == "sensitive"
-    assert capture_routes.override_reason(False, "keep") == "trivial"
+    assert capture_routes.override_reason(False, "keep") is None
+    assert capture_routes.override_reason(False, None) is None
+    assert capture_routes.override_reason(False, "trivial") == "trivial"
     assert capture_routes.override_reason(True, "noise") == "keep"
+
+
+def test_sensitive_transcript_is_never_served(client: TestClient, db: DB) -> None:
+    db.set_verdict("s-noise", False, "sensitive", "decisions")
+    assert client.get("/sessions/s-noise/transcript").status_code == 404
+    assert client.get("/sessions/s-keep/transcript").status_code == 200
 
 
 # ---------- growth + graph filters ----------
