@@ -1,0 +1,239 @@
+/* Spoken practice (/coach/practice) and its entry on the Coach page. Global, so every class is
+   prefixed pr-. Colours are Lamplight tokens: teal is you, amber is the coach. Motion is
+   transform and opacity only, and stops under reduced motion. */
+
+.pr-flow { display: grid; gap: var(--gap-section); }
+.pr-flow > .qi-section, .pr-before > .qi-section, .pr-result > div > .qi-section { margin-top: 0; }
+.pr-before, .pr-result { display: grid; gap: var(--gap-section); }
+
+/* ---------- lit stages (before, entry, hero, live) ---------- */
+.pr-stage, .pr-hero, .pr-live, .pr-entry { position: relative; overflow: hidden; isolation: isolate; }
+.pr-stage-light, .pr-hero-light, .pr-live-light {
+  position: absolute; inset: -40% -20% auto auto; width: 70%; aspect-ratio: 1; z-index: -1; pointer-events: none; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--coach) 22%, transparent), transparent);
+}
+.pr-hero-light {
+  inset: -30% auto auto -15%;
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--accent) 20%, transparent), transparent);
+}
+.pr-hero-light::after, .pr-stage-light::after {
+  content: ""; position: absolute; inset: 40% -70% -60% 60%; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--kind-conversation) 14%, transparent), transparent);
+}
+.pr-stage-body, .pr-entry-body {
+  display: grid; gap: 24px; padding: var(--pad-panel); align-items: center;
+}
+@media (min-width: 640px) {
+  .pr-stage-body, .pr-entry-body { grid-template-columns: auto minmax(0, 1fr); gap: 32px; padding: 32px; }
+  .pr-entry-body:has(.pr-entry-last) { grid-template-columns: auto minmax(0, 1fr) auto; }
+}
+.pr-stage-kicker { color: var(--coach); font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 500; }
+.pr-stage-title, .pr-entry-title {
+  margin-top: 4px; font-family: var(--font-voice); font-weight: 400; font-size: clamp(26px, 1.6vw + 18px, 34px);
+  line-height: 1.12; letter-spacing: -0.015em; color: var(--text); text-wrap: balance;
+}
+.pr-entry-title { font-size: clamp(24px, 1vw + 18px, 28px); margin-bottom: 4px; }
+
+.pr-steps { display: grid; gap: 12px; margin-top: 20px; counter-reset: none; }
+.pr-step { display: flex; gap: 12px; align-items: baseline; font-size: var(--fs-body); line-height: var(--lh-body); }
+.pr-step-num {
+  flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  font-size: 13px; font-weight: 500; color: var(--on-accent); background: var(--accent); transform: translateY(5px);
+}
+.pr-step:nth-child(1) .pr-step-num { background: var(--coach); }
+.pr-step:nth-child(3) .pr-step-num { background: var(--kind-conversation); }
+.pr-note {
+  display: flex; gap: 8px; align-items: center; margin-top: 20px; padding: 10px 14px; border-radius: 12px; width: fit-content;
+  background: var(--surface-2); color: var(--muted); font-size: var(--fs-caption); line-height: var(--lh-caption);
+}
+.pr-alert {
+  padding: 10px 14px; border-radius: 12px; background: color-mix(in oklch, var(--warn) 14%, transparent);
+  color: var(--text); font-size: var(--fs-body); line-height: var(--lh-body);
+}
+
+/* ---------- the living voice ---------- */
+.pr-orb {
+  --pr-level: 0; --pr-hue: var(--muted); --pr-box: 168px;
+  position: relative; display: grid; place-items: center; width: var(--pr-box); height: var(--pr-box); flex: none; justify-self: center;
+}
+.pr-orb[data-size="md"] { --pr-box: 112px; }
+.pr-orb[data-speaker="coach"] { --pr-hue: var(--coach); }
+.pr-orb[data-speaker="you"] { --pr-hue: var(--accent); }
+.pr-orb[data-speaker="thinking"] { --pr-hue: var(--kind-conversation); }
+.pr-orb[data-speaker="waiting"], .pr-orb[data-speaker="idle"] { --pr-hue: var(--coach); }
+.pr-orb > span { position: absolute; border-radius: 50%; transition: background-color var(--dur-slow) var(--ease-out); }
+.pr-orb-halo {
+  inset: -18%; background: radial-gradient(closest-side, color-mix(in oklch, var(--pr-hue) 30%, transparent), transparent);
+  opacity: calc(0.55 + var(--pr-level) * 0.45); transform: scale(calc(0.9 + var(--pr-level) * 0.3));
+}
+.pr-orb-core {
+  inset: 30%;
+  background: radial-gradient(circle at 35% 30%, color-mix(in oklch, var(--pr-hue) 55%, white), var(--pr-hue) 55%, color-mix(in oklch, var(--pr-hue) 60%, black));
+  box-shadow: 0 10px 30px -8px color-mix(in oklch, var(--pr-hue) 60%, transparent);
+  transform: scale(calc(1 + var(--pr-level) * 0.32));
+}
+.pr-orb-ring {
+  inset: 30%; border: 1.5px solid color-mix(in oklch, var(--pr-hue) 55%, transparent);
+  transform: scale(calc(1.15 + var(--pr-level) * 0.5)); opacity: calc(0.25 + var(--pr-level) * 0.6);
+}
+.pr-orb-ring[data-i="2"] { transform: scale(calc(1.4 + var(--pr-level) * 0.8)); opacity: calc(0.16 + var(--pr-level) * 0.5); }
+.pr-orb-ring[data-i="3"] { transform: scale(calc(1.65 + var(--pr-level) * 1.1)); opacity: calc(0.08 + var(--pr-level) * 0.4); }
+.pr-orb-spin {
+  inset: 22%; opacity: 0;
+  background: conic-gradient(from 0deg, transparent, color-mix(in oklch, var(--pr-hue) 70%, transparent), transparent 40%);
+  mask: radial-gradient(closest-side, transparent 78%, black 80%);
+}
+.pr-orb[data-speaker="thinking"] .pr-orb-spin { opacity: 1; animation: pr-spin 1.6s linear infinite; }
+.pr-orb[data-speaker="waiting"] .pr-orb-core, .pr-orb[data-speaker="idle"] .pr-orb-core { animation: pr-breathe 3.2s var(--ease-in-out) infinite alternate; }
+@keyframes pr-spin { to { transform: rotate(360deg); } }
+@keyframes pr-breathe { from { transform: scale(0.94); } to { transform: scale(1.04); } }
+
+/* ---------- during ---------- */
+.pr-live-light { inset: -35% auto auto 50%; translate: -50% 0; width: 90%; }
+.pr-live-light[data-speaker="you"] { background: radial-gradient(closest-side, color-mix(in oklch, var(--accent) 20%, transparent), transparent); }
+.pr-live-light[data-speaker="thinking"] { background: radial-gradient(closest-side, color-mix(in oklch, var(--kind-conversation) 18%, transparent), transparent); }
+.pr-live-body { display: grid; gap: 24px; padding: var(--pad-panel); }
+@media (min-width: 640px) { .pr-live-body { padding: 32px 40px; } }
+.pr-live-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; align-items: center; }
+.pr-live-who {
+  display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: var(--fs-body); color: var(--text);
+}
+.pr-live-who::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
+}
+.pr-live-who[data-speaker="coach"]::before { background: var(--coach); }
+.pr-live-who[data-speaker="you"]::before { background: var(--accent); }
+.pr-live-who[data-speaker="thinking"]::before { background: var(--kind-conversation); }
+.pr-live-count {
+  padding: 4px 12px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: var(--fs-caption); line-height: var(--lh-caption);
+}
+.pr-live-center { display: grid; justify-items: center; gap: 24px; padding-block: 8px; text-align: center; }
+.pr-question {
+  max-width: 30ch; font-family: var(--font-voice); font-weight: 400; color: var(--coach);
+  font-size: clamp(24px, 1.8vw + 16px, 34px); line-height: 1.22; letter-spacing: -0.01em; text-wrap: balance;
+}
+.pr-captions { display: grid; gap: 8px; padding: 16px; border-radius: 14px; background: color-mix(in oklch, var(--bg) 55%, transparent); }
+.pr-caption { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; font-size: var(--fs-body); line-height: var(--lh-body); }
+.pr-caption-who { color: var(--muted); font-size: var(--fs-caption); line-height: var(--lh-body); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-caption[data-role="coach"] .pr-caption-who { color: var(--coach); }
+.pr-caption[data-role="you"] .pr-caption-who { color: var(--accent); }
+.pr-caption[data-role="coach"] .pr-caption-text { font-family: var(--font-voice); color: color-mix(in oklch, var(--text) 85%, var(--coach)); }
+.pr-caption:not(:last-child) { opacity: 0.66; }
+.pr-live-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+
+/* ---------- after: the score ---------- */
+.pr-hero-body { display: grid; gap: 24px; padding: var(--pad-panel); align-items: center; justify-items: center; text-align: center; }
+@media (min-width: 640px) {
+  .pr-hero-body { grid-template-columns: auto minmax(0, 1fr); gap: 40px; padding: 36px 40px; justify-items: start; text-align: left; }
+}
+.pr-ring { position: relative; width: 196px; aspect-ratio: 1; flex: none; }
+.pr-ring[data-size="sm"] { width: 72px; }
+.pr-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.pr-ring-track { fill: none; stroke: var(--surface-2); stroke-width: 9; }
+.pr-ring-arc { fill: none; stroke-width: 9; stroke-linecap: round; filter: drop-shadow(0 0 10px color-mix(in oklch, var(--accent) 35%, transparent)); }
+.pr-ring-center { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 2px; }
+.pr-ring-num { font-size: 60px; line-height: 1; font-weight: 500; letter-spacing: -0.03em; color: var(--text); }
+.pr-ring[data-size="sm"] .pr-ring-num { font-size: 22px; }
+.pr-ring-word { color: var(--coach); font-size: var(--fs-caption); line-height: var(--lh-caption); font-weight: 500; }
+.pr-hero-from { display: inline-flex; gap: 8px; align-items: center; color: var(--coach); font-size: var(--fs-caption); font-weight: 500; }
+.pr-hero-summary {
+  margin-top: 8px; font-family: var(--font-voice); font-size: clamp(22px, 1.2vw + 16px, 28px); line-height: 1.3; color: var(--text); text-wrap: pretty;
+}
+.pr-hero-text .flex { justify-content: center; }
+@media (min-width: 640px) { .pr-hero-text .flex { justify-content: flex-start; } }
+
+/* sub-score bars */
+.pr-bars { display: grid; gap: 22px; }
+.pr-bar { --pr-band: var(--accent); display: grid; gap: 8px; }
+.pr-bar[data-band="mid"] { --pr-band: var(--coach); }
+.pr-bar[data-band="low"] { --pr-band: var(--warn); }
+.pr-bar-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.pr-bar-label { font-weight: 500; color: var(--text); }
+.pr-bar-score { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 500; color: var(--pr-band); }
+.pr-bar-track { height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.pr-bar-fill {
+  display: block; height: 100%; border-radius: inherit; transform-origin: left center;
+  background: linear-gradient(90deg, color-mix(in oklch, var(--pr-band) 55%, transparent), var(--pr-band));
+  animation: pr-grow var(--dur-slow) var(--ease-out) both; animation-duration: 900ms;
+}
+.pr-bar:nth-child(2) .pr-bar-fill { animation-delay: 60ms; }
+.pr-bar:nth-child(3) .pr-bar-fill { animation-delay: 120ms; }
+.pr-bar:nth-child(4) .pr-bar-fill { animation-delay: 180ms; }
+.pr-bar:nth-child(5) .pr-bar-fill { animation-delay: 240ms; }
+.pr-bar:nth-child(6) .pr-bar-fill { animation-delay: 300ms; }
+@keyframes pr-grow { from { transform: scaleX(0); } }
+.pr-bar-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.pr-bar-source {
+  padding: 1px 10px; border-radius: 999px; font-size: var(--fs-caption); line-height: 22px; color: var(--muted); background: var(--surface-2);
+}
+.pr-bar-source[data-source="judged"] { color: var(--coach); background: var(--coach-wash); }
+
+/* strengths, goals, checks */
+.pr-strengths { display: grid; gap: 12px; }
+@media (min-width: 640px) { .pr-strengths { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } }
+.pr-strength {
+  display: flex; gap: 12px; padding: var(--pad-panel); border-radius: 16px; background: color-mix(in oklch, var(--accent) 8%, var(--surface));
+  box-shadow: var(--shadow-panel);
+}
+.pr-strength-mark, .pr-goal-mark, .pr-check-mark {
+  flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  color: var(--accent); background: var(--accent-wash);
+}
+.pr-goals { display: grid; gap: 18px; }
+.pr-goal { display: flex; gap: 14px; }
+.pr-goal-mark { color: var(--coach); background: var(--coach-wash); border: 1.5px solid color-mix(in oklch, var(--coach) 45%, transparent); }
+.pr-goal-from { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; color: var(--muted); font-size: var(--fs-caption); line-height: var(--lh-caption); }
+.pr-goal-quote { font-style: italic; color: color-mix(in oklch, var(--text) 70%, var(--muted)); }
+.pr-checks { display: grid; }
+.pr-check { display: flex; gap: 14px; align-items: center; padding-block: 12px; }
+.pr-check + .pr-check { border-top: 1px solid var(--line); }
+.pr-check-word { flex: none; font-size: var(--fs-caption); font-weight: 500; padding: 2px 10px; border-radius: 999px; }
+.pr-check[data-tone="met"] .pr-check-word { color: var(--accent); background: var(--accent-wash); }
+.pr-check[data-tone="not_yet"] .pr-check-mark { color: var(--warn); background: color-mix(in oklch, var(--warn) 14%, transparent); }
+.pr-check[data-tone="not_yet"] .pr-check-word { color: var(--warn); background: color-mix(in oklch, var(--warn) 14%, transparent); }
+.pr-check[data-tone="unknown"] .pr-check-mark { color: var(--muted); background: var(--surface-2); }
+.pr-check[data-tone="unknown"] .pr-check-word { color: var(--muted); background: var(--surface-2); }
+
+/* score chip in lists */
+.pr-chip {
+  --pr-band: var(--accent); display: inline-grid; place-items: center; min-width: 40px; height: 28px; padding-inline: 8px; border-radius: 999px;
+  font-weight: 500; font-size: var(--fs-caption); color: var(--pr-band); background: color-mix(in oklch, var(--pr-band) 15%, transparent);
+}
+.pr-chip[data-band="mid"] { --pr-band: var(--coach); }
+.pr-chip[data-band="low"] { --pr-band: var(--warn); }
+
+/* ---------- the Coach page entry ---------- */
+.pr-entry {
+  display: block; padding: 0; color: inherit; text-decoration: none;
+  background: linear-gradient(135deg, color-mix(in oklch, var(--coach) 10%, var(--surface)), color-mix(in oklch, var(--accent) 7%, var(--surface)));
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.pr-entry:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.pr-entry:active { transform: scale(0.99); }
+@media (hover: hover) {
+  .pr-entry:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+  .pr-entry:hover .pr-entry-cta svg:last-child { transform: translateX(3px); }
+}
+.pr-entry-goals { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.pr-entry-goals li {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px;
+  font-size: var(--fs-caption); line-height: var(--lh-caption); color: var(--text); background: var(--coach-wash);
+}
+.pr-entry-goals svg { color: var(--coach); }
+.pr-entry-cta {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; padding: 9px 16px; border-radius: 10px;
+  background: var(--coach); color: var(--on-accent); font-weight: 500;
+}
+.pr-entry-cta svg:last-child { transition: transform var(--dur-fast) var(--ease-out); }
+.pr-entry-last {
+  --pr-band: var(--accent); display: grid; justify-items: center; gap: 2px; padding: 16px 20px; border-radius: 14px;
+  background: color-mix(in oklch, var(--surface) 70%, transparent); box-shadow: var(--shadow-panel); text-align: center;
+}
+.pr-entry-last[data-band="mid"] { --pr-band: var(--coach); }
+.pr-entry-last[data-band="low"] { --pr-band: var(--warn); }
+.pr-entry-last-num { font-size: 40px; line-height: 1.05; font-weight: 500; color: var(--pr-band); letter-spacing: -0.02em; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-orb > span, .pr-orb-core, .pr-orb-spin, .pr-bar-fill { animation: none !important; transition: none; }
+  .pr-entry, .pr-entry:hover, .pr-entry:active { transform: none; }
+}
