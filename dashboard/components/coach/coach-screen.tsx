@@ -9,6 +9,7 @@ import { activateCoach, getProfile, listCoaches, saveCoach } from '@/lib/api/cli
 import { canBuildPersonal, goalSentence, shortGoal, habitLines, listensFor, orderCoaches, type HabitDirection } from '@/lib/api/coach';
 import type { CoachSpec, HabitProfile } from '@/lib/bus/contracts';
 import { useBus } from '@/lib/bus/use-bus';
+import { PracticeEntry } from '@/components/practice/practice-entry';
 import { BuildCoach } from './build-coach';
 import { ListenLines } from './listen-lines';
 
@@ -81,7 +82,8 @@ export function CoachScreen() {
   return (
     <Page title="Coach" lede="Choose who listens with you, and what for." width="wide"
       action={<Button href="/live"><Activity {...ICON} size={16} aria-hidden />Rehearse</Button>}>
-      <div className="grid gap-x-8 gap-y-[var(--gap-section)] lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      <PracticeEntry coachName={active?.name ?? null} />
+      <div className="mt-[var(--gap-section)] grid gap-x-8 gap-y-[var(--gap-section)] lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <div className="min-w-0 max-lg:contents">
           <Section title="Your coach" className="max-lg:order-1">
             <ActiveCoach coach={active} loading={coaches.kind === 'loading'} />
