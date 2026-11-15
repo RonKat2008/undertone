@@ -1,0 +1,112 @@
+/* Home page only (imported by home-page.tsx; class names are prefixed home- because this project loads every .css as global). Colours come from the Lamplight tokens; motion is transform and opacity. */
+
+.home-hero {
+  --orb: var(--accent);
+  --orb-b: var(--kind-conversation);
+  --orb-c: var(--coach);
+}
+.home-hero[data-state="disconnected"],
+.home-hero[data-state="unreachable"] {
+  --orb: var(--muted);
+  --orb-b: var(--line-strong);
+  --orb-c: var(--line-strong);
+}
+.home-hero[data-state="connecting"] {
+  --orb-b: var(--line-strong);
+}
+
+.home-headline {
+  font-family: var(--font-voice);
+  font-weight: 400;
+  font-size: clamp(40px, 3.2vw + 18px, 64px);
+  line-height: 1.04;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+}
+
+/* Soft pools of light behind a section, in the kind and accent hues. Decorative only. */
+.home-glow {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(8px);
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--glow, var(--accent)) var(--glow-strength, 14%), transparent), transparent);
+}
+
+/* The orbiting moments drift gently. */
+.home-float {
+  animation: float 7s var(--ease-in-out) infinite alternate;
+}
+.home-float[data-i="1"] { animation-duration: 8.5s; animation-delay: -2s; }
+.home-float[data-i="2"] { animation-duration: 6.4s; animation-delay: -4s; }
+.home-float[data-i="3"] { animation-duration: 9.2s; animation-delay: -1s; }
+
+@keyframes float {
+  from { transform: translate3d(0, -5px, 0); }
+  to { transform: translate3d(0, 6px, 0); }
+}
+
+.home-moment {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow-float);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  white-space: nowrap;
+}
+
+.home-step-num {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.home-chip-cloud a {
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .home-chip-cloud a:hover { transform: translateY(-2px); }
+}
+
+.home-person {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 16px 8px;
+  border-radius: 14px;
+  text-align: center;
+  transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.home-person:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (hover: hover) {
+  .home-person:hover { transform: translateY(-2px); background: var(--hover); }
+}
+.home-person-hint {
+  font-family: var(--font-voice);
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--muted);
+  max-width: 22ch;
+}
+
+.home-big-avatar .qi-avatar[data-size] {
+  width: 56px;
+  height: 56px;
+  font-size: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-float { animation: none; }
+}
