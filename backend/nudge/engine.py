@@ -33,6 +33,9 @@ RATE_WARMUP_S = 30.0
 RATE_PATHS = frozenset({("metrics", "fillers_per_min"), ("metrics", "talk_ratio")})
 
 
+DEMO_CONFIDENCE_GATE = 0.5  # judged answers often come back near 0.5; 0.8 silenced them
+
+
 @dataclass(frozen=True)
 class QuietMark:
     rule_id: str
@@ -138,11 +141,16 @@ class NudgeEngine:
         confidence: float | None = None
         if r.is_judge:
             answer = judge.results.get(cond.path[1]) if judge is not None else None
-            if answer is None or answer.confidence < self.coach.confidence_threshold:
+            if answer is None or answer.confidence < self._confidence_gate():
                 return None
             confidence = answer.confidence
         return _Hit(r, describe(cond, env, r.cond, metrics.baseline_wpm, self.policy.tolerance),
                     confidence)
+
+    def _confidence_gate(self) -> float:
+        """Demo mode lowers the gate so judged habits can buzz, not only the measured ones."""
+        gate = self.coach.confidence_threshold
+        return min(gate, DEMO_CONFIDENCE_GATE) if self._demo else gate
 
     def _effective(self, cond: Condition, metrics: Metrics) -> Condition:
         """Tolerance band: pace only. The band can raise the rule's threshold, never lower it:
@@ -171,8 +179,11 @@ class NudgeEngine:
             return None
         focus = self.policy.focus_rule_id
 
-        def rank(h: _Hit) -> tuple[bool, float]:
-            return (h.rule.id == focus, h.confidence if h.confidence is not None else 1.0)
+        def rank(h: _Hit) -> tuple[bool, float, float]:
+            # Demo mode rotates: the rule that buzzed longest ago (or never) goes first, so one
+            # habit cannot crowd out the others.
+            waited = -self._last_rule_buzz.get(h.rule.id, float("-inf")) if self._demo else 0.0
+            return (h.rule.id == focus, waited, h.confidence if h.confidence is not None else 1.0)
 
         return max(candidates, key=rank)  # max keeps the first of equal ranks (rule order)
 
