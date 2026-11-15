@@ -38,7 +38,8 @@ function useCountdown(running: boolean, totalMs: number, onDone: () => void): nu
 }
 
 export default function CalibrationPage() {
-  const { state, send, kind } = useBus();
+  const { state } = useBus();
+  const [failed, setFailed] = useState<string | null>(null);
   // voice
   const [voice, setVoice] = useState<'idle' | 'listening' | 'done'>('idle');
   const [swapped, setSwapped] = useState(false);
@@ -54,15 +55,13 @@ export default function CalibrationPage() {
   useEffect(() => { if (remoteVoice) setVoice('done'); }, [remoteVoice]);
   useEffect(() => { if (remoteMotion?.done) setStep(MOTION_STEPS.length); }, [remoteMotion?.done]);
 
+  const fail = (e: unknown) => setFailed(e instanceof Error ? e.message : 'The backend did not answer.');
+
   function startMotion() {
+    setFailed(null);
     setStep(0);
-    void calibrateMotion().catch(() => undefined);
-    if (kind === 'mock') send({ cmd: 'motion', state: 'still' });
+    void calibrateMotion().catch((e: unknown) => { fail(e); setStep(-1); });
   }
-  useEffect(() => {
-    if (kind === 'mock' && running) send({ cmd: 'motion', state: MOTION_STEPS[step].id });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
 
   const energy = state.motion?.hand_energy ?? 0;
   const calibrated = voice === 'done' && step >= MOTION_STEPS.length;
@@ -71,6 +70,7 @@ export default function CalibrationPage() {
   return (
     <div className="pt-8">
       <div className="mb-8 flex flex-wrap items-baseline gap-x-3"><span className="label">Calibration</span><span className="text-s text-ink-2">about twenty seconds, once per room</span></div>
+      {failed && <p role="alert" className="text-m mb-6 flex items-center gap-2 font-medium text-ink"><span className="state state-fault" aria-hidden />{failed}</p>}
       <div className="grid gap-x-6 gap-y-14 xl:grid-cols-12">
         <section aria-label="Voice calibration" className="xl:col-span-5">
           <h2 className="display-m relative border-b border-ink pb-3"><span className="num-m absolute right-full mr-4 hidden pt-2 text-ink-3 md:block">1</span>Whose voice is yours</h2>
@@ -82,7 +82,7 @@ export default function CalibrationPage() {
                 <p className="display-s">You are the {swapped ? 'second' : 'first'} voice.</p>
                 <p className="text-m mt-2 max-w-[48ch] text-ink-2">If the transcript shows your words under “Them”, swap. You can do this mid-conversation too.</p>
                 <div className="mt-5 flex gap-2">
-                  <button className="btn" onClick={() => { setSwapped((s) => !s); void swapSpeakers().catch(() => undefined); }}>Swap speakers</button>
+                  <button className="btn" onClick={() => { setFailed(null); void swapSpeakers().then(() => setSwapped((s) => !s), fail); }}>Swap speakers</button>
                   <button className="btn btn-quiet" onClick={() => setVoice('idle')}>Redo</button>
                 </div>
               </>

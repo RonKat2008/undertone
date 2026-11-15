@@ -1,24 +1,38 @@
 /**
- * The phone's REST client. Live once paired (base URL + device token set by the bus provider);
- * otherwise canned data. Read calls return `Sampled<T>`: `sample: true` means canned data, and
- * the screen labels it "sample".
+ * The phone's REST client. Live once paired (base URL + device token set by the bus provider).
+ * Every read returns a `Load<T>`: the laptop's real data, or a typed reason there is none.
+ * It never substitutes canned data.
  */
-import type { DailyMission, Debrief, Person, SessionSummary, Streak, WeeklyReport } from '@/bus/contracts';
-import { SAMPLE_DEBRIEF, SAMPLE_MISSION, SAMPLE_PEOPLE, SAMPLE_SESSIONS, SAMPLE_STREAK, SAMPLE_WEEKLY } from '@/bus/sample';
-import { sampleTranscript } from './sample-transcript';
-import { parseTranscript, type SessionListItem, type SessionTranscript } from './transcript';
+import type { DailyMission, Person, Streak, WeeklyReport } from '@/bus/contracts';
+import {
+  parseDebriefPayload, parseMission, parsePeople, parseSessions, parseStreak, parseWeekly,
+  type DebriefPayload, type SessionListItem,
+} from './parse';
+import { parseTranscript, type SessionTranscript } from './transcript';
 
-export type { SessionListItem, SessionTranscript, TranscriptTurn } from './transcript';
+export type { DebriefPayload, DebriefView, SessionListItem } from './parse';
+export type { SessionTranscript, TranscriptTurn } from './transcript';
 
-export interface Sampled<T> { data: T; sample: boolean }
+/**
+ *   ok           real data (a list may be empty: nothing recorded yet)
+ *   none         the laptop has nothing for this yet (404, or an empty answer)
+ *   not-paired   this phone has no laptop to ask
+ *   error        the laptop could not be reached, refused, or sent something this app cannot read
+ */
+export type Load<T> =
+  | { kind: 'ok'; data: T }
+  | { kind: 'none' }
+  | { kind: 'not-paired' }
+  | { kind: 'error'; message: string; unreachable: boolean };
+
 export interface AppInfo { app_id: string; name: string; origin: string | null; status: 'pending' | 'approved' | 'revoked'; created_at: number; last_used: number | null; buzzes: number }
-export interface DebriefPayload { session_id: string; data: Debrief; audio_url: string | null }
 
 let api: { url: string; token: string } | null = null;
 export function setApi(next: { url: string; token: string } | null): void { api = next; }
-export const isMock = () => api === null;
 
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const REQUEST_TIMEOUT_MS = 8000;
+const UNREACHABLE = 'Cannot reach the laptop.';
+const UNREADABLE = 'The laptop sent an answer this app cannot read.';
 
 /** A non-2xx reply from the laptop; `status` lets a screen tell "not found" from "unreachable". */
 export class HttpError extends Error {
@@ -27,30 +41,44 @@ export class HttpError extends Error {
 }
 
 async function http<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  if (!api) throw new Error('not paired');
+  if (!api) throw new Error('This phone is not paired with a laptop.');
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(api.url + path, {
-      method, body: body === undefined ? undefined : JSON.stringify(body),
+      method, signal: abort.signal, body: body === undefined ? undefined : JSON.stringify(body),
       headers: { 'Content-Type': 'application/json', 'X-Device-Token': api.token },
     });
   } catch {
-    throw new Error('Cannot reach the laptop.');
+    throw new Error(UNREACHABLE);
+  } finally {
+    clearTimeout(timeout);
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new HttpError(data?.error?.message ?? `HTTP ${res.status}`, res.status);
   return data as T;
 }
 
-async function sampled<T>(path: string, fallback: T, ok: (v: T) => boolean): Promise<Sampled<T>> {
-  if (!api) { await wait(120); return { data: fallback, sample: true }; }
+/** GET and shape-check. `parse` returns null for an unreadable answer, or 'none' for "nothing yet". */
+async function load<T>(path: string, parse: (v: unknown) => T | 'none' | null): Promise<Load<T>> {
+  if (!api) return { kind: 'not-paired' };
+  let raw: unknown;
   try {
-    const data = await http<T>(path);
-    return ok(data) ? { data, sample: false } : { data: fallback, sample: true };
-  } catch {
-    return { data: fallback, sample: true };
+    raw = await http<unknown>(path);
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 404) return { kind: 'none' };
+    const message = e instanceof Error ? e.message : UNREACHABLE;
+    return { kind: 'error', message, unreachable: !(e instanceof HttpError) };
   }
+  const parsed = parse(raw);
+  if (parsed === null) return { kind: 'error', message: UNREADABLE, unreachable: false };
+  if (parsed === 'none') return { kind: 'none' };
+  return { kind: 'ok', data: parsed };
 }
+
+/** A list that 404s is just an empty list. */
+const asList = <T>(r: Load<T[]>): Load<T[]> => (r.kind === 'none' ? { kind: 'ok', data: [] } : r);
 
 export function mediaUrl(path: string | null): string | null {
   if (!path) return null;
@@ -58,82 +86,89 @@ export function mediaUrl(path: string | null): string | null {
   return api ? api.url + path : null;
 }
 
-export const getMissionToday = () => sampled<DailyMission>('/mission/today', SAMPLE_MISSION, (v) => Boolean(v?.text));
-export const getStreak = () => sampled<Streak>('/streak', SAMPLE_STREAK, (v) => Array.isArray(v?.week) && v.week.length === 7);
-export const listPeople = () => sampled<Person[]>('/people', SAMPLE_PEOPLE, (v) => Array.isArray(v) && v.length > 0);
-// The always-on demo adds each finished demo conversation here, so it appears in History by itself.
-// Still canned data: it comes back with `sample: true`, labelled like the rest.
-let mockSessions: SessionListItem[] = [];
-export function addMockSession(summary: SessionSummary): void {
-  mockSessions = [summary, ...mockSessions.filter((s) => s.session_id !== summary.session_id)].slice(0, 20);
-}
-export function clearMockSessions(): void { mockSessions = []; }
+export const getMissionToday = (): Promise<Load<DailyMission>> => load('/mission/today', parseMission);
+export const getStreak = (): Promise<Load<Streak>> => load('/streak', parseStreak);
+export const listPeople = async (): Promise<Load<Person[]>> => asList(await load('/people', parsePeople));
+export const getWeeklyReport = (): Promise<Load<WeeklyReport>> => load('/report/weekly', parseWeekly);
 
 /** GET /sessions lists only kept conversations; a row that still says `kept: false` is dropped anyway. */
-export const listSessions = () =>
-  sampled<SessionListItem[]>('/sessions', [...mockSessions, ...SAMPLE_SESSIONS], (v) => Array.isArray(v) && v.length > 0)
-    .then((r) => ({ ...r, data: r.data.filter((s) => s.kept !== false) }));
-export const getWeeklyReport = () => sampled<WeeklyReport>('/report/weekly', SAMPLE_WEEKLY, (v) => Array.isArray(v?.trend) && v.trend.length > 0);
-export const getDebrief = (id: string) => sampled<DebriefPayload>(`/sessions/${encodeURIComponent(id)}/debrief`, { session_id: 's-sample', data: SAMPLE_DEBRIEF, audio_url: null }, (v) => Boolean(v?.data));
+export async function listSessions(): Promise<Load<SessionListItem[]>> {
+  const r = asList(await load('/sessions', parseSessions));
+  return r.kind === 'ok' ? { kind: 'ok', data: r.data.filter((s) => s.kept !== false) } : r;
+}
+
+/** 'none': this conversation has no debrief (a short or quiet one closes without one). */
+export const getDebrief = (id: string): Promise<Load<DebriefPayload>> =>
+  load(`/sessions/${encodeURIComponent(id)}/debrief`, (v) => parseDebriefPayload(v, id));
 
 export type TranscriptResult =
-  | { kind: 'ok'; data: SessionTranscript; sample: boolean; dropped: number }
+  | { kind: 'ok'; data: SessionTranscript; dropped: number }
   | { kind: 'not-found' }
+  | { kind: 'not-paired' }
   | { kind: 'unreachable'; message: string };
 
-/**
- * GET /sessions/{id}/transcript. Unlike the other reads this never swaps in canned data for a real
- * session: a fake script under a real conversation's name would mislead. Unpaired (demo) it returns
- * the sample script, labelled sample.
- */
+/** GET /sessions/{id}/transcript. */
 export async function getTranscript(id: string): Promise<TranscriptResult> {
-  if (!api) {
-    await wait(120);
-    const known = [...mockSessions, ...SAMPLE_SESSIONS].find((s) => s.session_id === id);
-    return { kind: 'ok', data: sampleTranscript(id, known), sample: true, dropped: 0 };
-  }
+  if (!api) return { kind: 'not-paired' };
   let raw: unknown;
   try {
     raw = await http<unknown>(`/sessions/${encodeURIComponent(id)}/transcript`);
   } catch (e) {
     if (e instanceof HttpError && e.status === 404) return { kind: 'not-found' };
-    return { kind: 'unreachable', message: e instanceof Error ? e.message : 'Cannot reach the laptop.' };
+    return { kind: 'unreachable', message: e instanceof Error ? e.message : UNREACHABLE };
   }
   const parsed = parseTranscript(raw);
   if (!parsed) return { kind: 'unreachable', message: 'The laptop sent a transcript this app cannot read.' };
-  return { kind: 'ok', data: parsed.transcript, sample: false, dropped: parsed.dropped };
+  return { kind: 'ok', data: parsed.transcript, dropped: parsed.dropped };
 }
 
 export async function chooseMission(focus_rule_id: string): Promise<DailyMission> {
-  if (api) return http<DailyMission>('/mission/choose', 'POST', { focus_rule_id });
-  await wait(120);
-  const pick = SAMPLE_MISSION.suggestions.find((s) => s.focus_rule_id === focus_rule_id);
-  return pick ? { ...SAMPLE_MISSION, focus_rule_id, text: pick.text, if_then: 'When I notice the cue, I do this once.', progress: 0 } : SAMPLE_MISSION;
+  const next = parseMission(await http<unknown>('/mission/choose', 'POST', { focus_rule_id }));
+  if (!next || next === 'none') throw new Error(UNREADABLE);
+  return next;
 }
 
-export async function tagPerson(session_id: string, name: string): Promise<Person> {
-  if (api) return http<Person>(`/sessions/${encodeURIComponent(session_id)}/person`, 'POST', { name });
-  await wait(120);
-  return SAMPLE_PEOPLE.find((p) => p.name === name) ?? { person_id: `p-${name.toLowerCase()}`, name, sessions: 1, pattern: 'One conversation so far. A pattern needs three.', brief: 'Nothing to brief yet.' };
-}
+export const tagPerson = (session_id: string, name: string): Promise<Person> =>
+  http<Person>(`/sessions/${encodeURIComponent(session_id)}/person`, 'POST', { name });
 
 // ---------- connected apps ----------
-let mockApps: AppInfo[] = [
-  { app_id: 'app-slides', name: 'Slide timer', origin: 'http://localhost:5500', status: 'pending', created_at: Date.now() / 1000 - 40, last_used: null, buzzes: 0 },
-  { app_id: 'app-focus', name: 'Focus blocks', origin: 'https://focus.example', status: 'approved', created_at: Date.now() / 1000 - 259200, last_used: Date.now() / 1000 - 5400, buzzes: 42 },
-];
-
-export async function listApps(): Promise<Sampled<AppInfo[]>> {
-  if (!api) { await wait(120); return { data: mockApps, sample: true }; }
-  return { data: (await http<{ apps: AppInfo[] }>('/v1/apps')).apps, sample: false };
+function parseApps(v: unknown): AppInfo[] | null {
+  const apps = (v as { apps?: unknown } | null)?.apps;
+  if (!Array.isArray(apps)) return null;
+  return apps.flatMap((a): AppInfo[] => {
+    const o = a as Partial<AppInfo> | null;
+    if (!o || typeof o.app_id !== 'string' || typeof o.name !== 'string') return [];
+    const status = o.status === 'approved' || o.status === 'revoked' ? o.status : 'pending';
+    const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+    return [{ app_id: o.app_id, name: o.name, origin: typeof o.origin === 'string' ? o.origin : null, status, created_at: n(o.created_at) ?? 0, last_used: n(o.last_used), buzzes: n(o.buzzes) ?? 0 }];
+  });
 }
 
+export const listApps = async (): Promise<Load<AppInfo[]>> => asList(await load('/v1/apps', parseApps));
+
 export async function approveApp(app_id: string): Promise<void> {
-  if (api) return void (await http(`/v1/apps/${app_id}/approve`, 'POST', {}));
-  mockApps = mockApps.map((a) => (a.app_id === app_id ? { ...a, status: 'approved' } : a));
+  await http(`/v1/apps/${encodeURIComponent(app_id)}/approve`, 'POST', {});
 }
 
 export async function revokeApp(app_id: string): Promise<void> {
-  if (api) return void (await http(`/v1/apps/${app_id}`, 'DELETE'));
-  mockApps = mockApps.map((a) => (a.app_id === app_id ? { ...a, status: 'revoked' } : a));
+  await http(`/v1/apps/${encodeURIComponent(app_id)}`, 'DELETE');
 }
+
+// ---------- relationships (optional route: a laptop without it answers 404, read as an empty list) ----------
+export type RelationshipKind = 'friend' | 'partner' | 'family' | 'boss' | 'report' | 'coworker' | 'client' | 'teacher' | 'student' | 'service' | 'acquaintance' | 'stranger' | 'unknown';
+export interface PersonRelationshipView { person_id: string; name: string; kind: RelationshipKind }
+
+const KINDS: readonly RelationshipKind[] = ['friend', 'partner', 'family', 'boss', 'report', 'coworker', 'client', 'teacher', 'student', 'service', 'acquaintance', 'stranger', 'unknown'];
+
+function parseRelationships(v: unknown): PersonRelationshipView[] | null {
+  if (!Array.isArray(v)) return null;
+  return v.flatMap((r): PersonRelationshipView[] => {
+    const o = r as { person_id?: unknown; name?: unknown; relationship?: { kind?: unknown } } | null;
+    const kind = o?.relationship?.kind;
+    if (!o || typeof o.person_id !== 'string' || typeof o.name !== 'string' || !KINDS.includes(kind as RelationshipKind)) return [];
+    return [{ person_id: o.person_id, name: o.name, kind: kind as RelationshipKind }];
+  });
+}
+
+/** GET /relationships (PersonRelationship[]). Only `kind` is kept: confidence, source and evidence are never shown. */
+export const listRelationships = async (): Promise<Load<PersonRelationshipView[]>> => asList(await load('/relationships', parseRelationships));

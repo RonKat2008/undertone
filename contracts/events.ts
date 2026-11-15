@@ -263,7 +263,7 @@ export interface KnowledgeGraph {
   edges: GraphEdge[];
   stats: GraphStats;
   generated_at: number;
-  sample: boolean; // true only for the built-in illustrative graph shown before any session exists
+  sample: boolean; // always false: an empty database gives just the 'me' node and zero stats
 }
 
 export interface GraphQuote {
@@ -278,4 +278,335 @@ export interface GraphNodeDetail {
   neighbours: GraphNode[];
   conversations: SessionSummary[];
   quotes: GraphQuote[];
+}
+
+// ---------- REST payloads: relationships (GET /relationships, /people/{id}/relationship) ----------
+// friend/partner/family: personal ties. boss: they manage me; report: I manage them;
+// coworker: same team or company, no clear lead. client: I serve them; service: they serve me
+// (shop staff, waiter). teacher: they teach me; student: I teach them. acquaintance: some shared
+// history; stranger: none. unknown: not enough speech yet, or mixed signals.
+export type RelationshipKind = 'friend' | 'partner' | 'family' | 'boss' | 'report' | 'coworker' | 'client' | 'teacher' | 'student' | 'service' | 'acquaintance' | 'stranger' | 'unknown';
+export type RelationshipFormality = 'casual' | 'neutral' | 'formal';
+export type RelationshipPower = 'they_lead' | 'peer' | 'i_lead' | 'unknown';
+export type RelationshipSource = 'decisions' | 'rules' | 'user'; // user = set by the wearer, confidence 1
+
+export interface Relationship {
+  person_id: string;
+  kind: RelationshipKind;
+  confidence: number; // 0-1
+  formality: RelationshipFormality;
+  power: RelationshipPower;
+  warmth: number; // 0-1
+  evidence: string[]; // at most 3 short reasons, never quoted speech: "they assign you tasks"
+  source: RelationshipSource;
+  based_on_sessions: number;
+  updated_at: number | null; // unix seconds; null = not analysed yet
+}
+
+export interface PersonRelationship {
+  person_id: string;
+  name: string;
+  sessions: number; // kept conversations with this person
+  relationship: Relationship;
+}
+
+// PUT /people/{id}/relationship body
+export interface RelationshipUpdate {
+  kind: RelationshipKind;
+}
+
+// POST /graph/commitment/{id} (id: 'commitment:<bookmark_id>' or '<bookmark_id>'), body CommitmentUpdate.
+export interface CommitmentUpdate {
+  open: boolean; // false = done, true = reopened
+}
+
+export type CommitmentClosedBy = 'manual' | 'auto';
+
+export interface CommitmentStatus {
+  id: string;
+  bookmark_id: number;
+  open: boolean;
+  closed_by: CommitmentClosedBy | null;
+  closed_at: number | null;
+  closed_session_id: string | null; // the later conversation that closed it (auto only)
+  evidence: string | null; // the wearer's words that closed it (auto only)
+}
+
+// ---------- REST payloads: reports (GET /reports/*?days=30) ----------
+// Kept conversations only. Times are unix seconds, days are UTC 'YYYY-MM-DD'. Every report carries a
+// graph_focus: node ids (same ids as GET /graph) and edges to highlight on the map. A null number or
+// 'insufficient_data' means too little data, never zero.
+
+export type ReportMeasure =
+  | 'conversations' | 'minutes_spoken' | 'talk_ratio' | 'wpm' | 'fillers_per_min'
+  | 'interruptions' | 'questions' | 'habit_per_conversation';
+export type ReportDirection = 'up' | 'down' | 'same' | 'insufficient_data';
+export type ReportHighlightKind =
+  | 'improved' | 'slipped' | 'person' | 'habit' | 'promises' | 'topic' | 'insufficient_data';
+
+export interface ReportWindow {
+  days: number;
+  start: number; // window is [start, end]
+  end: number;
+  previous_start: number; // previous equal window is [previous_start, start)
+}
+
+export interface ReportDelta {
+  metric: ReportMeasure;
+  current: number | null;
+  previous: number | null;
+  change: number | null; // current - previous; null when the sample is too small
+  direction: ReportDirection;
+  better: boolean | null; // null when the measure has no better direction or data is insufficient
+  sample: number; // conversations behind current
+  previous_sample: number;
+}
+
+export interface ReportDayPoint {
+  day: string;
+  conversations: number;
+  minutes_spoken: number;
+  talk_ratio: number | null;
+  wpm: number | null;
+  fillers_per_min: number | null;
+  interruptions: number;
+  questions: number;
+  nudges: number;
+  quiet_marks: number;
+}
+
+export interface ReportBucket {
+  start: string; // first day of the bucket
+  days: number;
+  count: number;
+}
+
+export interface ReportRank {
+  node_id: string;
+  label: string;
+  conversations: number;
+  minutes: number; // conversation minutes (both speakers)
+}
+
+export interface ReportCount {
+  node_id: string;
+  label: string;
+  count: number;
+}
+
+export interface ReportComparison {
+  metric: ReportMeasure;
+  value: number | null; // the wearer in these conversations
+  usual: number | null; // the wearer in all their other conversations in the window
+  ratio: number | null; // value / usual; null unless both samples are big enough
+  sample: number;
+  usual_sample: number;
+  meaningful: boolean; // big enough samples and a clear difference
+}
+
+export interface ReportHighlight {
+  kind: ReportHighlightKind;
+  text: string;
+  node_ids: string[];
+}
+
+export interface GraphFocusEdge {
+  source: string;
+  target: string;
+}
+
+export interface GraphFocus {
+  node_ids: string[];
+  edges: GraphFocusEdge[];
+}
+
+export interface ReportTotals {
+  conversations: number;
+  minutes_spoken: number; // the wearer's own speaking minutes
+  minutes_together: number; // conversation length
+  interruptions: number;
+  questions: number;
+  nudges: number; // buzzed
+  quiet_marks: number;
+}
+
+export interface ReportPromiseCounts {
+  made: number;
+  open: number;
+  done: number;
+  overdue: number;
+}
+
+export interface ReportHabitCount {
+  rule_id: string;
+  node_id: string;
+  label: string;
+  total: number;
+  buzzed: number;
+  quiet: number;
+  conversations: number; // conversations it showed up in
+  per_conversation: number | null; // across all conversations in the window
+  trend: ReportDelta;
+}
+
+export interface ReportConversation {
+  session_id: string;
+  node_id: string;
+  started_at: number;
+  minutes: number;
+  minutes_spoken: number;
+  talk_ratio: number;
+  wpm: number;
+  fillers_per_min: number;
+  interruptions: number;
+  questions: number;
+  headline: string;
+  person_node_id: string | null;
+  topic_ids: string[]; // topic node ids
+}
+
+export interface ReportPromise {
+  id: string; // commitment node id
+  bookmark_id: number;
+  text: string;
+  quote: string | null;
+  person_id: string | null;
+  person_name: string | null;
+  person_node_id: string | null;
+  session_id: string;
+  conversation_node_id: string;
+  made_at: number;
+  age_days: number;
+  open: boolean;
+  closed_by: CommitmentClosedBy | null;
+  closed_at: number | null;
+  closed_session_id: string | null;
+  evidence: string | null;
+  due_day: string | null; // only when the promise names a clear day ("by Friday", "tomorrow")
+  overdue: boolean;
+}
+
+export interface ReportQuote {
+  session_id: string;
+  ts: number;
+  text: string;
+}
+
+export interface ReportRelationshipGroup {
+  kind: RelationshipKind; // people never analysed are grouped under 'unknown'
+  people: number;
+  conversations: number;
+  minutes: number;
+  node_ids: string[]; // person node ids
+}
+
+// GET /reports/overview
+export interface OverviewReport {
+  window: ReportWindow;
+  totals: ReportTotals;
+  measures: ReportDelta[];
+  habits: ReportHabitCount[];
+  best_habit: ReportHabitCount | null;
+  weakest_habit: ReportHabitCount | null;
+  promises: ReportPromiseCounts;
+  top_people: ReportRank[];
+  top_topics: ReportRank[];
+  by_relationship: ReportRelationshipGroup[];
+  series: ReportDayPoint[];
+  highlights: ReportHighlight[];
+  insufficient_data: boolean; // too few conversations to compare with the previous window
+  graph_focus: GraphFocus;
+}
+
+export interface PersonReportSummary {
+  person_id: string;
+  node_id: string;
+  name: string;
+  conversations: number;
+  minutes_together: number;
+  minutes_spoken: number;
+  last_talked: number | null;
+  relationship: RelationshipKind | null; // null = never analysed (GET /relationships)
+  relationship_confidence: number | null;
+  relationship_source: RelationshipSource | null;
+  comparisons: ReportComparison[];
+  sentence: string | null; // the clearest meaningful comparison, ready to show
+  open_promises: number;
+  top_topics: ReportRank[];
+}
+
+// GET /reports/by-person
+export interface ByPersonReport {
+  window: ReportWindow;
+  people: PersonReportSummary[];
+  untagged_conversations: number;
+  graph_focus: GraphFocus;
+}
+
+// GET /reports/person/{person_id}
+export interface PersonReport {
+  window: ReportWindow;
+  person: PersonReportSummary;
+  topics: ReportRank[];
+  promises: ReportPromise[];
+  habits: ReportCount[];
+  timeline: ReportConversation[];
+  graph_focus: GraphFocus;
+}
+
+export interface TopicReportSummary {
+  topic_id: string; // slug
+  node_id: string;
+  label: string;
+  conversations: number;
+  minutes_together: number;
+  last_discussed: number | null;
+  trend: ReportDelta; // conversations on the topic, this window vs the previous one
+  people: ReportRank[];
+  comparisons: ReportComparison[];
+  sentence: string | null;
+  promises: number;
+}
+
+// GET /reports/by-topic
+export interface ByTopicReport {
+  window: ReportWindow;
+  topics: TopicReportSummary[];
+  graph_focus: GraphFocus;
+}
+
+// GET /reports/topic/{topic_id}
+export interface TopicReport {
+  window: ReportWindow;
+  topic: TopicReportSummary;
+  series: ReportBucket[];
+  promises: ReportPromise[];
+  quotes: ReportQuote[]; // the wearer's own words
+  habits: ReportCount[];
+  timeline: ReportConversation[];
+  graph_focus: GraphFocus;
+}
+
+export interface HabitReport {
+  habit: ReportHabitCount;
+  series: ReportBucket[];
+  by_person: ReportCount[];
+  by_topic: ReportCount[];
+  if_then: string[]; // plans the debriefs suggested when this habit led the conversation
+}
+
+// GET /reports/habits
+export interface HabitsReport {
+  window: ReportWindow;
+  habits: HabitReport[];
+  graph_focus: GraphFocus;
+}
+
+// GET /reports/promises
+export interface PromisesReport {
+  window: ReportWindow;
+  counts: ReportPromiseCounts;
+  open: ReportPromise[];
+  done: ReportPromise[];
+  graph_focus: GraphFocus;
 }

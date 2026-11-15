@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Glyph } from '@/components/glyph';
-import { SampleTag } from '@/components/sample-tag';
-import { activateCoach, buildCoach, buildPersonalCoach, getProfile, listCoaches, saveCoach, type Sampled } from '@/lib/api/client';
+import { activateCoach, buildCoach, buildPersonalCoach, getProfile, listCoaches, saveCoach, type Fetched } from '@/lib/api/client';
 import type { CoachQuestion, CoachSpec, HabitProfile, HapticPattern, NudgeRule } from '@/lib/bus/contracts';
 import { PATTERNS, PATTERN_ORDER } from '@/lib/bus/patterns';
 import { useBus } from '@/lib/bus/use-bus';
@@ -18,25 +17,21 @@ const STAGES = ['Name and goal', 'Questions for the judge', 'Nudge rules', 'Crut
 type Phase = 'empty' | 'generating' | 'sheet';
 
 export default function StudioPage() {
-  const { state, inject, kind } = useBus();
+  const { state, inject } = useBus();
   const [phase, setPhase] = useState<Phase>('empty');
   const [goal, setGoal] = useState('');
   const [stage, setStage] = useState(0);
   const [draft, setDraft] = useState<CoachSpec | null>(null);
   const [library, setLibrary] = useState<CoachSpec[]>([]);
-  const [profile, setProfile] = useState<Sampled<HabitProfile> | null>(null);
+  const [profile, setProfile] = useState<Fetched<HabitProfile> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
 
   useEffect(() => {
     let on = true;
-    listCoaches().then((c) => on && setLibrary(c)).catch(() => on && setError('Could not load the coach library.'));
+    listCoaches().then((c) => on && setLibrary(c)).catch((e: unknown) => on && setError(`Could not load the coach library. ${e instanceof Error ? e.message : ''}`.trim()));
     getProfile().then((p) => on && setProfile(p));
-    // ?demo=generating | ?demo=sheet : jump straight to a state (rehearsal, screenshots)
-    const demo = new URLSearchParams(window.location.search).get('demo');
-    if (demo === 'generating') { setGoal(EXAMPLES[0]); setPhase('generating'); setStage(3); }
-    if (demo === 'sheet') void buildCoach(`I want to ${EXAMPLES[0]}`).then((c) => { if (on) { setGoal(EXAMPLES[0]); setDraft(c); setPhase('sheet'); } });
     return () => { on = false; };
   }, []);
 
@@ -51,8 +46,10 @@ export default function StudioPage() {
     if (!clean) return;
     setError(null); setStage(0); setPhase('generating'); setSaved(null);
     try {
-      setDraft(await buildCoach(`I want to ${clean}`));
+      const built = await buildCoach(`I want to ${clean}`);
+      setDraft(built.spec);
       setPhase('sheet');
+      if (built.source === 'fallback') setSaved('The coach model did not answer, so this coach was written from the built-in template. Edit it, or try again later.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The coach could not be written.');
       setPhase('empty');
@@ -64,7 +61,7 @@ export default function StudioPage() {
     try {
       if (coach.kind !== 'prebuilt') await saveCoach(coach);
       const active = (await activateCoach(coach.id)) ?? coach;
-      if (kind === 'mock') inject({ type: 'coach.activated', coach: active });
+      inject({ type: 'coach.activated', coach: active });
       setLibrary(await listCoaches());
       setSaved(`${active.name} is the active coach.`);
     } catch (e) {
@@ -298,11 +295,11 @@ function Sheet({ coach, onChange, onActivate, busy, active }: { coach: CoachSpec
 const TREND = { better: 'getting better', same: 'steady', worse: 'rising' } as const;
 
 function Library({ coaches, activeId, profile, onOpen, onActivate, onPersonal, busy }: {
-  coaches: CoachSpec[]; activeId: string | null; profile: Sampled<HabitProfile> | null;
+  coaches: CoachSpec[]; activeId: string | null; profile: Fetched<HabitProfile> | null;
   onOpen: (c: CoachSpec) => void; onActivate: (c: CoachSpec) => void; onPersonal: () => void; busy: boolean;
 }) {
   const others = coaches.filter((c) => c.kind !== 'personal');
-  const p = profile?.data;
+  const p = profile?.ok ? profile.data : null;
   return (
     <section className="mt-20" aria-label="Coach library">
       <h2 className="display-s border-b border-ink pb-2">Library</h2>
@@ -322,10 +319,11 @@ function Library({ coaches, activeId, profile, onOpen, onActivate, onPersonal, b
         </ul>
         <div className="border-b border-rule py-4 xl:col-span-4 xl:col-start-9">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="flex flex-wrap items-baseline gap-x-3"><span className="display-m">Personal</span><span className="text-s text-ink-2">practice mode</span><SampleTag show={profile?.sample ?? false} /></span>
+            <span className="flex flex-wrap items-baseline gap-x-3"><span className="display-m">Personal</span><span className="text-s text-ink-2">practice mode</span></span>
             <button className="btn" onClick={onPersonal}>Open</button>
           </div>
-          <p className="text-m mt-1 text-ink-2">Built from your own last <span className="num-s">{p?.sessions ?? 0}</span> conversations. It drills the words you lean on.</p>
+          <p className="text-m mt-1 text-ink-2">{p ? <>Built from your own last <span className="num-s">{p.sessions}</span> conversation{p.sessions === 1 ? '' : 's'}. It drills the words you lean on.</> : 'Built from your own conversations. It drills the words you lean on.'}</p>
+          {profile && !profile.ok && <p role="alert" className="text-m mt-2 flex items-start gap-2 font-medium text-ink"><span className="state state-fault mt-[7px]" aria-hidden />{profile.error}</p>}
           {p && (
             <div className="mt-5 grid grid-cols-2 gap-x-6">
               <div>
@@ -344,8 +342,9 @@ function Library({ coaches, activeId, profile, onOpen, onActivate, onPersonal, b
               <div>
                 <div className="label mb-2">Recurring</div>
                 {p.recurring_issues.map((r) => (
-                  <div key={r.rule_id} className="text-s py-1"><div className="text-ink">{r.label}</div><div className="italic text-ink-2">{TREND[r.trend]}</div></div>
+                  <div key={r.rule_id} className="text-s py-1"><div className="text-ink">{r.label}</div><div className="italic text-ink-2">{TREND[r.trend] ?? ''}</div></div>
                 ))}
+                {p.recurring_issues.length === 0 && <p className="text-s text-ink-3">Nothing recurring yet.</p>}
               </div>
             </div>
           )}

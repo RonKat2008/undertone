@@ -38,6 +38,13 @@ def load_topics(db: DB) -> dict[str, tuple[str, ...]]:
     return {r["session_id"]: _labels(r["labels_json"], r["session_id"]) for r in rows}
 
 
+def load_topics_ordered(db: DB) -> list[tuple[str, tuple[str, ...]]]:
+    """(session_id, labels) in the order they were cached (oldest first)."""
+    ensure_table(db)
+    rows = db.query("SELECT session_id, labels_json FROM session_topics ORDER BY created_at, session_id")
+    return [(r["session_id"], _labels(r["labels_json"], r["session_id"])) for r in rows]
+
+
 def save_topics(db: DB, session_id: str, labels: tuple[str, ...], source: str) -> None:
     ensure_table(db)
     db.execute(

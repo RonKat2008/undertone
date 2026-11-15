@@ -133,8 +133,33 @@ REST routes:
 | POST | `/mission/choose` | body `{focus_rule_id}` |
 | POST | `/sessions/{id}/person` | body `{name, person_id?}` |
 | GET | `/sessions/{id}/debrief` | `{session_id, data, audio_url}` |
-| GET | `/graph?days=30`, `/graph/node/{id}?days=30`; POST `/graph/refresh` | knowledge graph (`graph/`): `KnowledgeGraph` / `GraphNodeDetail` (404 unknown id); `sample: true` only for an empty db; topics cached per session in `session_topics` (LLM, keyword fallback), refresh runs lazily after `GET /graph` |
+| GET | `/graph?days=30`, `/graph/node/{id}?days=30`; POST `/graph/refresh` | knowledge graph (`graph/`): `KnowledgeGraph` / `GraphNodeDetail` (404 unknown id); an empty db gives just the `me` node (`sample` is always false); topics cached per session in `session_topics` (LLM, keyword fallback) and merged onto one canonical label (`topic_aliases`); refresh runs lazily after `GET /graph` |
+| POST | `/graph/commitment/{id}` | body `{open: bool}` (false = done); id `commitment:<n>` or `<n>`; returns `CommitmentStatus`; 404 if not a promise; a manual state wins over the automatic check |
+| GET | `/reports/overview`, `/reports/by-person`, `/reports/person/{id}`, `/reports/by-topic`, `/reports/topic/{id}`, `/reports/habits`, `/reports/promises` (all `?days=30`) | reports (`reports/`), see below |
 | GET | `/media/*` | static files (debrief MP3s) |
+
+### Reports (`backend/reports/`)
+
+Data for the future Reports tab. Kept conversations only; windows are whole UTC days (the last `days`
+days including today) compared with the previous equal window, or the wearer with one person / on one
+topic against the wearer's own other conversations in the window. Never another user. No LLM, no
+writes, no background work on a report GET; about 13-24 ms each on the seeded sample database.
+
+| Endpoint | Response | Notes |
+|---|---|---|
+| `/reports/overview` | `OverviewReport` | totals, `measures` (`ReportDelta` per measure), habits with best/weakest, promise counts, top people/topics, `by_relationship`, a `series` point per day, up to 3 `highlights` |
+| `/reports/by-person` | `ByPersonReport` | one `PersonReportSummary` per person: comparisons, ready `sentence`, relationship kind/confidence/source |
+| `/reports/person/{id}` | `PersonReport` | `id` or `person:<id>`; topics, promises, habits, timeline; 404 if unknown |
+| `/reports/by-topic` | `ByTopicReport` | one `TopicReportSummary` per topic: people, trend, comparisons, sentence |
+| `/reports/topic/{id}` | `TopicReport` | slug or `topic:<slug>`; weekly series, tied promises, the wearer's quotes, timeline; 404 if in neither window |
+| `/reports/habits` | `HabitsReport` | per habit: buzzed/quiet, trend, weekly series, by person/topic, the debriefs' if-then plans |
+| `/reports/promises` | `PromisesReport` | open (oldest first) and done, with person, quote, conversation, age, `due_day`, `overdue` |
+
+Every response has `graph_focus: {node_ids, edges}` with ids of `GET /graph?days=<same>` to highlight.
+Small samples: rates compare windows only with at least 3 conversations in each (counts need one before);
+a person or topic comparison needs 3 conversations on each side, a ratio of at least 1.25 (or at most
+0.8) and a per-measure absolute gap before it is `meaningful` or gets a sentence; a habit trend also
+needs 3 hits across both windows. Below that, numbers are `null` / `insufficient_data`, never zero.
 
 Error envelope for all errors: `{"ok": false, "error": {"code": "...", "message": "...", "details"?: ...}}`.
 Codes: `http_<status>`, `invalid_request` (422), `invalid_event` (422), `internal` (500), and studio's
