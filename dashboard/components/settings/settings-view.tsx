@@ -1,8 +1,9 @@
 'use client';
 
-import { AppWindow, HardDrive, Palette, Smartphone, Watch } from 'lucide-react';
+import { AppWindow, HardDrive, Palette, SlidersHorizontal, Smartphone, Watch } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { BandStatusPanel } from '@/components/band-status';
+import { CalibrationSection } from '@/components/calibration/calibration-section';
 import { Button, EmptyState, ICON, Page, Panel, ThemeToggle } from '@/components/ui';
 import { AppsSection } from './apps-section';
 import { BuzzSection } from './buzz-section';
@@ -12,6 +13,7 @@ import './settings.css';
 
 const SECTIONS = [
   { id: 'phone', title: 'Phone', icon: Smartphone },
+  { id: 'calibration', title: 'Calibration', icon: SlidersHorizontal },
   { id: 'band', title: 'Band', icon: Watch },
   { id: 'apps', title: 'Connected apps', icon: AppWindow },
   { id: 'appearance', title: 'Appearance', icon: Palette },
@@ -62,7 +64,7 @@ export function SettingsView() {
   }
 
   return (
-    <Page title="Settings" lede="Your phone, your band, and the apps allowed to buzz you." width="wide">
+    <Page title="Settings" lede="Your phone, your band, teaching it your voice, and the apps allowed to buzz you." width="wide">
       <div className="settings-layout">
         <nav aria-label="Settings sections" className="settings-nav">
           <ul>
@@ -91,6 +93,7 @@ export function SettingsView() {
                   <BuzzSection />
                 </div>
               </Block>
+              <CalibrationSection band={data.band} />
               <Block id="band" title="Band" icon={Watch}>
                 <BandStatusPanel band={data.band} />
               </Block>
