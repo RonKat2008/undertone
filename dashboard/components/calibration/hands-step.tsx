@@ -13,24 +13,21 @@ type Outcome = { kind: 'idle' } | { kind: 'busy' } | { kind: 'done' } | { kind: 
 
 const TICK_MS = 200;
 
-/** The two calibration steps as guided actions, each with an honest result. */
-export function Calibration() {
+/** "Your hands": movement calibration, then swapping who is who, each with an honest result. */
+export function HandsStep() {
   return (
-    <div className="grid gap-6 pt-2">
+    <div className="grid gap-8">
       <MotionStep />
       <SwapStep />
     </div>
   );
 }
 
-function StepHead({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+function StepHead({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-3">
-      <span aria-hidden className="grid size-7 place-items-center rounded-full bg-[var(--coach-wash)] text-caption font-medium text-coach tabular">{n}</span>
-      <div className="min-w-0 pt-0.5">
-        <h3 className="text-body font-medium text-fg">{title}</h3>
-        <p className="mt-0.5 text-body text-muted text-pretty">{children}</p>
-      </div>
+    <div className="min-w-0">
+      <h4 className="text-body font-medium text-fg">{title}</h4>
+      <p className="mt-0.5 text-body text-muted text-pretty">{children}</p>
     </div>
   );
 }
@@ -76,10 +73,10 @@ function MotionStep() {
   const running = outcome.kind === 'busy' && startedAt !== null;
   return (
     <div className="grid gap-4">
-      <StepHead n={1} title="Teach it your movement">
+      <StepHead title="Teach it your movement">
         Fifteen seconds: hold still, talk with your hands, then fidget. Undertone learns what each looks like on your wrist.
       </StepHead>
-      <div className="pl-10">
+      <div>
         {running ? (
           <Countdown elapsed={Math.max(0, now - startedAt)} />
         ) : (
@@ -123,7 +120,7 @@ function Countdown({ elapsed }: { elapsed: number }) {
     <div className="grid gap-4" role="timer" aria-live="polite">
       <div ref={bars} className="grid grid-cols-3 gap-2" aria-hidden>
         {MOTION_PHASES.map((p, i) => (
-          <div key={p.id} data-bar={i} className="settings-phase-bar" data-state={i < index || finishing ? 'done' : i === index ? 'now' : 'next'}>
+          <div key={p.id} data-bar={i} className="calib-phase-bar" data-state={i < index || finishing ? 'done' : i === index ? 'now' : 'next'}>
             <span />
           </div>
         ))}
@@ -160,10 +157,10 @@ function SwapStep() {
   }
   return (
     <div className="grid gap-4">
-      <StepHead n={2} title="Swap who is who">
+      <StepHead title="Swap who is who">
         If your words show up as the other person’s, swap the two voices. You can do this mid-conversation.
       </StepHead>
-      <div className="grid justify-items-start gap-3 pl-10">
+      <div className="grid justify-items-start gap-3">
         <Result outcome={outcome} success="Swapped. From now on the two voices are labelled the other way round." />
         <Button size="small" loading={outcome.kind === 'busy'} onClick={() => void swap()}>Swap voices</Button>
       </div>

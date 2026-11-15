@@ -1,0 +1,69 @@
+/* Settings' Calibration section only. Values come from the Lamplight tokens (app/globals.css). */
+
+.calib-layout { display: grid; gap: 20px; }
+.calib-band {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+.calib-band > .qi-listen { margin-top: 2px; flex-shrink: 0; }
+.calib-step-title {
+  display: flex; align-items: center; gap: 8px; color: var(--text); font-size: var(--fs-body); font-weight: 500;
+}
+.calib-step-title svg { color: var(--muted); }
+.calib-step-n {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 999px;
+  background: var(--accent-wash); color: var(--accent); font-size: var(--fs-caption); font-weight: 500;
+}
+
+/* the voice stage: a large listening mark beside the words for each stage; stacked on phones */
+.calib-stage { display: grid; gap: 20px; justify-items: start; }
+@media (min-width: 640px) {
+  .calib-stage { grid-template-columns: 112px minmax(0, 1fr); gap: 28px; align-items: start; }
+}
+.calib-stage-visual {
+  position: relative; display: grid; place-items: center; width: 112px; height: 112px; border-radius: 999px;
+  background: var(--surface-2); transition: background-color var(--dur-base) ease;
+}
+.calib-stage[data-step="recording"] .calib-stage-visual,
+.calib-stage[data-step="done"] .calib-stage-visual { background: var(--accent-wash); }
+.calib-stage[data-step="error"] .calib-stage-visual { background: var(--danger-wash); }
+.calib-stage-check {
+  position: absolute; right: 6px; bottom: 6px; display: grid; place-items: center; width: 36px; height: 36px;
+  border-radius: 999px; background: var(--accent); color: var(--on-accent); box-shadow: var(--shadow-lift);
+  animation: calib-pop var(--dur-slow) var(--ease-out) both;
+}
+.calib-stage-body { display: grid; gap: 10px; justify-items: start; min-width: 0; width: 100%; }
+.calib-stage-body > * { max-width: 100%; }
+
+/* while reading aloud: the seconds, the passage and a slow fill */
+.calib-count {
+  display: grid; place-items: center; width: 48px; height: 48px; border-radius: 999px; flex-shrink: 0;
+  background: var(--accent-wash); color: var(--accent); font-size: var(--fs-title); font-weight: 500; line-height: 1;
+}
+.calib-passage {
+  margin: 0; padding: 4px 0 4px 16px; border-left: 3px solid var(--accent);
+  font-family: var(--font-voice); font-size: var(--fs-lead); line-height: 1.6; color: var(--text);
+  transition: opacity var(--dur-base) ease;
+}
+.calib-passage[data-over] { opacity: 0.45; }
+.calib-track { width: 100%; height: 6px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.calib-track > span {
+  display: block; height: 100%; border-radius: 6px; background: var(--accent); transform-origin: left center;
+  transform: scaleX(0); animation-name: calib-fill; animation-timing-function: linear; animation-fill-mode: forwards;
+}
+.calib-track[data-over] > span { transform: scaleX(1); animation: calib-wait 1.6s ease-in-out infinite alternate; }
+@keyframes calib-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes calib-wait { from { opacity: 0.4; } to { opacity: 1; } }
+@keyframes calib-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* movement calibration: one bar per phase */
+.calib-phase-bar { height: 8px; border-radius: 8px; background: var(--surface-2); overflow: hidden; }
+.calib-phase-bar > span { display: block; height: 100%; border-radius: 8px; background: var(--accent); transform-origin: left center; transform: scaleX(0); }
+.calib-phase-bar[data-state="done"] > span { transform: scaleX(1); opacity: 0.55; }
+
+@media (prefers-reduced-motion: reduce) {
+  .calib-track > span { animation: none; transform: scaleX(1); opacity: 0.6; }
+  .calib-track[data-over] > span { animation: none; }
+  .calib-stage-check { animation: none; }
+  .calib-phase-bar[data-state="now"] > span { transform: scaleX(1); opacity: 0.8; }
+}

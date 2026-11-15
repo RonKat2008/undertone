@@ -37,11 +37,6 @@
 .settings-battery[data-tone="low"] > span { background: var(--warn); }
 .settings-battery[data-tone="empty"] > span { background: var(--danger); }
 
-/* calibration: one bar per phase */
-.settings-phase-bar { height: 8px; border-radius: 8px; background: var(--surface-2); overflow: hidden; }
-.settings-phase-bar > span { display: block; height: 100%; border-radius: 8px; background: var(--accent); transform-origin: left center; transform: scaleX(0); }
-.settings-phase-bar[data-state="done"] > span { transform: scaleX(1); opacity: 0.55; }
-@media (prefers-reduced-motion: reduce) { .settings-phase-bar[data-state="now"] > span { transform: scaleX(1); opacity: 0.8; } }
 
 /* test buzzes: hairlines between rows only */
 .settings-buzz-list > li + li { border-top: 1px solid var(--line); }

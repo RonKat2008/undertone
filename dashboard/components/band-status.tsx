@@ -2,8 +2,7 @@
 
 import { Watch } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Disclosure, ICON, ListeningMark, Skeleton, StatusWord } from '@/components/ui';
-import { Calibration } from '@/components/settings/calibration';
+import { ICON, ListeningMark, Skeleton, StatusWord, TextLink } from '@/components/ui';
 import type { Load } from '@/components/settings/use-settings-data';
 import type { BandResult } from '@/lib/api/settings';
 import { batteryWords, plainError, type BandStatus } from '@/lib/api/settings-model';
@@ -12,7 +11,7 @@ export interface BandStatusProps {
   band: Load<BandResult>;
 }
 
-/** The band in plain words: connected, listening, battery, all-day listening; calibration one click away. */
+/** The band in plain words: connected, listening, battery, all-day listening; a link to Calibration. */
 export function BandStatusPanel({ band }: BandStatusProps) {
   if (band.kind === 'loading') return <Skeleton shape="block" height={152} />;
   if (band.kind === 'error') {
@@ -78,9 +77,9 @@ function BandFacts({ band }: { band: BandStatus }) {
         </Fact>
       </dl>
 
-      <Disclosure summary="Calibrate the band">
-        <Calibration />
-      </Disclosure>
+      <p className="text-body text-muted text-pretty">
+        Teach Undertone your voice and how your hands move in <TextLink href="#calibration">Calibration</TextLink> above.
+      </p>
     </div>
   );
 }
