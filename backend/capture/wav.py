@@ -24,7 +24,7 @@ CHANNELS = 1
 SAMPLE_WIDTH = 2
 BYTES_PER_SECOND = SAMPLE_RATE * CHANNELS * SAMPLE_WIDTH  # 32000: ~1.9 MB per minute
 HEADER_BYTES = 44
-DEFAULT_QUEUE_CHUNKS = 1000  # ~80 s of 80 ms chunks: room for the pre-buffer plus disk stalls
+DEFAULT_QUEUE_CHUNKS = 2000  # ~160 s of 80 ms chunks: room for the 90 s pre-buffer plus disk stalls
 JOIN_TIMEOUT_S = 5.0
 
 

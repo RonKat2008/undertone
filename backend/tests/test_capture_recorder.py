@@ -110,6 +110,22 @@ def test_prebuffer_is_bounded(tmp_path: Path) -> None:
     assert len(rec._buf) == int(PREBUFFER_S / CHUNK_S)
 
 
+def test_long_first_turn_keeps_its_opening_words(tmp_path: Path) -> None:
+    """A 60 s monologue before the first turn is final still starts the file at t=0."""
+    rec = Recorder(settings(tmp_path))
+    feed_seconds(rec, 0.0, 10.0, value_at=lambda t: 0)
+    feed_seconds(rec, 10.0, 62.0, value_at=lambda t: 5000)   # one turn from 10 s to 72 s
+    assert rec.begin("s-long", 10.0) == pytest.approx(PRE_ROLL_S, abs=CHUNK_S)
+
+
+def test_offset_is_true_when_t0_is_older_than_the_prebuffer(tmp_path: Path) -> None:
+    rec = Recorder(settings(tmp_path))
+    end = feed_seconds(rec, 0.0, PREBUFFER_S + 30)
+    offset = rec.begin("s-older", 10.0)
+    assert offset == pytest.approx(10.0 - (end - PREBUFFER_S), abs=CHUNK_S)  # negative, not 0
+    assert offset < 0
+
+
 def test_clock_reset_clears_prebuffer(tmp_path: Path) -> None:
     rec = Recorder(settings(tmp_path))
     feed_seconds(rec, 0.0, 5.0)

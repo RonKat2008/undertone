@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from backend import config, studio
-from backend.always_on import AlwaysOn, AlwaysOnConfig, SilenceTimer
+from backend.always_on import AlwaysOn, AlwaysOnConfig, SilenceTimer, settle_all
 from backend.band.audio import LoudnessTimeline
 from backend.band.source import BandSource
 from backend.brain import Brain
@@ -49,6 +49,8 @@ class FakeBand:
         self.mic_on = False
         self.mic_calls: list[bool] = []
         self.resets = 0
+        self.connected = True
+        self.chunk_tap = None
 
     async def start(self) -> None:
         pass
@@ -71,7 +73,7 @@ class FakeBand:
         return self.audio_seconds
 
     def status_event(self) -> dict:
-        return {"type": "band.status", "connected": True, "transport": "sim", "battery_pct": None,
+        return {"type": "band.status", "connected": self.connected, "transport": "sim", "battery_pct": None,
                 "mic_on": self.mic_on}
 
     def tap(self, kind: str) -> None:
@@ -96,9 +98,10 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db.close()
 
 
-async def _setup(db: DB, always_on: bool = True, min_turns: int = 4, silence_s: float = 60.0):
+async def _setup(db: DB, always_on: bool = True, min_turns: int = 4, silence_s: float = 60.0,
+                 rejoin_s: float = 0.0):
     settings = dataclasses.replace(config.settings, always_on=always_on, always_on_silence_s=silence_s,
-                                   always_on_min_turns=min_turns)
+                                   always_on_min_turns=min_turns, always_on_rejoin_s=rejoin_s)
     state = AppState(bus=Bus(), db=db, active_coach=studio.default_coach())
     brain = Brain(state, settings)
     seen: list[Any] = []
@@ -115,6 +118,7 @@ async def _setup(db: DB, always_on: bool = True, min_turns: int = 4, silence_s: 
 async def _settle(state: AppState) -> None:
     for _ in range(5):
         await asyncio.sleep(0.01)
+        await settle_all()
         await state.bus.drain()
 
 
@@ -364,12 +368,14 @@ async def test_always_on_unit_holds_events_until_open() -> None:
             self.delivered.append(ev)
 
     host = Host()
+    offsets: list[float] = []
 
     async def open_conv() -> None:
         await asyncio.sleep(0.01)
         host.running = True
+        offsets.append(ao.begin(9.0))  # the controller joins: t=0 is the first turn's start
 
-    async def close_conv(quiet: bool) -> None:
+    async def close_conv(quiet: bool, park: bool = False) -> None:
         host.running = False
 
     ao = AlwaysOn(host, open_conv, close_conv, AlwaysOnConfig(silence_s=5, min_turns=1), clock=FakeClock())
@@ -378,5 +384,5 @@ async def test_always_on_unit_holds_events_until_open() -> None:
     assert ao.intercept(PARTIAL) is True           # held while opening
     await asyncio.sleep(0.05)
     assert [e["type"] for e in host.delivered] == ["turn.final", "transcript.partial"]
-    assert ao.begin(9.0) == 4.0 and ao.begin(9.0) == 9.0
+    assert offsets == [4.0] and ao.begin(9.0) == 9.0
     await ao.stop()
